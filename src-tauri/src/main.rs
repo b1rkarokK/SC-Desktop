@@ -122,7 +122,12 @@ fn main() {
         .build(tauri::generate_context!());
 
     match app {
-        Ok(app) => app.run(|_, _| {}),
+        // the main window is destroyed in tray mode: keep running until "Выход" (app.exit)
+        Ok(app) => app.run(|_, event| {
+            if let tauri::RunEvent::ExitRequested { api, code: None, .. } = event {
+                api.prevent_exit();
+            }
+        }),
         Err(e) => {
             eprintln!("fatal: {e}");
             tracing::error!(error = %e, "fatal startup error");
