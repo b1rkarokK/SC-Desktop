@@ -726,7 +726,6 @@ select {
   gap: 10px;
   height: 44px;
   padding: 0 12px 0 0;
-  border-bottom: 1px solid var(--border);
   border-left: 2px solid transparent;
 }
 
@@ -829,7 +828,8 @@ select {
 }
 
 .track-list {
-  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
 }
 
 /* -------------------------------------------------------------- cards */
