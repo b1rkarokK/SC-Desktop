@@ -38,7 +38,8 @@ export class VirtualList<T> {
 
     this.el.addEventListener('scroll', () => this.schedule(), { passive: true });
     new ResizeObserver(() => this.schedule()).observe(this.el);
-    this.el.addEventListener('dblclick', (e) => {
+    // single click anywhere on a row plays it (title/artist/like buttons stop propagation)
+    this.el.addEventListener('click', (e) => {
       const i = this.indexOf(e.target);
       if (i !== null) this.onActivate?.(i);
     });
@@ -93,6 +94,8 @@ export class VirtualList<T> {
     while (this.pool.length < needed) {
       const row = this.renderer.create();
       row.style.position = 'absolute';
+      // without top the row keeps its static position *after* the spacer
+      row.style.top = '0';
       row.style.left = '0';
       row.style.right = '0';
       row.style.height = `${rh}px`;

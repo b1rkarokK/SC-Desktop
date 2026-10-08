@@ -72,8 +72,8 @@ async function boot(): Promise<void> {
 }
 
 document.addEventListener('keydown', (e) => {
-  const t = e.target as HTMLElement;
-  if (t.closest('input, textarea, select, [contenteditable], [role="slider"]')) return;
+  const t = e.target;
+  if (t instanceof Element && t.closest('input, textarea, select, [contenteditable], [role="slider"]')) return;
   if (e.code === 'Space') {
     e.preventDefault();
     void api.toggle();
@@ -89,7 +89,7 @@ window.addEventListener('mouseup', (e) => {
 
 // no native context menu: this is an app, not a web page
 document.addEventListener('contextmenu', (e) => {
-  if (!(e.target as HTMLElement).closest('input, textarea')) e.preventDefault();
+  if (!(e.target instanceof Element && e.target.closest('input, textarea'))) e.preventDefault();
 });
 
 boot().catch((e) => toast(`Ошибка запуска: ${errorMessage(e)}`, 'error', 15000));

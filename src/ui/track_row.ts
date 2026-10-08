@@ -16,10 +16,12 @@ export function trackRowRenderer(): RowRenderer<Track> {
       const row = document.createElement('div') as RowEl;
       row.className = 'row';
       row.innerHTML =
-        '<span class="row-idx"></span><img class="row-cover" alt="" decoding="async" loading="lazy">' +
+        '<span class="row-idx"><span class="row-num"></span></span><img class="row-cover" alt="" decoding="async" loading="lazy">' +
         '<div class="row-main"><button type="button" class="row-title link"></button><button type="button" class="row-artist link"></button></div>' +
         '<button type="button" class="btn-icon row-dislike"></button><button type="button" class="btn-icon row-like"></button><span class="row-dur"></span>';
       const q = <T extends HTMLElement>(s: string) => row.querySelector(s) as T;
+      q('.row-idx').append(icon(I.play));
+      row.title = 'Нажмите, чтобы включить';
       q('.row-like').append(icon(I.heart));
       q('.row-dislike').append(icon(I.dislike));
       const stop = (e: Event) => e.stopPropagation();
@@ -39,13 +41,12 @@ export function trackRowRenderer(): RowRenderer<Track> {
         stop(e);
         if (row.__track) openArtist(row.__track.user_id);
       });
-      for (const s of ['.row-like', '.row-dislike', '.row-title', '.row-artist']) q(s).addEventListener('dblclick', stop);
       return row;
     },
     update(el, track, index) {
       const row = el as RowEl;
       row.__track = track;
-      const idx = row.children[0] as HTMLElement;
+      const idx = row.querySelector('.row-num') as HTMLElement;
       const img = row.children[1] as HTMLImageElement;
       const title = row.querySelector('.row-title') as HTMLButtonElement;
       const artist = row.querySelector('.row-artist') as HTMLButtonElement;

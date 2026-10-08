@@ -37,8 +37,8 @@ export function emptyState(text: string): HTMLElement {
 }
 
 /**
- * Non-virtual track list (pages with ≤ a few hundred rows). Double click /
- * Enter plays the list from that row; re-renders on player/like changes.
+ * Non-virtual track list (pages with ≤ a few hundred rows). Click / Enter
+ * plays the list from that row; re-renders on player/like changes.
  */
 export function staticTrackList(tracks: Track[]): HTMLElement {
   const r = trackRowRenderer();
@@ -54,7 +54,7 @@ export function staticTrackList(tracks: Track[]): HTMLElement {
     return row;
   });
   const play = (i: number) => api.playTracks(tracks, i).catch((e) => toast(errorMessage(e), 'error'));
-  box.addEventListener('dblclick', (e) => {
+  box.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('[data-index]') as HTMLElement | null;
     if (row) void play(Number(row.dataset.index));
   });
