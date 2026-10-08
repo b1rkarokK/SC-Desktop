@@ -1857,6 +1857,66 @@ select {
   flex: 1;
 }
 
+/* -------------------------------------------------------- context menu */
+
+.ctx {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px;
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ctx-item .icon {
+  color: var(--muted);
+}
+
+.ctx-item.is-on .icon {
+  color: var(--text);
+  fill: currentColor;
+}
+
+.ctx-item:hover:not(:disabled),
+.ctx-item:focus-visible {
+  outline: none;
+  background: var(--hover);
+}
+
+.ctx-item:hover:not(:disabled) .icon {
+  color: var(--text);
+}
+
+.ctx-item:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.ctx-noicon {
+  width: 16px;
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
 /* -------------------------------------------------------- update dialog */
 
 .upd-backdrop {

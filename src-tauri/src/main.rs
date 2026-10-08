@@ -86,6 +86,7 @@ fn main() {
             commands::playlist_page,
             commands::player_play_likes,
             commands::player_play_tracks,
+            commands::player_enqueue,
             commands::player_toggle,
             commands::player_next,
             commands::player_prev,

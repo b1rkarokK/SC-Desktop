@@ -5,6 +5,7 @@ import { clock } from './clock';
 import { h, isVisible, onVisibilityChange, toast } from './dom';
 import type { EqPopover } from './eq_popover';
 import { iconButton, I, setIcon } from './icons';
+import { trackMenu } from './menus';
 import { onPrefs, prefs, updatePrefs } from './prefs';
 import { openArtist, openTrack } from './router';
 import { Slider } from './slider';
@@ -86,6 +87,11 @@ export class PlayerBar {
       ),
       h('div', { class: 'pb-right' }, this.eqBtn, this.muteBtn, h('div', { class: 'pb-volume' }, this.volume.el), this.fsBtn, this.lyricsBtn),
     );
+
+    host.querySelector('.pb-now')!.addEventListener('contextmenu', (e) => {
+      const t = cur();
+      if (t) trackMenu(e as MouseEvent, t, () => void api.toggle());
+    });
 
     store.on('player', () => this.render());
     store.on('likes', () => this.renderFlags());
