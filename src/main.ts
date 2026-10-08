@@ -11,6 +11,7 @@ import { PlayerBar } from './ui/player_bar';
 import { loadPrefs } from './ui/prefs';
 import { router } from './ui/router';
 import { store } from './ui/store';
+import { TitleBar } from './ui/titlebar';
 import { updates } from './ui/update_dialog';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -19,6 +20,7 @@ async function boot(): Promise<void> {
   const cfg = await api.configGet();
   loadPrefs(cfg.ui);
 
+  new TitleBar($('titlebar'));
   const fullscreen = new Fullscreen();
   document.body.append(fullscreen.el);
   const eq = new EqPopover();

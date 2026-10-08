@@ -1,8 +1,8 @@
 // Left navigation (collapsible to an icon rail) + center outlet driven by the router.
 import { coverUrl } from './api';
 import { h } from './dom';
-import { icon, iconButton, I, scLogo, setIcon } from './icons';
-import { onPrefs, prefs, updatePrefs } from './prefs';
+import { icon, I } from './icons';
+import { onPrefs, prefs } from './prefs';
 import { router, type Route, type Section } from './router';
 import { store } from './store';
 import type { View } from './views/common';
@@ -28,14 +28,9 @@ export class MainWindow {
   private search = new SearchView();
   private settings = new SettingsView();
   private tabs = new Map<Section, HTMLButtonElement>();
-  private collapseBtn: HTMLButtonElement;
   private user = h('div', { class: 'nav-user' });
 
   constructor(nav: HTMLElement, private center: HTMLElement) {
-    this.collapseBtn = iconButton(I.navCollapse, 'Свернуть панель');
-    this.collapseBtn.addEventListener('click', () => updatePrefs((p) => (p.navCollapsed = !p.navCollapsed)));
-
-    const brand = h('div', { class: 'nav-brand' }, scLogo(28), h('span', { class: 'nav-brand-text', text: 'SC Desk' }), this.collapseBtn);
     const list = h('div', { class: 'nav-list', role: 'tablist' });
     for (const [id, label, ic] of NAV) {
       const b = h('button', { type: 'button', class: 'nav-item', role: 'tab', title: label }, icon(ic), h('span', { class: 'nav-label', text: label }));
@@ -43,7 +38,7 @@ export class MainWindow {
       this.tabs.set(id, b);
       list.append(b);
     }
-    nav.append(brand, list, this.user);
+    nav.append(list, this.user);
 
     store.on('auth', () => this.renderUser());
     this.renderUser();
@@ -60,8 +55,6 @@ export class MainWindow {
   private applyCollapsed(): void {
     const collapsed = prefs().navCollapsed || window.innerWidth < AUTO_COLLAPSE_PX;
     document.getElementById('app')?.classList.toggle('nav-collapsed', collapsed);
-    setIcon(this.collapseBtn, collapsed ? I.navExpand : I.navCollapse);
-    this.collapseBtn.title = collapsed ? 'Развернуть панель' : 'Свернуть панель';
   }
 
   private renderUser(): void {

@@ -167,13 +167,6 @@ export class SettingsView implements View {
   private renderDiscord(): void {
     const d: DiscordConfig = { ...this.cfg!.discord };
     const save = () => api.discordSet(d).catch((e) => toast(errorMessage(e), 'error'));
-    const appId = h('input', { class: 'input', placeholder: 'Application ID', value: d.app_id, inputmode: 'numeric' });
-    appId.addEventListener('change', () => {
-      d.app_id = appId.value.trim();
-      void save();
-    });
-    const portal = h('button', { type: 'button', class: 'link', text: 'discord.com/developers' });
-    portal.addEventListener('click', () => void api.openExternal('https://discord.com/developers/applications'));
     this.discordBox.replaceChildren(
       group(
         'Статус в Discord',
@@ -181,13 +174,7 @@ export class SettingsView implements View {
         row('Полоса прогресса', toggle(d.progress, (v) => ((d.progress = v), void save())), 'тип «Слушает» с таймером трека'),
         row('Кнопка «Слушать на SoundCloud»', toggle(d.button, (v) => ((d.button = v), void save()))),
         row('На паузе — скрывать статус', toggle(d.hide_on_pause, (v) => ((d.hide_on_pause = v), void save())), 'иначе «на паузе» без таймера'),
-        h(
-          'details',
-          { class: 'details' },
-          h('summary', { text: d.app_id ? 'Дополнительно' : 'Дополнительно — нужен Application ID' }),
-          h('p', { class: 'muted small' }, 'Один раз: ', portal, ' → New Application → имя «SC Desk» (оно и будет в статусе) → скопируйте Application ID сюда.'),
-          appId,
-        ),
+        h('p', { class: 'muted small', text: 'Нужен только запущенный Discord на этом компьютере.' }),
       ),
     );
   }
@@ -217,7 +204,6 @@ export class SettingsView implements View {
     const cfg = this.cfg!;
     let mode: NetMode = cfg.net_mode;
     const proxy = h('input', { class: 'input', placeholder: 'socks5h://127.0.0.1:10808', value: cfg.proxy ?? '', spellcheck: 'false' });
-    const chrome = h('input', { class: 'input short', type: 'number', value: String(cfg.chrome_version) });
     const result = h('span', { class: 'muted small' });
     const radios = h('div', { class: 'radio-list', role: 'radiogroup' });
     const opts: [NetMode, string, string][] = [
@@ -249,7 +235,7 @@ export class SettingsView implements View {
     const apply = btn('Применить', null, true);
     apply.addEventListener('click', async () => {
       try {
-        this.cfg = await api.configSetNetwork(mode, proxy.value || null, Number(chrome.value) || 0);
+        this.cfg = await api.configSetNetwork(mode, proxy.value || null, cfg.chrome_version);
         toast('Сетевые настройки применены');
       } catch (e) {
         toast(errorMessage(e), 'error');
@@ -266,7 +252,6 @@ export class SettingsView implements View {
           radios,
           h('div', { class: 'row-actions' }, proxy, check),
           result,
-          row('Версия Chrome (User-Agent)', chrome),
           h('div', { class: 'row-actions' }, apply),
         ),
         faq('Как пользоваться прокси', [
