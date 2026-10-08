@@ -70,6 +70,8 @@ pub struct AppConfig {
     pub eq: EqConfig,
     pub discord: DiscordConfig,
     pub start_minimized: bool,
+    /// «Моя волна» without liked tracks and their re-uploads
+    pub wave_no_liked: bool,
     /// Frontend-owned preferences (theme, panels, fullscreen view…), stored verbatim.
     pub ui: serde_json::Value,
 }
@@ -84,7 +86,8 @@ impl Default for AppConfig {
             eq: EqConfig::default(),
             discord: DiscordConfig::default(),
             start_minimized: true,
-            ui: serde_json::Value::Object(Default::default()),
+            wave_no_liked: true,
+            ui:serde_json::Value::Object(Default::default()),
         }
     }
 }

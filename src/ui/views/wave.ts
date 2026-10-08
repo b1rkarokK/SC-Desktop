@@ -29,6 +29,18 @@ export class WaveView implements View {
   private bansNote = h('div', { class: 'muted small' });
   private info: WaveInfo | null = null;
   private lastTrack: number | null = null;
+  private noLikedBtn = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
+  private noLikedRow = h(
+    'div',
+    { class: 'set-row wave-option' },
+    h(
+      'div',
+      { class: 'set-label' },
+      h('div', { text: 'Без лайкнутых' }),
+      h('div', { class: 'muted small', text: 'не предлагать то, что уже в лайках, и их копии с другим названием (другие версии — speed up, slowed, hardtekk — остаются)' }),
+    ),
+    this.noLikedBtn,
+  );
 
   constructor() {
     this.startBtn.addEventListener('click', () => void this.start());
@@ -40,6 +52,16 @@ export class WaveView implements View {
     this.title.addEventListener('click', () => {
       const t = store.snapshot?.track;
       if (t) openTrack(t.id);
+    });
+    this.noLikedBtn.addEventListener('click', async () => {
+      const on = !(this.info?.no_liked ?? true);
+      this.renderNoLiked(on);
+      try {
+        await api.waveSetNoLiked(on);
+        await this.refresh();
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
     });
     const reset = h('button', { type: 'button', class: 'btn btn-quiet', text: 'Сбросить всё' });
     reset.addEventListener('click', () => void this.resetBans());
@@ -60,6 +82,7 @@ export class WaveView implements View {
         ),
         sectionTitle('Настроение волны'),
         this.moods,
+        this.noLikedRow,
         sectionTitle('Далее в волне'),
         this.next,
         sectionTitle('Исключены', reset),
@@ -88,6 +111,7 @@ export class WaveView implements View {
       this.info = await api.waveInfo(store.currentId());
       this.renderNow();
       this.renderMoods();
+      this.renderNoLiked(this.info.no_liked);
       this.renderBans();
       await this.renderNext();
     } catch (e) {
@@ -134,6 +158,12 @@ export class WaveView implements View {
         return b;
       }),
     );
+  }
+
+  private renderNoLiked(on: boolean): void {
+    if (this.info) this.info.no_liked = on;
+    this.noLikedBtn.classList.toggle('is-on', on);
+    this.noLikedBtn.setAttribute('aria-checked', String(on));
   }
 
   private async renderNext(): Promise<void> {

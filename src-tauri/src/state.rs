@@ -63,12 +63,14 @@ impl AppState {
             None
         });
 
+        let wave = WaveState::default();
+        wave.set_no_liked(config.get().wave_no_liked);
         tracing::info!(data = %data_dir.display(), has_credentials = creds.is_some(), "state initialised");
         Ok(Self {
             db,
             covers,
             config,
-            wave: WaveState::default(),
+            wave,
             lyrics: LyricsState::default(),
             likes_syncing: AtomicBool::new(false),
             http: RwLock::new(Arc::new(http)),

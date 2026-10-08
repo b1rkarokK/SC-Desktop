@@ -18,20 +18,23 @@
   --ok: #4caf7a;
   --err: #e5735a;
   --radius: 4px;
-  --nav-w: 200px;
+  --nav-w: 56px;
+  --nav-open-w: 200px;
   --ly-w: 320px;
   color-scheme: dark;
 }
 
+/* OLED: everything pure black, contrast comes from bright text and thin
+   borders — the orange accent sits directly on black. */
 [data-theme='oled'] {
   --bg: #000000;
-  --panel: #0a0a0a;
-  --text: #e0e0e0;
-  --muted: #7a7a7a;
-  --faint: #3d3d3d;
-  --border: #1c1c1c;
-  --hover: #141414;
-  --tint: rgba(224, 224, 224, 0.07);
+  --panel: #000000;
+  --text: #f2f2f2;
+  --muted: #a6a6a6;
+  --faint: #5c5c5c;
+  --border: #222222;
+  --hover: #121212;
+  --tint: rgba(255, 255, 255, 0.09);
   --on-accent: #000000;
   --strong: #ffffff;
   color-scheme: dark;
@@ -154,31 +157,14 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: var(--nav-w);
-  padding: 0 4px 0 14px;
-  border-right: 1px solid var(--border);
+  padding: 0 14px 0 16px;
   flex: none;
 }
 
 .tb-name {
-  flex: 1;
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
-}
-
-.nav-collapsed .tb-brand {
-  gap: 0;
-  padding: 0 2px;
-  justify-content: center;
-}
-
-.nav-collapsed .tb-name {
-  display: none;
-}
-
-.nav-collapsed .tb-brand .sc-logo {
-  display: none;
 }
 
 .tb-drag {
@@ -215,10 +201,6 @@ select {
   height: 14px;
 }
 
-#app.nav-collapsed {
-  --nav-w: 56px;
-}
-
 #app.lyrics-closed {
   --ly-w: 0px;
 }
@@ -227,13 +209,41 @@ select {
   display: none;
 }
 
+/* icon rail; .nav-panel slides out over the content on hover */
 #nav {
   grid-area: nav;
+  position: relative;
+  z-index: 25;
+  min-height: 0;
+}
+
+.nav-panel {
+  position: absolute;
+  inset: 0 auto 0 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  width: var(--nav-w);
+  overflow: hidden;
   background: var(--panel);
   border-right: 1px solid var(--border);
+  transition: width 0.18s ease;
+}
+
+#nav:hover .nav-panel,
+#nav:has(:focus-visible) .nav-panel {
+  width: var(--nav-open-w);
+  transition-delay: 0.12s;
+}
+
+.nav-label {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+#nav:hover .nav-label,
+#nav:has(:focus-visible) .nav-label {
+  opacity: 1;
+  transition-delay: 0.16s;
 }
 
 #center {
@@ -280,8 +290,8 @@ select {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 36px;
+  gap: 14px;
+  height: 40px;
   padding: 0 18px;
   border: 0;
   border-left: 2px solid transparent;
@@ -326,20 +336,6 @@ select {
   background: var(--border);
   object-fit: cover;
   flex: none;
-}
-
-.nav-collapsed .nav-label {
-  display: none;
-}
-
-.nav-collapsed .nav-item {
-  justify-content: center;
-  padding: 0;
-}
-
-.nav-collapsed .nav-user {
-  justify-content: center;
-  padding: 12px 0;
 }
 
 /* ------------------------------------------------------------- views */
@@ -1855,6 +1851,24 @@ select {
 
 .dr-inline .slider {
   flex: 1;
+}
+
+/* ------------------------------------------------------------- history */
+
+.history-pls .grid-cards {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.center-row {
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.wave-option {
+  margin-top: 12px;
+  max-width: 640px;
 }
 
 /* -------------------------------------------------------- context menu */

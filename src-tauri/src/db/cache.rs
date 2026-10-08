@@ -82,6 +82,13 @@ CREATE TABLE IF NOT EXISTS plays (
 );
 CREATE INDEX IF NOT EXISTS plays_at ON plays(at);
 
+CREATE TABLE IF NOT EXISTS playlist_plays (
+    playlist_id INTEGER PRIMARY KEY,
+    json        TEXT    NOT NULL,
+    at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS playlist_plays_at ON playlist_plays(at);
+
 CREATE TABLE IF NOT EXISTS stream_log (at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS stream_log_at ON stream_log(at);
 
@@ -427,6 +434,54 @@ impl Db {
             // keep history bounded
             c.execute("DELETE FROM plays WHERE id <= (SELECT MAX(id) FROM plays) - 5000", [])?;
             Ok(())
+        })
+        .await
+    }
+
+    /// Listening history, newest first; a track repeated back-to-back counts once.
+    pub async fn history(&self, offset: u32, limit: u32) -> AppResult<Vec<(TrackDto, i64)>> {
+        let rows = self
+            .run(move |c| {
+                let mut st = c.prepare_cached(&format!(
+                    "SELECT {TRACK_COLS}, p.at FROM plays p JOIN tracks t ON t.id = p.track_id
+                     ORDER BY p.id DESC LIMIT ?1 OFFSET ?2"
+                ))?;
+                let rows = st.query_map(params![limit as i64, offset as i64], |r| Ok((row_to_dto(r)?, r.get::<_, i64>(8)?)))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .await?;
+        let mut out: Vec<(TrackDto, i64)> = Vec::with_capacity(rows.len());
+        for (t, at) in rows {
+            if out.last().is_some_and(|(prev, _)| prev.id == t.id) {
+                continue;
+            }
+            out.push((t, at));
+        }
+        Ok(out)
+    }
+
+    pub async fn history_clear(&self) -> AppResult<()> {
+        self.run(|c| c.execute_batch("DELETE FROM plays; DELETE FROM playlist_plays;")).await
+    }
+
+    /// Playlist/album was started: keep only its latest play.
+    pub async fn playlist_played(&self, playlist_id: u64, json: String) -> AppResult<()> {
+        self.run(move |c| {
+            c.execute(
+                "INSERT OR REPLACE INTO playlist_plays (playlist_id, json, at) VALUES (?1, ?2, ?3)",
+                params![playlist_id as i64, json, now()],
+            )?;
+            c.execute("DELETE FROM playlist_plays WHERE playlist_id NOT IN (SELECT playlist_id FROM playlist_plays ORDER BY at DESC LIMIT 300)", [])?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn playlist_history(&self, limit: u32) -> AppResult<Vec<(String, i64)>> {
+        self.run(move |c| {
+            let mut st = c.prepare_cached("SELECT json, at FROM playlist_plays ORDER BY at DESC LIMIT ?1")?;
+            let rows = st.query_map([limit as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            rows.collect()
         })
         .await
     }

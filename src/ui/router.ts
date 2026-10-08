@@ -6,15 +6,16 @@ export type LibTab = 'tracks' | 'playlists' | 'albums' | 'artists';
 export type Route =
   | { name: 'likes'; tab?: LibTab }
   | { name: 'wave' }
+  | { name: 'history' }
   | { name: 'search' }
   | { name: 'settings' }
   | { name: 'track'; id: number }
   | { name: 'artist'; id: number }
   | { name: 'playlist'; id: number };
 
-export type Section = 'likes' | 'wave' | 'search' | 'settings';
+export type Section = 'likes' | 'wave' | 'history' | 'search' | 'settings';
 
-const TOP: ReadonlySet<string> = new Set(['likes', 'wave', 'search', 'settings']);
+const TOP: ReadonlySet<string> = new Set(['likes', 'wave', 'history', 'search', 'settings']);
 
 class Router {
   private stack: Route[] = [{ name: 'likes' }];

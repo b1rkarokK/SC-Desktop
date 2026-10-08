@@ -4,6 +4,7 @@ mod api;
 mod commands;
 mod config;
 mod db;
+mod dedupe;
 mod discord;
 mod error;
 mod hotkeys;
@@ -76,6 +77,10 @@ fn main() {
             commands::library_artists,
             commands::library_counts,
             commands::follow_set,
+            commands::history_page,
+            commands::history_clear,
+            commands::history_playlist_add,
+            commands::history_playlists,
             commands::search_tracks,
             commands::search_all,
             commands::search_users,
@@ -101,6 +106,7 @@ fn main() {
             commands::wave_start_from,
             commands::wave_set_mood,
             commands::wave_info,
+            commands::wave_set_no_liked,
             commands::dislike_set,
             commands::disliked_ids,
             commands::wave_dislike_artist,

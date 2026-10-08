@@ -324,6 +324,15 @@ impl SoundCloud {
         Ok(items.into_iter().filter_map(|i| i.playlist).collect())
     }
 
+    /// Playlists and albums the user created (with OAuth also the private ones).
+    pub async fn own_playlists(&self, user_id: u64) -> AppResult<Vec<ScPlaylist>> {
+        let url = self.api_url(
+            &format!("/users/{user_id}/playlists"),
+            &[("limit", PAGE_SIZE.to_string()), ("linked_partitioning", "1".into())],
+        )?;
+        self.paged(url, 20).await
+    }
+
     /// Artists the user follows.
     pub async fn followings(&self, user_id: u64) -> AppResult<Vec<ScUser>> {
         let url = self.api_url(

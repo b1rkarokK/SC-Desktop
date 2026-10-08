@@ -63,6 +63,7 @@ export function playlistMenu(e: MouseEvent, p: Playlist): void {
       if (!page.tracks.length) return;
       await api.setShuffle(shuffle);
       await api.playTracks(page.tracks, shuffle ? Math.floor(Math.random() * page.tracks.length) : 0);
+      void api.historyPlaylistAdd(p);
     } catch (err) {
       fail(err);
     }
