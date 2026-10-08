@@ -132,11 +132,87 @@ select {
 #app {
   display: grid;
   grid-template-columns: var(--nav-w) minmax(0, 1fr) var(--ly-w);
-  grid-template-rows: minmax(0, 1fr) 64px;
+  grid-template-rows: 36px minmax(0, 1fr) 64px;
   grid-template-areas:
+    'title title title'
     'nav center lyrics'
     'player player player';
   height: 100vh;
+}
+
+/* ------------------------------------------- own title bar (frameless) */
+
+#titlebar {
+  grid-area: title;
+  display: flex;
+  align-items: stretch;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.tb-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: var(--nav-w);
+  padding: 0 4px 0 14px;
+  border-right: 1px solid var(--border);
+  flex: none;
+}
+
+.tb-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nav-collapsed .tb-brand {
+  gap: 0;
+  padding: 0 2px;
+  justify-content: center;
+}
+
+.nav-collapsed .tb-name {
+  display: none;
+}
+
+.nav-collapsed .tb-brand .sc-logo {
+  display: none;
+}
+
+.tb-drag {
+  flex: 1;
+}
+
+.tb-controls {
+  display: flex;
+}
+
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: default;
+}
+
+.tb-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tb-close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.tb-btn .icon {
+  width: 14px;
+  height: 14px;
 }
 
 #app.nav-collapsed {
@@ -190,29 +266,15 @@ select {
 
 /* ---------------------------------------------------------------- nav */
 
-.nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 52px;
-  padding: 0 8px 0 12px;
-}
-
 .sc-logo {
   fill: var(--accent);
   flex: none;
 }
 
-.nav-brand-text {
-  font-size: 14px;
-  font-weight: 600;
-  flex: 1;
-  white-space: nowrap;
-}
-
 .nav-list {
   display: flex;
   flex-direction: column;
+  padding-top: 8px;
 }
 
 .nav-item {
@@ -266,15 +328,6 @@ select {
   flex: none;
 }
 
-.nav-collapsed .nav-brand {
-  flex-direction: column;
-  justify-content: center;
-  height: auto;
-  gap: 8px;
-  padding: 14px 0 6px;
-}
-
-.nav-collapsed .nav-brand-text,
 .nav-collapsed .nav-label {
   display: none;
 }
