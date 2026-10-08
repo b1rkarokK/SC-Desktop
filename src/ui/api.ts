@@ -214,6 +214,7 @@ export const api = {
 
   playLikes: (index: number) => invoke<void>('player_play_likes', { index }),
   playTracks: (tracks: Track[], index: number) => invoke<void>('player_play_tracks', { tracks, index }),
+  enqueue: (track: Track, next: boolean) => invoke<void>('player_enqueue', { track, next }),
   toggle: () => invoke<void>('player_toggle'),
   next: () => invoke<void>('player_next'),
   prev: () => invoke<void>('player_prev'),

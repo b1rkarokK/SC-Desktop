@@ -4,6 +4,7 @@ import { clock } from './clock';
 import { h, isVisible, onVisibilityChange, toast } from './dom';
 import { iconButton, I, setIcon } from './icons';
 import { LyricsView } from './lyrics_view';
+import { lyricsMenu, trackMenu } from './menus';
 import { lyricsData, SOURCE_NAMES, type LyricsState } from './lyrics_data';
 import { onPrefs, prefs, updatePrefs, type FsBackground, type FsLayout, type Highlight } from './prefs';
 import { openArtist, openTrack } from './router';
@@ -83,6 +84,11 @@ export class Fullscreen {
       this.drawer,
     );
     this.el.hidden = true;
+    this.el.querySelector('.fs-art')!.addEventListener('contextmenu', (e) => {
+      const tr = t();
+      if (tr) trackMenu(e as MouseEvent, tr, () => void api.toggle());
+    });
+    this.view.el.addEventListener('contextmenu', (e) => this.lyricsContext(e));
 
     lyricsData.on((s) => this.renderLyrics(s));
     store.on('player', () => this.renderTrack());
@@ -191,6 +197,12 @@ export class Fullscreen {
     else if (s.kind === 'error') this.view.setMessage(s.message);
     else if (s.kind === 'ready') this.view.setMessage('Текст не найден.');
     else this.view.setMessage('');
+  }
+
+  private lyricsContext(e: MouseEvent): void {
+    const s = lyricsData.state;
+    const l = s.kind === 'ready' && s.lyrics.found ? s.lyrics : null;
+    lyricsMenu(e, l ? l.lines.map((x) => x.text).join('\n') : null, l?.url ?? null, () => lyricsData.reload());
   }
 
   /** Average cover colour, darkened so white text stays readable. */

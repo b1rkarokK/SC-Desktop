@@ -2,6 +2,7 @@
 // dislike + like (dislike only on hover or when set), duration.
 import { coverUrl, fmtTime, type Track } from './api';
 import { icon, I } from './icons';
+import { trackMenu } from './menus';
 import { openArtist, openTrack } from './router';
 import { store } from './store';
 import type { RowRenderer } from './virtual_list';
@@ -40,6 +41,10 @@ export function trackRowRenderer(): RowRenderer<Track> {
       q('.row-artist').addEventListener('click', (e) => {
         stop(e);
         if (row.__track) openArtist(row.__track.user_id);
+      });
+      // «Слушать» in the menu = same as clicking the row (plays its list from here)
+      row.addEventListener('contextmenu', (e) => {
+        if (row.__track) trackMenu(e, row.__track, () => row.click());
       });
       return row;
     },

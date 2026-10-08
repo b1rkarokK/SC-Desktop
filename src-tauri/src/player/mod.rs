@@ -264,6 +264,24 @@ impl Player {
         s.order.extend(new_idx);
     }
 
+    /// "Играть следующим" (next = true) / "В конец очереди". With an empty
+    /// queue the track simply starts playing.
+    pub fn enqueue(self: &Arc<Self>, track: TrackDto, next: bool) {
+        {
+            let mut s = self.lock();
+            if s.active && !s.queue.is_empty() {
+                let idx = s.queue.len();
+                s.queue.push(track);
+                let at = if next { (s.pos + 1).min(s.order.len()) } else { s.order.len() };
+                s.order.insert(at, idx);
+                drop(s);
+                self.emit();
+                return;
+            }
+        }
+        self.play_queue(vec![track], 0, QueueSource::List);
+    }
+
     // --------------------------------------------------------- controls
 
     pub fn toggle(self: &Arc<Self>) {

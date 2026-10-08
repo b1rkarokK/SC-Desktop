@@ -2,6 +2,7 @@
 import { api, coverUrl, errorMessage, fmtCount, plural, type Playlist, type User } from './api';
 import { h, toast } from './dom';
 import { icon, I } from './icons';
+import { artistMenu, playlistMenu } from './menus';
 import { openArtist, openPlaylist } from './router';
 
 export function playlistGrid(items: Playlist[]): HTMLElement {
@@ -31,6 +32,7 @@ export function playlistGrid(items: Playlist[]): HTMLElement {
       h('div', { class: 'card-sub', dir: 'auto', text: sub }),
     );
     card.addEventListener('click', () => openPlaylist(p.id));
+    card.addEventListener('contextmenu', (e) => playlistMenu(e, p));
     card.addEventListener('keydown', (e) => e.key === 'Enter' && openPlaylist(p.id));
     grid.append(card);
   }
@@ -51,6 +53,7 @@ export function artistGrid(items: User[]): HTMLElement {
       h('div', { class: 'card-sub center', text: u.followers_count !== null ? `${fmtCount(u.followers_count)} подписчиков` : '' }),
     );
     card.addEventListener('click', () => openArtist(u.id));
+    card.addEventListener('contextmenu', (e) => artistMenu(e, u));
     card.addEventListener('keydown', (e) => e.key === 'Enter' && openArtist(u.id));
     grid.append(card);
   }
@@ -75,6 +78,7 @@ export function userChips(items: User[]): HTMLElement {
       ),
     );
     card.addEventListener('click', () => openArtist(u.id));
+    card.addEventListener('contextmenu', (e) => artistMenu(e, u));
     row.append(card);
   }
   return row;

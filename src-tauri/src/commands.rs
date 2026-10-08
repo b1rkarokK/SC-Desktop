@@ -335,6 +335,11 @@ pub fn player_play_tracks(player: State<'_, Arc<Player>>, tracks: Vec<TrackDto>,
 }
 
 #[tauri::command]
+pub fn player_enqueue(player: State<'_, Arc<Player>>, track: TrackDto, next: bool) {
+    player.enqueue(track, next);
+}
+
+#[tauri::command]
 pub fn player_toggle(player: State<'_, Arc<Player>>) {
     player.toggle();
 }

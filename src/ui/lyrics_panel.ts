@@ -4,6 +4,7 @@ import { h } from './dom';
 import { iconButton, I } from './icons';
 import { LyricsView } from './lyrics_view';
 import { lyricsData, SOURCE_NAMES, type LyricsState } from './lyrics_data';
+import { lyricsMenu } from './menus';
 import { onPrefs, prefs, updatePrefs } from './prefs';
 
 export class LyricsPanel {
@@ -25,6 +26,11 @@ export class LyricsPanel {
       this.view.el,
       this.footer,
     );
+    this.view.el.addEventListener('contextmenu', (e) => {
+      const s = lyricsData.state;
+      const l = s.kind === 'ready' && s.lyrics.found ? s.lyrics : null;
+      lyricsMenu(e, l ? l.lines.map((x) => x.text).join('\n') : null, l?.url ?? null, () => lyricsData.reload());
+    });
     lyricsData.on((s) => this.render(s));
     onPrefs(() => this.applyPrefs());
     this.applyPrefs();
