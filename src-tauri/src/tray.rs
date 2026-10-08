@@ -11,7 +11,7 @@ use crate::{models::TrackDto, player::Player};
 const TRAY_ID: &str = "main";
 const MAIN: &str = "main";
 
-pub fn build(app: &AppHandle) -> tauri::Result<()> {
+fn build_menu(app: &AppHandle, update: Option<&MenuItem<tauri::Wry>>) -> tauri::Result<Menu<tauri::Wry>> {
     let toggle = MenuItem::with_id(app, "toggle", "Пуск / Пауза", true, None::<&str>)?;
     let prev = MenuItem::with_id(app, "prev", "Предыдущий", true, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", "Следующий", true, None::<&str>)?;
@@ -20,7 +20,15 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep1, &show, &sep2, &quit])?;
+    if let Some(item) = update {
+        menu.insert(item, 0)?;
+        menu.insert(&PredefinedMenuItem::separator(app)?, 1)?;
+    }
+    Ok(menu)
+}
 
+pub fn build(app: &AppHandle) -> tauri::Result<()> {
+    let menu = build_menu(app, None)?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .tooltip("SC Desk")
@@ -31,7 +39,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 ("toggle", Some(p)) => p.toggle(),
                 ("prev", Some(p)) => p.prev(),
                 ("next", Some(p)) => p.next(),
-                ("show", _) => show_main(app),
+                ("show" | "update", _) => show_main(app),
                 ("quit", _) => app.exit(0),
                 _ => {}
             }
@@ -46,6 +54,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     }
     builder.build(app)?;
     Ok(())
+}
+
+/// Tray menu/tooltip hint "Доступно обновление X" (clicking it opens the window,
+/// which shows the update dialog).
+pub fn set_update_hint(app: &AppHandle, version: Option<&str>) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
+    if let Some(v) = version {
+        if let Ok(item) = MenuItem::with_id(app, "update", format!("Доступно обновление {v}"), true, None::<&str>) {
+            if let Ok(menu) = build_menu(app, Some(&item)) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        }
+    }
 }
 
 pub fn set_now_playing(app: &AppHandle, track: Option<&TrackDto>, playing: bool) {

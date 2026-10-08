@@ -1,5 +1,5 @@
 // Karaoke renderer shared by the side panel and the fullscreen view.
-// rAF loop runs only while: lyrics are synced, the view is visible and music plays.
+// The 12 Hz loop runs only while: lyrics are synced, the view is visible and music plays.
 import { api, type LyricLine, type Lyrics, type Word } from './api';
 import { clock } from './clock';
 import { h, isVisible, onVisibilityChange } from './dom';
@@ -14,6 +14,7 @@ interface RenderedLine {
 }
 
 const USER_SCROLL_PAUSE_MS = 4000;
+const TICK_MS = 80;
 
 export class LyricsView {
   readonly el: HTMLDivElement;
@@ -107,16 +108,17 @@ export class LyricsView {
     if (!clock.playing) this.stop();
   }
 
+  /** ~12 updates/s: enough for word highlighting, far cheaper than 60 fps rAF. */
   private loop = (): void => {
-    this.frame = requestAnimationFrame(() => {
+    this.frame = window.setTimeout(() => {
       this.frame = 0;
       this.tick();
       if (clock.playing && this.shown && isVisible()) this.loop();
-    });
+    }, TICK_MS);
   };
 
   private stop(): void {
-    if (this.frame) cancelAnimationFrame(this.frame);
+    if (this.frame) window.clearTimeout(this.frame);
     this.frame = 0;
   }
 

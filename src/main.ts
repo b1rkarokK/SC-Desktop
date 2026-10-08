@@ -49,7 +49,7 @@ async function boot(): Promise<void> {
     }),
   ]);
 
-  updates.startAutoCheck();
+  void updates.listen();
   const [auth, snap] = await Promise.all([api.authStatus(), api.snapshot()]);
   store.setAuth(auth);
   store.setSnapshot(snap);

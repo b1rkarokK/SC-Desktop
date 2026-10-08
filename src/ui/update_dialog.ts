@@ -12,13 +12,10 @@ interface UpdateInfo {
   notes: string | null;
 }
 
-const FIRST_CHECK_MS = 8_000;
-const RECHECK_MS = 6 * 3600 * 1000;
-
 export class UpdateDialog {
   private backdrop: HTMLDivElement;
   private box: HTMLDivElement;
-  private dismissed: string | null = null;
+  private shownVersion: string | null = null;
   private busy = false;
 
   constructor() {
@@ -31,34 +28,36 @@ export class UpdateDialog {
     });
   }
 
-  /** Background checks: once shortly after start, then every 6 h. */
-  startAutoCheck(): void {
-    const tick = async () => {
-      await this.check(false);
-      window.setTimeout(tick, RECHECK_MS);
-    };
-    window.setTimeout(tick, FIRST_CHECK_MS);
+  /**
+   * The Rust core checks on start and hourly (also in the tray). The window
+   * shows a waiting update right away and any update found while it's open.
+   */
+  async listen(): Promise<void> {
+    await listen<UpdateInfo>('update:available', (e) => this.show(e.payload));
+    const pending = await invoke<UpdateInfo | null>('update_pending').catch(() => null);
+    if (pending) this.show(pending);
   }
 
-  /** `manual`: from Settings — also reports "no updates" and errors. */
-  async check(manual: boolean): Promise<'none' | 'shown' | 'error'> {
+  /** Manual check from Settings — reports errors to the caller. */
+  async check(): Promise<'none' | 'shown'> {
     try {
       const info = await invoke<UpdateInfo | null>('update_check');
       if (!info) return 'none';
-      if (!manual && this.dismissed === info.version) return 'none';
+      this.shownVersion = null;
       this.show(info);
       return 'shown';
     } catch (e) {
-      if (manual) throw new Error(errorMessage(e));
-      return 'error';
+      throw new Error(errorMessage(e));
     }
   }
 
   private show(info: UpdateInfo): void {
+    if (this.busy || (this.shownVersion === info.version && !this.backdrop.hidden)) return;
+    this.shownVersion = info.version;
     const later = h('button', { type: 'button', class: 'btn', text: 'Позже' });
     const update = h('button', { type: 'button', class: 'btn btn-primary', text: 'Обновить' });
     later.addEventListener('click', () => {
-      this.dismissed = info.version;
+      void invoke('update_dismiss', { version: info.version });
       this.close();
     });
     update.addEventListener('click', () => void this.install(info));
