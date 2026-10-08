@@ -33,7 +33,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNBRTVFQTI3MzVFNUYzQjIKUldTeTgrVTFKK3JsT3UxTzZoRU91bW9oNytCdWQ0aUZYallTMDNERE5jNWtYOTFCcmFyQmllR0wK",
-      "endpoints": ["https://github.com/b1rkarokK/sc-desk/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/b1rkarokK/SC-Desktop/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
   },
