@@ -30,8 +30,13 @@ pub fn open(app: &AppHandle) -> AppResult<()> {
     let url = Url::parse("https://soundcloud.com/signin")?;
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
         .title("Вход в SoundCloud")
-        .inner_size(560.0, 760.0)
+        // SoundCloud's desktop layout needs ~860px, narrower windows scroll sideways
+        .inner_size(900.0, 780.0)
+        .min_inner_size(860.0, 600.0)
         .background_color(tauri::window::Color(18, 18, 18, 255))
+        // "Continue with Google / Facebook / Apple" opens an OAuth popup; allow it
+        // (only in this window) so window.opener keeps working.
+        .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Allow)
         .center()
         .build()?;
     let _ = window.set_focus();

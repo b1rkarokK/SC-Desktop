@@ -734,15 +734,38 @@ select {
   border-left: 2px solid transparent;
 }
 
+.row {
+  cursor: pointer;
+}
+
 .row:hover {
   background: var(--hover);
 }
 
 .row-idx {
+  display: flex;
+  justify-content: flex-end;
   color: var(--muted);
   font-size: 12px;
-  text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.row-idx .icon {
+  display: none;
+  color: var(--text);
+  fill: currentColor;
+}
+
+.row:hover .row-num {
+  display: none;
+}
+
+.row:hover .row-idx .icon {
+  display: block;
+}
+
+.row-placeholder .row-idx .icon {
+  display: none !important;
 }
 
 .row-cover {
