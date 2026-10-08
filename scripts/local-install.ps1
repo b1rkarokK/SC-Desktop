@@ -1,4 +1,4 @@
-# Build a release locally and install it over the current SC Desk (test before publishing).
+﻿# Build a release locally and install it over the current SC Desk (test before publishing).
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\local-install.ps1
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
