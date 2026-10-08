@@ -32,6 +32,12 @@ export interface Playlist {
   is_album: boolean;
   year: string | null;
   permalink_url: string | null;
+  own: boolean;
+}
+
+export interface HistoryItem {
+  track: Track;
+  played_at: number;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -153,6 +159,7 @@ export interface DislikedArtist {
 
 export interface WaveInfo {
   mood: Mood;
+  no_liked: boolean;
   reason: string | null;
   disliked_tracks: number;
   disliked_artists: DislikedArtist[];
@@ -201,6 +208,10 @@ export const api = {
   libraryArtists: (force: boolean) => invoke<User[]>('library_artists', { force }),
   libraryCounts: () => invoke<LibraryCounts>('library_counts'),
   followSet: (user: User, follow: boolean) => invoke<void>('follow_set', { user, follow }),
+  history: (offset: number, limit: number) => invoke<HistoryItem[]>('history_page', { offset, limit }),
+  historyClear: () => invoke<void>('history_clear'),
+  historyPlaylists: (limit: number) => invoke<{ playlist: Playlist; played_at: number }[]>('history_playlists', { limit }),
+  historyPlaylistAdd: (playlist: Playlist) => invoke<void>('history_playlist_add', { playlist }),
 
   searchTracks: (query: string, offset: number) => invoke<SearchPage>('search_tracks', { query, offset }),
   searchAll: (query: string) => invoke<SearchAll>('search_all', { query }),
@@ -231,6 +242,7 @@ export const api = {
     invoke<number>('wave_start_from', { trackId, artistId }),
   waveSetMood: (mood: Mood) => invoke<void>('wave_set_mood', { mood }),
   waveInfo: (trackId: number | null) => invoke<WaveInfo>('wave_info', { trackId }),
+  waveSetNoLiked: (enabled: boolean) => invoke<void>('wave_set_no_liked', { enabled }),
   dislikeSet: (trackId: number, disliked: boolean) => invoke<void>('dislike_set', { trackId, disliked }),
   dislikedIds: () => invoke<number[]>('disliked_ids'),
   waveDislikeArtist: (userId: number, name: string) => invoke<void>('wave_dislike_artist', { userId, name }),

@@ -489,12 +489,15 @@ impl Player {
                 tracks.extend(rel);
             }
         }
+        let liked: HashSet<u64> = if state.wave.no_liked() { state.db.likes_ids().await? } else { HashSet::new() };
         let mut seen = HashSet::new();
         tracks.retain(|t| {
+            let is_seed = Some(t.id) == track_id;
             seen.insert(t.id)
                 && t.is_fully_playable()
                 && !disliked_tracks.contains(&t.id)
-                && (Some(t.id) == track_id || !disliked_artists.contains(&t.artist_id()))
+                && (is_seed || !disliked_artists.contains(&t.artist_id()))
+                && (is_seed || !liked.contains(&t.id))
         });
         if tracks.is_empty() {
             return Err(AppError::Other("Не нашлось треков для волны".into()));

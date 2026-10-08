@@ -194,8 +194,19 @@ where
 pub async fn library_playlists(state: State<'_, AppState>, force: bool) -> Cmd<Vec<PlaylistDto>> {
     let me = state.current_user().await?;
     let sc = state.sc()?;
-    cached_list(&state, "lib:playlists", force, || async move {
-        Ok(sc.playlist_likes(me.id).await?.iter().map(PlaylistDto::from).collect())
+    cached_list(&state, "lib:playlists2", force, || async move {
+        // own playlists first (marked), then liked ones not already listed
+        let (own, liked) = futures::join!(sc.own_playlists(me.id), sc.playlist_likes(me.id));
+        let mut out: Vec<PlaylistDto> = own?
+            .iter()
+            .map(|p| PlaylistDto { own: true, ..PlaylistDto::from(p) })
+            .collect();
+        for p in liked?.iter().map(PlaylistDto::from) {
+            if !out.iter().any(|o| o.id == p.id) {
+                out.push(p);
+            }
+        }
+        Ok(out)
     })
     .await
 }
@@ -213,7 +224,7 @@ pub async fn library_artists(state: State<'_, AppState>, force: bool) -> Cmd<Vec
 #[tauri::command]
 pub async fn library_counts(state: State<'_, AppState>) -> Cmd<LibraryCounts> {
     let tracks = state.db.likes_count().await?;
-    let pls = state.db.kv_get::<Vec<PlaylistDto>>("lib:playlists").await?.map(|(v, _)| v).unwrap_or_default();
+    let pls = state.db.kv_get::<Vec<PlaylistDto>>("lib:playlists2").await?.map(|(v, _)| v).unwrap_or_default();
     let artists = state.db.kv_get::<Vec<UserDto>>("lib:artists").await?.map(|(v, _)| v.len() as u64).unwrap_or(0);
     let albums = pls.iter().filter(|p| p.is_album).count() as u64;
     Ok(LibraryCounts { tracks, playlists: pls.len() as u64 - albums, albums, artists })
@@ -229,6 +240,53 @@ pub async fn follow_set(state: State<'_, AppState>, user: UserDto, follow: bool)
         list.insert(0, user);
     }
     state.db.kv_put("lib:artists", &list).await
+}
+
+// --------------------------------------------------------------- history
+
+#[derive(serde::Serialize)]
+pub struct HistoryItem {
+    track: TrackDto,
+    /// unix seconds
+    played_at: i64,
+}
+
+#[tauri::command]
+pub async fn history_page(state: State<'_, AppState>, offset: u32, limit: u32) -> Cmd<Vec<HistoryItem>> {
+    Ok(state
+        .db
+        .history(offset, limit.min(500))
+        .await?
+        .into_iter()
+        .map(|(track, played_at)| HistoryItem { track, played_at })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn history_clear(state: State<'_, AppState>) -> Cmd<()> {
+    state.db.history_clear().await
+}
+
+#[derive(serde::Serialize)]
+pub struct PlaylistHistoryItem {
+    playlist: PlaylistDto,
+    played_at: i64,
+}
+
+#[tauri::command]
+pub async fn history_playlist_add(state: State<'_, AppState>, playlist: PlaylistDto) -> Cmd<()> {
+    state.db.playlist_played(playlist.id, serde_json::to_string(&playlist)?).await
+}
+
+#[tauri::command]
+pub async fn history_playlists(state: State<'_, AppState>, limit: u32) -> Cmd<Vec<PlaylistHistoryItem>> {
+    Ok(state
+        .db
+        .playlist_history(limit.min(300))
+        .await?
+        .into_iter()
+        .filter_map(|(json, played_at)| serde_json::from_str(&json).ok().map(|playlist| PlaylistHistoryItem { playlist, played_at }))
+        .collect())
 }
 
 // ---------------------------------------------------------------- search
@@ -424,9 +482,20 @@ pub async fn wave_set_mood(state: State<'_, AppState>, player: State<'_, Arc<Pla
 }
 
 #[tauri::command]
+pub async fn wave_set_no_liked(state: State<'_, AppState>, player: State<'_, Arc<Player>>, enabled: bool) -> Cmd<()> {
+    state.wave.set_no_liked(enabled);
+    state.config.update(|c| c.wave_no_liked = enabled)?;
+    if player.snapshot().source == QueueSource::Wave {
+        player.inner().restart_wave().await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn wave_info(state: State<'_, AppState>, track_id: Option<u64>) -> Cmd<WaveInfo> {
     Ok(WaveInfo {
         mood: state.wave.mood(),
+        no_liked: state.wave.no_liked(),
         reason: track_id.and_then(|id| state.wave.reason(id)),
         disliked_tracks: state.db.disliked_tracks_count().await?,
         disliked_artists: state.db.disliked_artists().await?,

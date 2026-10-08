@@ -26,6 +26,8 @@ use crate::error::{AppError, AppResult};
 
 const POLL_PLAYING: Duration = Duration::from_millis(250);
 const RELEASE_DEVICE_AFTER: Duration = Duration::from_secs(30);
+/// ticks are 250 ms apart → device check every 2 s while playing
+const DEVICE_CHECK_TICKS: u32 = 8;
 
 pub enum AudioCmd {
     Load { data: Arc<Vec<u8>>, generation: u64 },
@@ -112,12 +114,17 @@ struct Engine {
     events: UnboundedSender<AudioEvent>,
     position_ms: Arc<AtomicU64>,
     eq: Arc<EqShared>,
+    /// name of the device the open stream plays to
+    device: Option<String>,
+    ticks: u32,
 }
 
 impl Engine {
     fn new(events: UnboundedSender<AudioEvent>, position_ms: Arc<AtomicU64>, eq: Arc<EqShared>) -> Self {
         Self {
             eq,
+            device: None,
+            ticks: 0,
             stream: None,
             sink: None,
             current: None,
@@ -180,11 +187,20 @@ impl Engine {
                     self.start(None, false);
                 }
             }
-            AudioCmd::Play => match (&self.sink, self.suspended_at) {
-                (Some(s), _) => s.play(),
-                (None, Some(at)) => self.start(Some(at), false),
-                (None, None) => {}
-            },
+            AudioCmd::Play => {
+                // device changed while paused: reopen on the new one at the same spot
+                let paused_at = self.sink.as_ref().map(|s| s.get_pos());
+                match (paused_at, self.suspended_at) {
+                    (Some(at), _) if self.device_changed() => self.start(Some(at), false),
+                    (Some(_), _) => {
+                        if let Some(s) = &self.sink {
+                            s.play();
+                        }
+                    }
+                    (None, Some(at)) => self.start(Some(at), false),
+                    (None, None) => {}
+                }
+            }
             AudioCmd::Pause => {
                 if let Some(s) = &self.sink {
                     s.pause();
@@ -220,17 +236,36 @@ impl Engine {
 
     fn tick(&mut self) {
         let Some(sink) = &self.sink else { return };
-        self.position_ms.store(sink.get_pos().as_millis() as u64, Ordering::Relaxed);
+        let pos = sink.get_pos();
+        self.position_ms.store(pos.as_millis() as u64, Ordering::Relaxed);
         if sink.empty() {
             self.sink = None;
             let _ = self.events.send(AudioEvent::Ended { generation: self.generation });
+            return;
+        }
+        // while playing, look for a new default output device every ~2 s
+        // (headphones unplugged, switched to a wireless dongle, …)
+        self.ticks = self.ticks.wrapping_add(1);
+        if self.ticks % DEVICE_CHECK_TICKS == 0 && !sink.is_paused() && self.device_changed() {
+            tracing::info!(from = ?self.device, to = ?default_device_name(), "output device changed, switching");
+            self.stream = None;
+            self.start(Some(pos), false);
         }
     }
 
+    fn device_changed(&self) -> bool {
+        self.stream.is_some() && default_device_name() != self.device
+    }
+
     fn output(&mut self) -> Result<OutputStreamHandle, String> {
+        if self.device_changed() {
+            self.sink = None;
+            self.stream = None;
+        }
         if self.stream.is_none() {
             let pair = OutputStream::try_default().map_err(|e| e.to_string())?;
-            tracing::debug!("audio device opened");
+            self.device = default_device_name();
+            tracing::debug!(device = ?self.device, "audio device opened");
             self.stream = Some(pair);
         }
         Ok(self.stream.as_ref().map(|(_, h)| h.clone()).expect("stream just set"))
@@ -283,6 +318,11 @@ impl Engine {
         tracing::error!(%message, "playback error");
         let _ = self.events.send(AudioEvent::Error { generation: self.generation, message });
     }
+}
+
+fn default_device_name() -> Option<String> {
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+    rodio::cpal::default_host().default_output_device()?.name().ok()
 }
 
 /// Slider position → amplitude. Quadratic is close enough to perceived loudness.

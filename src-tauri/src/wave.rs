@@ -22,6 +22,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use crate::{
     api::soundcloud::{ScTrack, SoundCloud},
+    dedupe,
     error::{AppError, AppResult},
     models::TrackDto,
     state::AppState,
@@ -52,9 +53,19 @@ pub struct WaveState {
     mood: Mutex<String>,
     /// track id → "похоже на «A», «B»"
     reasons: Mutex<HashMap<u64, String>>,
+    /// «Без лайкнутых»: no liked tracks and no re-uploads of them
+    no_liked: std::sync::atomic::AtomicBool,
 }
 
 impl WaveState {
+    pub fn no_liked(&self) -> bool {
+        self.no_liked.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_no_liked(&self, on: bool) {
+        self.no_liked.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn mood(&self) -> String {
         let m = self.mood.lock().unwrap_or_else(|p| p.into_inner()).clone();
         if m.is_empty() {
@@ -319,7 +330,9 @@ pub async fn generate(state: &AppState, batch: usize, exclude: &HashSet<u64>) ->
         })
         .collect();
 
+    let no_liked = state.wave.no_liked();
     let familiar_share = match mood.as_str() {
+        _ if no_liked => 0.0,
         "fresh" => 0.0,
         "familiar" => 0.5,
         _ => 0.15,
@@ -327,16 +340,36 @@ pub async fn generate(state: &AppState, batch: usize, exclude: &HashSet<u64>) ->
     let familiar_n = ((batch as f64) * familiar_share).round() as usize;
     let fresh_n = batch.saturating_sub(familiar_n);
 
+    // re-uploads / typo'd copies of liked songs ("Showdoun shadowraze")
+    let liked_keys: Vec<dedupe::TitleKey> = if no_liked { liked.iter().map(dedupe::key).collect() } else { Vec::new() };
+    let scored: Vec<(f64, ScTrack)> = scored
+        .into_iter()
+        .filter(|(_, t)| {
+            if liked_keys.is_empty() {
+                return true;
+            }
+            let k = dedupe::key(t);
+            !liked_keys.iter().any(|l| dedupe::same_song(l, &k))
+        })
+        .collect();
+
     let mut per_artist: HashMap<u64, usize> = HashMap::new();
+    // no two copies of the same song inside one batch either
+    let mut chosen_keys: Vec<dedupe::TitleKey> = Vec::new();
     let mut take_capped = |ordered: Vec<ScTrack>, n: usize| -> Vec<ScTrack> {
         let mut out = Vec::with_capacity(n);
         for t in ordered {
             if out.len() >= n {
                 break;
             }
+            let k = dedupe::key(&t);
+            if chosen_keys.iter().any(|c| dedupe::same_song(c, &k)) {
+                continue;
+            }
             let c = per_artist.entry(t.artist_id()).or_default();
             if *c < MAX_PER_ARTIST {
                 *c += 1;
+                chosen_keys.push(k);
                 out.push(t);
             }
         }
@@ -350,8 +383,8 @@ pub async fn generate(state: &AppState, batch: usize, exclude: &HashSet<u64>) ->
         .filter(|(_, t)| !recent.contains(&t.id) && allowed(t))
         .map(|(i, t)| (recency_weight(i) * mood_factor(&mood, t), t.clone()))
         .collect();
-    // if discovery came up short, fill with more familiar tracks
-    let familiar_want = familiar_n + fresh_n.saturating_sub(fresh.len());
+    // if discovery came up short, fill with more familiar tracks (unless liked are off)
+    let familiar_want = if no_liked { 0 } else { familiar_n + fresh_n.saturating_sub(fresh.len()) };
     let familiar = take_capped(weighted_order(familiar_pool, &mut rng), familiar_want);
 
     // ---- reasons shown in the Wave view

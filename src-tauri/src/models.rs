@@ -70,6 +70,9 @@ pub struct PlaylistDto {
     pub is_album: bool,
     pub year: Option<String>,
     pub permalink_url: Option<String>,
+    /// created by the signed-in user
+    #[serde(default)]
+    pub own: bool,
 }
 
 impl From<&ScPlaylist> for PlaylistDto {
@@ -85,6 +88,7 @@ impl From<&ScPlaylist> for PlaylistDto {
             is_album: p.is_album(),
             year: p.release_date.as_deref().and_then(|d| d.get(..4)).map(str::to_owned),
             permalink_url: p.permalink_url.clone(),
+            own: false,
         }
     }
 }
@@ -162,6 +166,7 @@ pub struct DislikedArtist {
 #[derive(Debug, Clone, Serialize)]
 pub struct WaveInfo {
     pub mood: String,
+    pub no_liked: bool,
     pub reason: Option<String>,
     pub disliked_tracks: u64,
     pub disliked_artists: Vec<DislikedArtist>,

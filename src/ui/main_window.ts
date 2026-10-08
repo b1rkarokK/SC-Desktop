@@ -1,11 +1,13 @@
-// Left navigation (collapsible to an icon rail) + center outlet driven by the router.
+// Left navigation — a slim icon rail that smoothly slides out with labels on
+// hover (over the content, layout doesn't jump) — plus the center outlet
+// driven by the router.
 import { coverUrl } from './api';
 import { h } from './dom';
 import { icon, I } from './icons';
-import { onPrefs, prefs } from './prefs';
 import { router, type Route, type Section } from './router';
 import { store } from './store';
 import type { View } from './views/common';
+import { HistoryView } from './views/history';
 import { LibraryView } from './views/library';
 import { ArtistPageView, PlaylistPageView, TrackPageView } from './views/pages';
 import { SearchView } from './views/search';
@@ -15,16 +17,15 @@ import { WaveView } from './views/wave';
 const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
   ['likes', 'Лайки', I.heart],
   ['wave', 'Моя волна', I.wave],
+  ['history', 'История', I.history],
   ['search', 'Поиск', I.search],
   ['settings', 'Настройки', I.settings],
 ];
 
-/** Below this width the nav collapses automatically. */
-const AUTO_COLLAPSE_PX = 1000;
-
 export class MainWindow {
   readonly library = new LibraryView();
   private wave = new WaveView();
+  private history = new HistoryView();
   private search = new SearchView();
   private settings = new SettingsView();
   private tabs = new Map<Section, HTMLButtonElement>();
@@ -33,28 +34,23 @@ export class MainWindow {
   constructor(nav: HTMLElement, private center: HTMLElement) {
     const list = h('div', { class: 'nav-list', role: 'tablist' });
     for (const [id, label, ic] of NAV) {
-      const b = h('button', { type: 'button', class: 'nav-item', role: 'tab', title: label }, icon(ic), h('span', { class: 'nav-label', text: label }));
-      b.addEventListener('click', () => router.go({ name: id } as Route));
+      const b = h('button', { type: 'button', class: 'nav-item', role: 'tab' }, icon(ic), h('span', { class: 'nav-label', text: label }));
+      b.addEventListener('click', () => {
+        router.go({ name: id } as Route);
+        b.blur(); // otherwise focus keeps the rail expanded
+      });
       this.tabs.set(id, b);
       list.append(b);
     }
-    nav.append(list, this.user);
+    nav.append(h('div', { class: 'nav-panel' }, list, this.user));
 
     store.on('auth', () => this.renderUser());
     this.renderUser();
-    onPrefs(() => this.applyCollapsed());
-    window.addEventListener('resize', () => this.applyCollapsed());
-    this.applyCollapsed();
     router.on((r) => this.render(r));
   }
 
   start(route: Route): void {
     router.go(route);
-  }
-
-  private applyCollapsed(): void {
-    const collapsed = prefs().navCollapsed || window.innerWidth < AUTO_COLLAPSE_PX;
-    document.getElementById('app')?.classList.toggle('nav-collapsed', collapsed);
   }
 
   private renderUser(): void {
@@ -66,7 +62,6 @@ export class MainWindow {
       a.has_credentials ? img : icon(I.login),
       h('span', { class: 'nav-label', text: a.username ?? (a.has_credentials ? '' : 'Не выполнен вход') }),
     );
-    this.user.title = a.username ?? '';
   }
 
   private render(r: Route): void {
@@ -84,6 +79,9 @@ export class MainWindow {
         return;
       case 'wave':
         view = this.wave;
+        break;
+      case 'history':
+        view = this.history;
         break;
       case 'search':
         view = this.search;

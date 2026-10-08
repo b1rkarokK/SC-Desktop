@@ -185,12 +185,17 @@ export class PlaylistPageView implements View {
         const artist = h('button', { type: 'button', class: 'link hero-artist', dir: 'auto', text: p.artist });
         artist.addEventListener('click', () => openArtist(p.user_id));
         const total = tracks.reduce((n, t) => n + t.duration_ms, 0);
+        const remember = () => void api.historyPlaylistAdd(p);
         const playBtn = btn('Слушать', I.play, true);
-        playBtn.addEventListener('click', () => play(tracks));
+        playBtn.addEventListener('click', () => {
+          play(tracks);
+          remember();
+        });
         const shuffleBtn = iconButton(I.shuffle, 'Перемешать', 'btn btn-square');
         shuffleBtn.addEventListener('click', async () => {
           await api.setShuffle(true);
           play(tracks, Math.floor(Math.random() * tracks.length));
+          remember();
         });
         const ext = iconButton(I.external, 'Открыть на SoundCloud', 'btn btn-square');
         ext.addEventListener('click', () => p.permalink_url && void api.openExternal(p.permalink_url));
@@ -204,7 +209,7 @@ export class PlaylistPageView implements View {
             h('div', { class: 'muted small', text: sub }),
             h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, ext),
           ),
-          tracks.length ? staticTrackList(tracks) : emptyState('Плейлист пуст или недоступен.'),
+          tracks.length ? staticTrackList(tracks, remember) : emptyState('Плейлист пуст или недоступен.'),
         );
       },
       (e) => body.replaceChildren(emptyState(errorMessage(e))),

@@ -16,12 +16,15 @@ export function playlistGrid(items: Playlist[]): HTMLElement {
       e.stopPropagation();
       try {
         const page = await api.playlistPage(p.id);
-        if (page.tracks.length) await api.playTracks(page.tracks, 0);
+        if (page.tracks.length) {
+          await api.playTracks(page.tracks, 0);
+          void api.historyPlaylistAdd(p);
+        }
       } catch (err) {
         toast(errorMessage(err), 'error');
       }
     });
-    const sub = [p.artist, p.is_album && p.year ? p.year : null, `${p.track_count} ${plural(p.track_count, 'трек', 'трека', 'треков')}`]
+    const sub = [p.own ? 'Мой' : p.artist, p.is_album && p.year ? p.year : null, `${p.track_count} ${plural(p.track_count, 'трек', 'трека', 'треков')}`]
       .filter(Boolean)
       .join(' · ');
     const card = h(
