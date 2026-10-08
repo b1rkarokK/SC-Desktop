@@ -1,0 +1,62 @@
+[package]
+name = "sc-desk"
+version = "0.1.0"
+description = "Lightweight native SoundCloud desktop client"
+edition = "2021"
+rust-version = "1.80"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+discord-rich-presence = "0.2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+futures = "0.3"
+
+# rustls only: no OpenSSL / native-tls, no system proxy auto-detection (see net/client.rs)
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "charset",
+    "gzip",
+    "brotli",
+    "deflate",
+    "zstd",
+    "socks",
+] }
+url = "2"
+urlencoding = "2"
+
+rodio = { version = "0.20", default-features = false, features = [
+    "symphonia-mp3",
+    "symphonia-aac",
+    "symphonia-isomp4",
+] }
+
+rusqlite = { version = "0.32", features = ["bundled"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+scraper = "0.20"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

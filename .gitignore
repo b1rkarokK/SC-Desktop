@@ -1,0 +1,11 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+*.log
+# contains the personal Penpot MCP key
+.mcp.json
+# private working notes
+HANDOFF.md
+# signing keys must never be committed
+*.key
