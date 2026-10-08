@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SC Desk",
+  "version": "0.1.0",
+  "identifier": "dev.scdesk.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "SC Desk",
+        "width": 1200,
+        "height": 760,
+        "minWidth": 860,
+        "minHeight": 520,
+        "backgroundColor": "#1a1a1a",
+        "center": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: cover: http://cover.localhost https://cover.localhost; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNBRTVFQTI3MzVFNUYzQjIKUldTeTgrVTFKK3JsT3UxTzZoRU91bW9oNytCdWQ0aUZYallTMDNERE5jNWtYOTFCcmFyQmllR0wK",
+      "endpoints": ["https://github.com/b1rkarokK/sc-desk/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": { "installMode": "currentUser", "languages": ["Russian", "English"] }
+    },
+    "shortDescription": "SoundCloud без рекламы: лайки, волна, синхронные тексты",
+    "publisher": "SC Desk",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

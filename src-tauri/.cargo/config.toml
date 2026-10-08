@@ -1,0 +1,3 @@
+# Leave half the CPU free so the PC stays responsive while building.
+[build]
+jobs = 4
