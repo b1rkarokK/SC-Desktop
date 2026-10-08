@@ -30,7 +30,8 @@ pub fn open(app: &AppHandle) -> AppResult<()> {
     let url = Url::parse("https://soundcloud.com/signin")?;
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
         .title("Вход в SoundCloud")
-        .inner_size(480.0, 720.0)
+        .inner_size(560.0, 760.0)
+        .background_color(tauri::window::Color(18, 18, 18, 255))
         .center()
         .build()?;
     let _ = window.set_focus();

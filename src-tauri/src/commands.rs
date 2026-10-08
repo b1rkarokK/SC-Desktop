@@ -85,8 +85,10 @@ pub async fn auth_save(state: State<'_, AppState>, client_id: String, oauth_toke
 }
 
 /// Opens the soundcloud.com sign-in window; result arrives as `auth:changed`.
+/// Must be async: creating a webview window from a sync command deadlocks on
+/// Windows (the window stays white).
 #[tauri::command]
-pub fn auth_login(app: AppHandle) -> Cmd<()> {
+pub async fn auth_login(app: AppHandle) -> Cmd<()> {
     crate::login::open(&app)
 }
 
