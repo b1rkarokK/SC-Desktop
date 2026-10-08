@@ -2,7 +2,7 @@
 
 Лёгкий десктопный клиент SoundCloud для Windows — без рекламы, с синхронными текстами песен и статусом в Discord.
 
-**[Скачать последнюю версию →](https://github.com/b1rkarokK/sc-desk/releases/latest)** (файл `SC.Desk_x.y.z_x64-setup.exe`)
+**[Скачать последнюю версию →](https://github.com/b1rkarokK/SC-Desktop/releases/latest)** (файл `SC.Desk_x.y.z_x64-setup.exe`)
 
 После установки программа сама проверяет обновления и предлагает поставить новую версию прямо в окне.
 
