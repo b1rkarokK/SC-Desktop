@@ -45,6 +45,7 @@ fn main() {
             app.manage(player::Player::start(handle.clone())?);
             tray::build(&handle)?;
             hotkeys::register(&handle);
+            updater::start(&handle);
             // the window is created hidden (tauri.conf.json) to avoid a flash on autostart
             if !start_hidden {
                 tray::show_main(&handle);
@@ -116,6 +117,8 @@ fn main() {
             commands::system_get,
             commands::system_set,
             updater::update_check,
+            updater::update_pending,
+            updater::update_dismiss,
             updater::update_install,
             updater::app_version,
         ])

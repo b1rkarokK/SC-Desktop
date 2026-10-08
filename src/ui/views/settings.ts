@@ -276,7 +276,7 @@ export class SettingsView implements View {
     check.addEventListener('click', async () => {
       check.disabled = true;
       try {
-        const r = await updates.check(true);
+        const r = await updates.check();
         if (r === 'none') toast('У вас последняя версия');
       } catch (e) {
         toast(errorMessage(e), 'error');
