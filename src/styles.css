@@ -321,7 +321,6 @@ select {
   gap: 8px;
   margin-top: auto;
   padding: 12px 16px;
-  border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
