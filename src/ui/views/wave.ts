@@ -1,7 +1,7 @@
 // «Моя волна»: current track + why it's here, mood, up next, bans.
 import { api, coverUrl, errorMessage, type Mood, type WaveInfo } from '../api';
 import { h, toast } from '../dom';
-import { iconButton, I } from '../icons';
+import { icon, iconButton, I } from '../icons';
 import { openArtist, openTrack } from '../router';
 import { store } from '../store';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
@@ -17,6 +17,7 @@ const MOODS: [Mood, string][] = [
 export class WaveView implements View {
   el: HTMLElement;
   private cover = h('img', { class: 'wave-cover', alt: '' });
+  private coverBox = h('div', { class: 'wave-cover-box' }, this.cover, icon(I.wave, 28));
   private label = h('div', { class: 'muted small' });
   private title = h('button', { type: 'button', class: 'wave-title link', dir: 'auto' });
   private sub = h('div', { class: 'muted small', dir: 'auto' });
@@ -76,7 +77,7 @@ export class WaveView implements View {
         h(
           'div',
           { class: 'wave-now panel' },
-          this.cover,
+          this.coverBox,
           h('div', { class: 'wave-meta' }, this.label, this.title, this.sub),
           h('div', { class: 'wave-actions' }, this.startBtn, this.dislikeBtn, this.banBtn),
         ),
@@ -133,11 +134,13 @@ export class WaveView implements View {
       this.sub.append(artist);
       if (inWave && this.info?.reason) this.sub.append(` · ${this.info.reason}`);
     }
+    // the cover cell always stays (empty placeholder without a track) so the
+    // text keeps its own column and isn't squeezed into the 96px cover slot
     const src = coverUrl(t?.artwork_url, 't300x300');
     if (src) {
       if (this.cover.getAttribute('src') !== src) this.cover.src = src;
-      this.cover.hidden = false;
-    } else this.cover.hidden = true;
+    } else this.cover.removeAttribute('src');
+    this.coverBox.classList.toggle('is-empty', !src);
     this.startBtn.hidden = inWave;
     this.dislikeBtn.disabled = this.banBtn.disabled = !t;
   }
