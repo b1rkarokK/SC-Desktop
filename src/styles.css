@@ -1034,13 +1034,34 @@ select {
   padding: 16px;
 }
 
-.wave-cover {
+.wave-cover-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 96px;
   height: 96px;
   border-radius: 2px;
-  object-fit: cover;
   background: var(--border);
+  color: var(--muted);
   grid-row: span 2;
+  overflow: hidden;
+}
+
+.wave-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wave-cover-box.is-empty .wave-cover {
+  display: none;
+}
+
+.wave-cover-box:not(.is-empty) .icon {
+  display: none;
 }
 
 .wave-meta {
