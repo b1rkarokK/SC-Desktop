@@ -4223,7 +4223,7 @@ dependencies = [
 
 [[package]]
 name = "sc-desk"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "discord-rich-presence",
  "futures",

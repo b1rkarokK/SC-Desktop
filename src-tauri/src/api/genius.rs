@@ -20,10 +20,20 @@ pub struct GeniusHit {
 /// Returns a hit only if both artist and title plausibly match — wrong
 /// lyrics are worse than none.
 pub async fn search(http: &HttpClient, artist: &str, title: &str) -> AppResult<Option<GeniusHit>> {
+    let url = search_url(artist, title)?;
+    let resp: Value = http.get_json_with(url.as_str(), &[("referer", "https://genius.com/")]).await?;
+    Ok(pick(&resp, artist, title))
+}
+
+/// `/api/search/multi?q=` for "artist title".
+pub fn search_url(artist: &str, title: &str) -> AppResult<Url> {
     let mut url = Url::parse("https://genius.com/api/search/multi")?;
     url.query_pairs_mut().append_pair("per_page", "5").append_pair("q", &format!("{artist} {title}"));
-    let resp: Value = http.get_json_with(url.as_str(), &[("referer", "https://genius.com/")]).await?;
+    Ok(url)
+}
 
+/// Best song hit of a `/api/search/multi` response, if it plausibly matches.
+pub fn pick(resp: &Value, artist: &str, title: &str) -> Option<GeniusHit> {
     let want_title = normalize(title);
     let want_artist = normalize(artist);
     let hits = resp["response"]["sections"]
@@ -57,7 +67,7 @@ pub async fn search(http: &HttpClient, artist: &str, title: &str) -> AppResult<O
             .find(|h| !want_artist.is_empty() && normalize(&h.artist) == want_artist)
             .cloned()
     };
-    Ok(best.or_else(fallback))
+    best.or_else(fallback)
 }
 
 pub async fn lyrics(http: &HttpClient, page_url: &str) -> AppResult<String> {
@@ -91,9 +101,52 @@ pub fn match_score(want_artist: &str, want_title: &str, artist: &str, title: &st
     t + part(want_artist, artist)
 }
 
-/// Lowercase, letters/digits only (Unicode-aware, so Cyrillic/Arabic/CJK survive).
+/// Lowercase, letters/digits only (Unicode-aware, so Arabic/CJK survive).
+/// Cyrillic is transliterated, so "Монокини" and "Monokini" compare equal.
 pub fn normalize(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase) {
+        match translit(c) {
+            Some(t) => out.push_str(t),
+            None => out.push(c),
+        }
+    }
+    out
+}
+
+fn translit(c: char) -> Option<&'static str> {
+    Some(match c {
+        'а' => "a",
+        'б' => "b",
+        'в' => "v",
+        'г' => "g",
+        'д' => "d",
+        'е' | 'ё' | 'э' => "e",
+        'ж' => "zh",
+        'з' => "z",
+        'и' | 'і' => "i",
+        'й' | 'ы' => "y",
+        'к' => "k",
+        'л' => "l",
+        'м' => "m",
+        'н' => "n",
+        'о' => "o",
+        'п' => "p",
+        'р' => "r",
+        'с' => "s",
+        'т' => "t",
+        'у' => "u",
+        'ф' => "f",
+        'х' => "h",
+        'ц' => "c",
+        'ч' => "ch",
+        'ш' => "sh",
+        'щ' => "sch",
+        'ъ' | 'ь' => "",
+        'ю' => "yu",
+        'я' => "ya",
+        _ => return None,
+    })
 }
 
 /// Builds a Genius query out of a SoundCloud artist + title.
@@ -152,7 +205,8 @@ fn strip_brackets(s: &str) -> String {
 
 fn strip_feat(s: &str) -> String {
     let lower = s.to_lowercase();
-    let cut = [" feat. ", " feat ", " ft. ", " ft ", " prod. ", " prod by "]
+    // "+" glues a guest on: "не знакомы+fortuna812"
+    let cut = [" feat. ", " feat ", " ft. ", " ft ", " prod. ", " prod by ", "+"]
         .iter()
         .filter_map(|m| lower.find(m))
         .min();
@@ -166,7 +220,7 @@ fn strip_feat(s: &str) -> String {
 fn first_artist(s: &str) -> String {
     let s = strip_feat(s);
     let lower = s.to_lowercase();
-    let cut = [", ", " & ", " x ", " и ", " vs "].iter().filter_map(|m| lower.find(m)).min();
+    let cut = [", ", " & ", " x ", " и ", " vs ", "+"].iter().filter_map(|m| lower.find(m)).min();
     match cut {
         Some(i) if s.is_char_boundary(i) => s[..i].trim().to_owned(),
         _ => s,
@@ -211,7 +265,7 @@ fn walk(el: ElementRef<'_>, out: &mut String) {
     }
 }
 
-fn tidy(s: &str) -> String {
+pub fn tidy(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut blank_run = 0;
     for line in s.lines().map(str::trim_end) {
@@ -226,7 +280,17 @@ fn tidy(s: &str) -> String {
             out.push('\n');
         }
     }
-    out.trim().to_owned()
+    let out = out.trim();
+    // Genius puts a header line first: "[Текст песни «TATE»]", "[Song Lyrics]"
+    match out.split_once('\n') {
+        Some((first, rest)) if is_header(first) => rest.trim().to_owned(),
+        _ => out.to_owned(),
+    }
+}
+
+fn is_header(line: &str) -> bool {
+    let l = line.trim().to_lowercase();
+    l.starts_with('[') && l.ends_with(']') && (l.contains("текст песни") || l.ends_with(" lyrics]"))
 }
 
 #[cfg(test)]
@@ -248,6 +312,20 @@ mod tests {
         let (a, t) = query_from("SomeLabel", "Artist One & Two - Song Name (feat. X) [Free DL]");
         assert_eq!(a, "Artist One");
         assert_eq!(t, "Song Name");
+    }
+
+    #[test]
+    fn drops_genius_header_line() {
+        assert_eq!(tidy("[Текст песни «TATE»]\n[Куплет]\nстрока"), "[Куплет]\nстрока");
+        assert_eq!(tidy("[Verse 1]\nline"), "[Verse 1]\nline");
+    }
+
+    #[test]
+    fn translit_and_plus() {
+        assert_eq!(normalize("Монокини"), normalize("Monokini"));
+        assert_eq!(normalize("Дым сигарет с ментолом."), normalize("Дым сигарет с ментолом"));
+        assert_eq!(query_from("тревога", "не знакомы+fortuna812 (prod:JESUSTALKWME)").1, "не знакомы");
+        assert_eq!(query_from("Mona", "Monokini - Дотянуться до солнца"), ("Monokini".into(), "Дотянуться до солнца".into()));
     }
 
     #[test]
