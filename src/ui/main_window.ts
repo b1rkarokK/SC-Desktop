@@ -8,6 +8,7 @@ import { router, type Route, type Section } from './router';
 import { store } from './store';
 import type { View } from './views/common';
 import { HistoryView } from './views/history';
+import { ProfileView } from './views/profile';
 import { LibraryView } from './views/library';
 import { ArtistPageView, PlaylistPageView, TrackPageView } from './views/pages';
 import { SearchView } from './views/search';
@@ -28,8 +29,9 @@ export class MainWindow {
   private history = new HistoryView();
   private search = new SearchView();
   private settings = new SettingsView();
+  private profile = new ProfileView();
   private tabs = new Map<Section, HTMLButtonElement>();
-  private user = h('div', { class: 'nav-user' });
+  private user = h('button', { type: 'button', class: 'nav-user', title: 'Профиль: скачанные и очередь лайков' });
 
   constructor(nav: HTMLElement, private center: HTMLElement) {
     const list = h('div', { class: 'nav-list', role: 'tablist' });
@@ -42,6 +44,10 @@ export class MainWindow {
       this.tabs.set(id, b);
       list.append(b);
     }
+    this.user.addEventListener('click', () => {
+      router.go({ name: 'profile' });
+      this.user.blur();
+    });
     nav.append(h('div', { class: 'nav-panel' }, list, this.user));
 
     store.on('auth', () => this.renderUser());
@@ -70,6 +76,7 @@ export class MainWindow {
       tab.classList.toggle('is-active', id === section);
       tab.setAttribute('aria-selected', String(id === section));
     }
+    this.user.classList.toggle('is-active', section === 'profile');
     let view: View;
     switch (r.name) {
       case 'likes':
@@ -89,6 +96,10 @@ export class MainWindow {
       case 'settings':
         view = this.settings;
         break;
+      case 'profile':
+        this.center.replaceChildren(this.profile.el);
+        this.profile.show(r.tab);
+        return;
       case 'track':
         view = new TrackPageView(r.id);
         break;

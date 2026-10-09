@@ -193,9 +193,9 @@ impl Worker {
             };
             activity = activity.timestamps(ts);
         }
-        let large_text = truncate(&format!("{} — {}", p.artist, p.title), 120);
+        // no large_text: Discord shows it as a third line, which only repeated artist + title
         if let Some(art) = &p.artwork {
-            activity = activity.assets(Assets::new().large_image(art).large_text(&large_text));
+            activity = activity.assets(Assets::new().large_image(art));
         }
         let button;
         if self.cfg.button {

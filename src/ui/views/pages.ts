@@ -3,7 +3,7 @@ import { api, coverUrl, errorMessage, fmtCount, fmtTime, plural, type Track, typ
 import { playlistGrid } from '../cards';
 import { h, toast } from '../dom';
 import { icon, iconButton, I } from '../icons';
-import { openArtist } from '../router';
+import { openArtist, openTrackArtist } from '../router';
 import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
@@ -42,7 +42,7 @@ export class TrackPageView implements View {
       (p) => {
         const t = p.track;
         const artist = h('button', { type: 'button', class: 'link hero-artist', dir: 'auto', text: t.artist });
-        artist.addEventListener('click', () => openArtist(t.user_id));
+        artist.addEventListener('click', () => void openTrackArtist(t));
         const meta = [t.genre, fmtTime(t.duration_ms), p.year, ...p.tags.slice(0, 4).map((x) => `#${x}`)].filter(Boolean).join(' · ');
         const stats = [p.plays !== null ? `${fmtCount(p.plays)} прослушиваний` : null, p.likes !== null ? `${fmtCount(p.likes)} лайков` : null]
           .filter(Boolean)

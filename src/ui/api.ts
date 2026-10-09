@@ -192,6 +192,22 @@ export function errorMessage(e: unknown): string {
   return String(e);
 }
 
+export interface PendingLike {
+  track: Track;
+  liked: boolean;
+}
+
+export interface PendingFollow {
+  user: User;
+  follow: boolean;
+}
+
+export interface Download {
+  track: Track;
+  path: string;
+  at: number;
+}
+
 export const api = {
   authStatus: () => invoke<AuthStatus>('auth_status'),
   authVerify: () => invoke<AuthStatus>('auth_verify'),
@@ -204,6 +220,15 @@ export const api = {
   likesPage: (offset: number, limit: number) => invoke<Track[]>('likes_page', { offset, limit }),
   likesIds: () => invoke<number[]>('likes_ids'),
   likeSet: (track: Track, liked: boolean) => invoke<void>('like_set', { track, liked }),
+  likesPending: () => invoke<PendingLike[]>('likes_pending'),
+  likesPendingFlush: () => invoke<number>('likes_pending_flush'),
+  downloads: () => invoke<Download[]>('downloads_list'),
+  download: (track: Track) => invoke<Download>('download_track', { track }),
+  downloadRemove: (trackId: number) => invoke<void>('download_remove', { trackId }),
+  downloadsDir: () => invoke<string>('downloads_dir'),
+  downloadsPickDir: () => invoke<string>('downloads_pick_dir'),
+  followsPending: () => invoke<PendingFollow[]>('follows_pending'),
+  downloadsOpen: (path?: string) => invoke<void>('downloads_open', { path: path ?? null }),
   libraryPlaylists: (force: boolean) => invoke<Playlist[]>('library_playlists', { force }),
   libraryArtists: (force: boolean) => invoke<User[]>('library_artists', { force }),
   libraryCounts: () => invoke<LibraryCounts>('library_counts'),
@@ -245,6 +270,7 @@ export const api = {
   waveSetNoLiked: (enabled: boolean) => invoke<void>('wave_set_no_liked', { enabled }),
   dislikeSet: (trackId: number, disliked: boolean) => invoke<void>('dislike_set', { trackId, disliked }),
   dislikedIds: () => invoke<number[]>('disliked_ids'),
+  dislikedTracks: () => invoke<Track[]>('disliked_tracks'),
   waveDislikeArtist: (userId: number, name: string) => invoke<void>('wave_dislike_artist', { userId, name }),
   waveUndislikeArtist: (userId: number) => invoke<void>('wave_undislike_artist', { userId }),
   waveClearDislikes: () => invoke<void>('wave_clear_dislikes'),

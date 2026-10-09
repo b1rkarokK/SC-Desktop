@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use futures::{StreamExt, TryStreamExt};
-use reqwest::Method;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -283,16 +282,29 @@ impl SoundCloud {
         Ok(out)
     }
 
+    /// Ids of the newest liked tracks (one request) — for change detection.
+    pub async fn likes_first_ids(&self, user_id: u64) -> AppResult<Vec<u64>> {
+        let url = self.api_url(&format!("/users/{user_id}/track_likes"), &[("limit", "20".into())])?;
+        let page: Collection<LikeItem> = self.get(url).await?;
+        Ok(page.collection.into_iter().filter_map(|i| i.track.map(|t| t.id)).collect())
+    }
+
     /// Like (PUT) / unlike (DELETE) — the same calls the web player makes.
-    pub async fn set_like(&self, user_id: u64, track_id: u64, liked: bool) -> AppResult<()> {
+    /// `cookies`: the soundcloud.com browser session (incl. the anti-bot
+    /// `datadome` cookie) — write requests without it are answered with 403.
+    /// Like / unlike request: (method, url). Sent by `bridge` from a browser page.
+    pub fn like_request(&self, user_id: u64, track_id: u64, liked: bool) -> AppResult<(&'static str, Url)> {
         let url = self.api_url(&format!("/users/{user_id}/track_likes/{track_id}"), &[])?;
-        let method = if liked { Method::PUT } else { Method::DELETE };
-        match self.http.request(method, url.as_str(), Profile::ScApi, Some(&self.auth)).await {
-            Ok(_) => Ok(()),
-            // already not liked
-            Err(AppError::NotFound) if !liked => Ok(()),
-            Err(e) => Err(e),
-        }
+        Ok((if liked { "PUT" } else { "DELETE" }, url))
+    }
+
+    pub fn follow_request(&self, user_id: u64, follow: bool) -> AppResult<(&'static str, Url)> {
+        let url = self.api_url(&format!("/me/followings/{user_id}"), &[])?;
+        Ok((if follow { "POST" } else { "DELETE" }, url))
+    }
+
+    pub fn auth_header(&self) -> &str {
+        &self.auth
     }
 
     /// Follows `next_href` up to `max_pages` pages of 50 (or the given limit).
@@ -340,16 +352,6 @@ impl SoundCloud {
             &[("limit", "200".into()), ("linked_partitioning", "1".into())],
         )?;
         self.paged(url, 20).await
-    }
-
-    pub async fn set_follow(&self, user_id: u64, follow: bool) -> AppResult<()> {
-        let url = self.api_url(&format!("/me/followings/{user_id}"), &[])?;
-        let method = if follow { Method::POST } else { Method::DELETE };
-        match self.http.request(method, url.as_str(), Profile::ScApi, Some(&self.auth)).await {
-            Ok(_) => Ok(()),
-            Err(AppError::NotFound) if !follow => Ok(()),
-            Err(e) => Err(e),
-        }
     }
 
     pub async fn user(&self, id: u64) -> AppResult<ScUser> {
@@ -459,6 +461,21 @@ impl SoundCloud {
         }
     }
 
+    /// Whether the native engine can get this track's stream (cheap: resolves
+    /// the stream URL, downloads nothing).
+    pub async fn native_stream_ok(&self, track: &ScTrack) -> AppResult<bool> {
+        let Ok(tc) = pick_transcoding(track) else { return Ok(false) };
+        let mut url = self.api_href(&tc.url)?;
+        if let Some(auth) = &track.track_authorization {
+            url.query_pairs_mut().append_pair("track_authorization", auth);
+        }
+        match self.get::<ResolvedStream>(url).await {
+            Ok(_) => Ok(true),
+            Err(AppError::NotFound) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn fetch_hls(&self, playlist_url: &str) -> AppResult<Vec<u8>> {
         let mut base = Url::parse(playlist_url)?;
         let mut text = self.http.get_text(base.as_str(), Profile::Media, None).await?;
@@ -533,6 +550,13 @@ fn find_client_id(js: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// The track has DRM streams (Widevine / PlayReady HLS), playable only by
+/// SoundCloud's own player.
+pub fn has_drm_stream(track: &ScTrack) -> bool {
+    track.policy.as_deref() != Some("BLOCK")
+        && track.media.as_ref().is_some_and(|m| m.transcodings.iter().any(|t| t.format.protocol.contains("encrypted")))
 }
 
 /// Preference: full track over preview; progressive MP3 → HLS MP3 → HLS AAC (fMP4).

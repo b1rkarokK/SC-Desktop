@@ -177,11 +177,12 @@ function findLine(lines: RenderedLine[], t: number): number {
 /** Line-level lyrics → word timings distributed by character length. */
 function estimateWords(line: LyricLine): Word[] {
   const start = line.start_ms ?? 0;
-  const end = Math.max(start + 400, Math.min(line.end_ms ?? start + 4000, start + 8000));
+  // the gap to the next line often includes a pause / held notes; words are
+  // sung in the first ~70% of it — highlight there so it doesn't fall behind
+  const end = Math.max(start + 400, Math.min(line.end_ms ?? start + 4000, start + 7000));
   const tokens = line.text.match(/\S+\s*/g) ?? [line.text];
   const total = tokens.reduce((n, t) => n + t.trim().length + 1, 0);
-  // sing over ~90% of the line, leave a little tail
-  const span = (end - start) * 0.9;
+  const span = (end - start) * 0.7;
   let acc = start;
   return tokens.map((tok) => {
     const d = (span * (tok.trim().length + 1)) / total;

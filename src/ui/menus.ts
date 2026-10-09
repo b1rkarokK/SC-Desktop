@@ -4,7 +4,7 @@ import { clock } from './clock';
 import { openMenu, type MenuItem } from './context_menu';
 import { toast } from './dom';
 import { I } from './icons';
-import { openArtist, openPlaylist, openTrack } from './router';
+import { openArtist, openPlaylist, openTrack, openTrackArtist } from './router';
 import { store } from './store';
 
 async function copy(text: string, done: string): Promise<void> {
@@ -32,10 +32,18 @@ export function trackMenu(e: MouseEvent, t: Track, play?: () => void): void {
     'separator',
     { label: liked ? 'Убрать из лайков' : 'Лайкнуть', icon: I.heart, on: liked, action: () => void store.setLiked(t, !liked) },
     { label: disliked ? 'Снова рекомендовать' : 'Не рекомендовать', icon: I.dislike, on: disliked, action: () => void store.setDisliked(t, !disliked) },
+    {
+      label: 'Скачать',
+      icon: I.download,
+      action: () => {
+        toast('Скачиваю…');
+        void api.download(t).then((d) => toast(`Сохранено: ${d.path.split(/[\/]/).pop()}`), fail);
+      },
+    },
     { label: 'Волна по треку', icon: I.wave, action: () => void api.waveStartFrom(t.id, null).then((n) => toast(`Волна: ${n} треков`), fail) },
     'separator',
     { label: 'Перейти к треку', icon: I.track, action: () => openTrack(t.id) },
-    { label: 'Перейти к автору', icon: I.user, action: () => openArtist(t.user_id), disabled: !t.user_id },
+    { label: 'Перейти к автору', icon: I.user, action: () => void openTrackArtist(t), disabled: !t.user_id },
     'separator',
   ];
   if (t.permalink_url) {

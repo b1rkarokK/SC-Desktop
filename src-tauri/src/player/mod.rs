@@ -3,6 +3,7 @@
 
 pub mod audio;
 pub mod eq;
+mod widget;
 
 use std::{
     collections::HashSet,
@@ -115,9 +116,24 @@ impl State {
     }
 }
 
+const DRM_ONLY_KEY: &str = "drm_only";
+
+enum Fetched {
+    /// decoded natively
+    Bytes(Vec<u8>),
+    /// DRM-only: SoundCloud's widget plays it
+    Widget,
+}
+
 pub struct Player {
     app: AppHandle,
     audio: AudioHandle,
+    /// SoundCloud's own player for DRM-only tracks (see widget.rs)
+    widget: widget::Widget,
+    /// the current track plays in the widget, not natively
+    external: std::sync::atomic::AtomicBool,
+    /// tracks known to be DRM-only: go straight to the widget (kv "drm_only")
+    drm_only: Mutex<HashSet<u64>>,
     eq: Arc<EqShared>,
     discord: Discord,
     st: Mutex<State>,
@@ -133,9 +149,13 @@ impl Player {
         let volume = cfg.volume.clamp(0.0, 1.0);
         audio.send(AudioCmd::Volume(volume));
 
+        let widget = widget::Widget::new(app.clone(), audio.events(), volume);
         let player = Arc::new(Self {
             app,
             audio,
+            widget,
+            external: std::sync::atomic::AtomicBool::new(false),
+            drm_only: Mutex::new(HashSet::new()),
             eq,
             discord: Discord::start(cfg.discord.clone()),
             st: Mutex::new(State {
@@ -157,6 +177,13 @@ impl Player {
 
         let p = player.clone();
         tauri::async_runtime::spawn(async move {
+            let known = p.app.state::<AppState>().db.kv_get::<Vec<u64>>(DRM_ONLY_KEY).await;
+            if let Ok(Some((ids, _))) = known {
+                p.drm_only.lock().unwrap_or_else(|e| e.into_inner()).extend(ids);
+            }
+        });
+        let p = player.clone();
+        tauri::async_runtime::spawn(async move {
             while let Some(ev) = events.recv().await {
                 p.on_audio_event(ev);
             }
@@ -174,7 +201,7 @@ impl Player {
             track: s.current().cloned(),
             playing: s.playing,
             loading: s.loading,
-            position_ms: self.audio.position_ms(),
+            position_ms: self.position_ms(),
             volume: s.volume,
             shuffle: s.shuffle,
             repeat: s.repeat,
@@ -185,7 +212,33 @@ impl Player {
     }
 
     pub fn position_ms(&self) -> u64 {
-        self.audio.position_ms()
+        if self.external.load(Ordering::SeqCst) {
+            self.widget.position_ms()
+        } else {
+            self.audio.position_ms()
+        }
+    }
+
+    /// Sends a command to whichever engine plays the current track.
+    fn out(&self, cmd: AudioCmd) {
+        match cmd {
+            AudioCmd::Stop => {
+                self.external.store(false, Ordering::SeqCst);
+                self.widget.stop();
+                self.audio.send(AudioCmd::Stop);
+            }
+            AudioCmd::Volume(v) => {
+                self.widget.send(AudioCmd::Volume(v));
+                self.audio.send(AudioCmd::Volume(v));
+            }
+            AudioCmd::Load { .. } => {
+                self.external.store(false, Ordering::SeqCst);
+                self.widget.stop();
+                self.audio.send(cmd);
+            }
+            cmd if self.external.load(Ordering::SeqCst) => self.widget.send(cmd),
+            cmd => self.audio.send(cmd),
+        }
     }
 
     pub fn current(&self) -> Option<TrackDto> {
@@ -321,7 +374,7 @@ impl Player {
     pub fn resume(&self) {
         let mut s = self.lock();
         if s.active && !s.loading {
-            self.audio.send(AudioCmd::Play);
+            self.out(AudioCmd::Play);
             s.playing = true;
             drop(s);
             self.emit();
@@ -331,7 +384,7 @@ impl Player {
     pub fn pause(&self) {
         let mut s = self.lock();
         if s.playing {
-            self.audio.send(AudioCmd::Pause);
+            self.out(AudioCmd::Pause);
             s.playing = false;
             drop(s);
             self.emit();
@@ -340,7 +393,7 @@ impl Player {
 
     pub fn seek(&self, ms: u64) {
         if self.lock().active {
-            self.audio.send(AudioCmd::Seek(Duration::from_millis(ms)));
+            self.out(AudioCmd::Seek(Duration::from_millis(ms)));
             let snap = self.snapshot();
             self.push_presence(&snap, Some(ms));
             let _ = self.app.emit("player:seek", ms);
@@ -350,7 +403,7 @@ impl Player {
     pub fn set_volume(&self, v: f32) {
         let v = v.clamp(0.0, 1.0);
         self.lock().volume = v;
-        self.audio.send(AudioCmd::Volume(v));
+        self.out(AudioCmd::Volume(v));
     }
 
     pub fn set_shuffle(&self, on: bool) {
@@ -443,7 +496,7 @@ impl Player {
             }
             Next::ExtendWave => self.extend_wave(true),
             Next::Stop => {
-                self.audio.send(AudioCmd::Stop);
+                self.out(AudioCmd::Stop);
                 self.emit();
             }
             Next::Nothing => {}
@@ -615,26 +668,40 @@ impl Player {
             t
         };
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        self.audio.send(AudioCmd::Stop);
+        self.out(AudioCmd::Stop);
         self.emit();
         let _ = self.app.emit("player:track", &track);
 
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
-            let result = this.fetch_audio(track.id).await;
+            // boxed: the download future is large, and debug builds keep it on the worker's stack
+            let t0 = std::time::Instant::now();
+            let result = Box::pin(this.fetch_audio(track.id)).await;
+            tracing::debug!(ms = t0.elapsed().as_millis() as u64, ok = result.is_ok(), "track fetched");
             if this.generation.load(Ordering::SeqCst) != generation {
                 return; // user already moved on
             }
             match result {
-                Ok(data) => {
-                    this.audio.send(AudioCmd::Load { data: Arc::new(data), generation });
+                Ok(fetched) => {
+                    match fetched {
+                        Fetched::Bytes(data) => this.out(AudioCmd::Load { data: Arc::new(data), generation }),
+                        Fetched::Widget => {
+                            tracing::info!(track = track.id, "DRM-only stream: playing in SoundCloud's widget");
+                            this.out(AudioCmd::Stop);
+                            this.external.store(true, Ordering::SeqCst);
+                            this.widget.load(track.id, generation);
+                        }
+                    }
+                    let widget = this.external.load(Ordering::SeqCst);
                     {
                         let mut s = this.lock();
-                        s.loading = false;
+                        // widget: still "loading" until the sound really starts (AudioEvent::Started)
+                        s.loading = widget;
                         s.playing = true;
                         s.failures = 0;
                     }
                     this.emit();
+                    this.lookahead();
                     let state = this.app.state::<AppState>();
                     if let Err(e) = state.db.record_play(track.id).await {
                         tracing::warn!(error = %e, "record_play");
@@ -659,8 +726,18 @@ impl Player {
         });
     }
 
-    async fn fetch_audio(&self, track_id: u64) -> AppResult<Vec<u8>> {
+    async fn fetch_audio(&self, track_id: u64) -> AppResult<Fetched> {
         let state = self.app.state::<AppState>();
+        // downloaded: play the file (offline, no quota, no region blocks)
+        if let Some(path) = crate::downloads::file_of(&state, track_id).await {
+            match tokio::fs::read(&path).await {
+                Ok(data) => return Ok(Fetched::Bytes(data)),
+                Err(e) => tracing::warn!(error = %e, "downloaded file unreadable, streaming instead"),
+            }
+        }
+        if self.drm_only.lock().unwrap_or_else(|e| e.into_inner()).contains(&track_id) {
+            return Ok(Fetched::Widget);
+        }
         let used = state.db.streams_last_24h().await?;
         if used >= STREAM_QUOTA {
             return Err(AppError::StreamQuota(used));
@@ -668,10 +745,59 @@ impl Player {
         let sc = state.sc()?;
         // always fresh: track_authorization in cached JSON expires
         let full = sc.track(track_id).await?;
-        let data = sc.download_audio(&full).await?;
+        let data = match Box::pin(sc.download_audio(&full)).await {
+            Ok(d) => Fetched::Bytes(d),
+            // only DRM streams are actually served: SoundCloud's own player can play them
+            Err(AppError::NotFound | AppError::UnsupportedStream(_)) if crate::api::soundcloud::has_drm_stream(&full) => {
+                self.remember_drm(track_id).await;
+                Fetched::Widget
+            }
+            Err(AppError::NotFound) => {
+                return Err(AppError::UnsupportedStream("он удалён, закрыт автором или недоступен в вашей стране".into()))
+            }
+            Err(e) => return Err(e),
+        };
         state.db.log_stream().await?;
         state.db.upsert_tracks(vec![full]).await?;
         Ok(data)
+    }
+
+    async fn remember_drm(&self, track_id: u64) {
+        let ids: Vec<u64> = {
+            let mut set = self.drm_only.lock().unwrap_or_else(|e| e.into_inner());
+            if !set.insert(track_id) {
+                return;
+            }
+            set.iter().copied().collect()
+        };
+        let _ = self.app.state::<AppState>().db.kv_put(DRM_ONLY_KEY, &ids).await;
+    }
+
+    /// While a track plays: if the next one is DRM-only, load it in the widget
+    /// in advance so it starts instantly.
+    fn lookahead(self: &Arc<Self>) {
+        let Some(next) = self.upcoming(1).into_iter().next() else { return };
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = this.app.state::<AppState>();
+            if crate::downloads::file_of(&state, next.id).await.is_some() {
+                return;
+            }
+            let known = this.drm_only.lock().unwrap_or_else(|e| e.into_inner()).contains(&next.id);
+            let drm = if known {
+                true
+            } else {
+                let Ok(sc) = state.sc() else { return };
+                let Ok(full) = Box::pin(sc.track(next.id)).await else { return };
+                crate::api::soundcloud::has_drm_stream(&full) && matches!(Box::pin(sc.native_stream_ok(&full)).await, Ok(false))
+            };
+            if drm {
+                this.remember_drm(next.id).await;
+                if this.upcoming(1).first().map(|t| t.id) == Some(next.id) {
+                    this.widget.preload(next.id);
+                }
+            }
+        });
     }
 
     fn on_audio_event(self: &Arc<Self>, ev: AudioEvent) {
@@ -680,10 +806,15 @@ impl Player {
             AudioEvent::Ended { generation } if generation == current => {
                 let repeat_one = self.lock().repeat == RepeatMode::One;
                 if repeat_one {
-                    self.audio.send(AudioCmd::Replay { generation });
+                    self.out(AudioCmd::Replay { generation });
                 } else {
                     self.advance(true);
                 }
+            }
+            AudioEvent::Started { generation } if generation == current => {
+                self.lock().loading = false;
+                self.emit();
+                let _ = self.app.emit("player:seek", self.position_ms());
             }
             AudioEvent::Error { generation, message } if generation == current => {
                 let err = AppError::Audio(message);

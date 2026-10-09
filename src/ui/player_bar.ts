@@ -7,7 +7,7 @@ import type { EqPopover } from './eq_popover';
 import { iconButton, I, setIcon } from './icons';
 import { trackMenu } from './menus';
 import { onPrefs, prefs, updatePrefs } from './prefs';
-import { openArtist, openTrack } from './router';
+import { openTrack, openTrackArtist } from './router';
 import { Slider } from './slider';
 import { store } from './store';
 
@@ -52,7 +52,7 @@ export class PlayerBar {
     });
     this.title.addEventListener('click', () => cur() && openTrack(cur()!.id));
     this.cover.addEventListener('click', () => cur() && openTrack(cur()!.id));
-    this.artist.addEventListener('click', () => cur() && openArtist(cur()!.user_id));
+    this.artist.addEventListener('click', () => cur() && void openTrackArtist(cur()!));
 
     this.seek = new Slider(
       'Позиция',

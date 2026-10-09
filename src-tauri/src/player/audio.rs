@@ -42,12 +42,15 @@ pub enum AudioCmd {
 #[derive(Debug)]
 pub enum AudioEvent {
     Ended { generation: u64 },
+    /// sound actually started (widget engine: after buffering / DRM licence)
+    Started { generation: u64 },
     Error { generation: u64, message: String },
 }
 
 pub struct AudioHandle {
     tx: mpsc::Sender<AudioCmd>,
     position_ms: Arc<AtomicU64>,
+    events: UnboundedSender<AudioEvent>,
 }
 
 impl AudioHandle {
@@ -60,6 +63,11 @@ impl AudioHandle {
     pub fn position_ms(&self) -> u64 {
         self.position_ms.load(Ordering::Relaxed)
     }
+
+    /// The event channel, shared with the widget engine.
+    pub fn events(&self) -> UnboundedSender<AudioEvent> {
+        self.events.clone()
+    }
 }
 
 /// Spawns the audio thread; fails if no output device can be opened at all.
@@ -69,6 +77,7 @@ pub fn spawn(eq: Arc<EqShared>) -> AppResult<(AudioHandle, UnboundedReceiver<Aud
     let (init_tx, init_rx) = mpsc::channel::<Result<(), String>>();
     let position_ms = Arc::new(AtomicU64::new(0));
     let pos = position_ms.clone();
+    let events = ev_tx.clone();
 
     thread::Builder::new()
         .name("audio".into())
@@ -87,7 +96,7 @@ pub fn spawn(eq: Arc<EqShared>) -> AppResult<(AudioHandle, UnboundedReceiver<Aud
         })?;
 
     match init_rx.recv() {
-        Ok(Ok(())) => Ok((AudioHandle { tx, position_ms }, ev_rx)),
+        Ok(Ok(())) => Ok((AudioHandle { tx, position_ms, events }, ev_rx)),
         Ok(Err(e)) => Err(AppError::Audio(format!("нет устройства вывода: {e}"))),
         Err(_) => Err(AppError::Audio("audio thread exited during init".into())),
     }

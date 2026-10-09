@@ -128,6 +128,8 @@ impl Db {
     pub fn open(path: &Path) -> AppResult<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
+        // "lyrics not found" is retried once per launch: sources and matching improve
+        conn.execute("DELETE FROM lyrics2 WHERE found = 0", [])?;
         Ok(Self { conn: Arc::new(Mutex::new(conn)) })
     }
 
@@ -417,6 +419,18 @@ impl Db {
             let rows = st.query_map([], |r| {
                 Ok(DislikedArtist { user_id: r.get::<_, i64>(0)? as u64, name: r.get(1)? })
             })?;
+            rows.collect()
+        })
+        .await
+    }
+
+    /// Disliked tracks with metadata, newest first (for per-track "Вернуть").
+    pub async fn disliked_tracks(&self) -> AppResult<Vec<TrackDto>> {
+        self.run(|c| {
+            let mut st = c.prepare_cached(&format!(
+                "SELECT {TRACK_COLS} FROM disliked_tracks d JOIN tracks t ON t.id = d.track_id ORDER BY d.at DESC"
+            ))?;
+            let rows = st.query_map([], row_to_dto)?;
             rows.collect()
         })
         .await
