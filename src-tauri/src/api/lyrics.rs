@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
-use super::genius::{self, match_score, normalize};
+use super::genius::{match_score, normalize};
 use crate::{
     error::{AppError, AppResult},
     net::HttpClient,
@@ -102,6 +102,14 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
         return Ok(Some(l));
     }
     if plain.is_none() {
+        // covers / re-uploads: the uploader is not the artist the lyrics are filed under
+        consider!(lrclib_by_title(http, q).await, "lrclib-title");
+        if let Some(l) = best {
+            return Ok(Some(l));
+        }
+    }
+    if plain.is_none() {
+        // last: may need the Genius browser window
         consider!(genius_plain(http, q).await, "genius");
     }
     if plain.is_none() && errors >= 4 {
@@ -144,6 +152,55 @@ async fn lrclib(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
         }
     }
     Ok(plain)
+}
+
+/// Title long enough that an exact match is the same song, not a namesake:
+/// "Дым сигарет с ментолом" yes, "Sea Angel" / "TATE" no.
+fn distinctive_title(title: &str) -> bool {
+    title.split_whitespace().count() >= 3 && normalize(title).chars().count() >= 12
+}
+
+/// Last resort for covers and re-uploads: search by the title alone and take
+/// an exact title match. Timings are kept only if the length matches closely
+/// (same recording), otherwise the text is shown without karaoke.
+async fn lrclib_by_title(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
+    if !distinctive_title(&q.title) {
+        return Ok(None);
+    }
+    let mut url = Url::parse("https://lrclib.net/api/search")?;
+    url.query_pairs_mut().append_pair("q", &q.title);
+    let hits: Value = http.get_json_with(url.as_str(), &[("lrclib-client", "SC Desk")]).await?;
+    let want = normalize(&q.title);
+    let want_artist = normalize(&q.artist);
+    let mut hits: Vec<&Value> = hits
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|h| normalize(h["trackName"].as_str().unwrap_or("")) == want)
+        .collect();
+    // the right artist first, then the closest length
+    hits.sort_by_key(|h| {
+        let artist_ok = normalize(h["artistName"].as_str().unwrap_or("")) == want_artist;
+        let d = (h["duration"].as_f64().unwrap_or(0.0) * 1000.0) as u64;
+        (!artist_ok, d.abs_diff(q.duration_ms))
+    });
+    for h in hits {
+        let d = (h["duration"].as_f64().unwrap_or(0.0) * 1000.0) as u64;
+        let same_recording = q.duration_ms > 0 && d > 0 && q.duration_ms.abs_diff(d) <= 3_000;
+        if same_recording {
+            if let Some(l) = h["syncedLyrics"].as_str().and_then(|s| Lyrics::new("lrclib", parse_lrc(s), None)) {
+                return Ok(Some(l));
+            }
+        }
+        let text = h["plainLyrics"].as_str().map(str::to_owned).or_else(|| {
+            // synced only: drop the timestamps
+            h["syncedLyrics"].as_str().map(|s| parse_lrc(s).into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n"))
+        });
+        if let Some(l) = text.and_then(|t| Lyrics::new("lrclib", plain_lines(&t), None)) {
+            return Ok(Some(l));
+        }
+    }
+    Ok(None)
 }
 
 // ----------------------------------------------------------------- NetEase
@@ -264,10 +321,11 @@ async fn musixmatch(http: &HttpClient, state: &LyricsState, q: &Query) -> AppRes
 // ------------------------------------------------------------------ Genius
 
 async fn genius_plain(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
-    let Some(hit) = genius::search(http, &q.artist, &q.title).await? else {
+    // through a browser page if Genius blocks plain requests (Cloudflare check)
+    let Some(hit) = crate::geniusweb::search(http, &q.artist, &q.title).await? else {
         return Ok(None);
     };
-    let text = genius::lyrics(http, &hit.url).await?;
+    let text = crate::geniusweb::lyrics(http, &hit.url).await?;
     Ok(Lyrics::new("genius", plain_lines(&text), Some(hit.url)))
 }
 
@@ -440,6 +498,16 @@ fn fill_ends(mut lines: Vec<Line>) -> Vec<Line> {
 
 #[cfg(test)]
 mod tests {
+    use super::distinctive_title;
+
+    #[test]
+    fn only_long_titles_match_by_title_alone() {
+        assert!(distinctive_title("Дым сигарет с ментолом"));
+        assert!(distinctive_title("Дотянуться до солнца"));
+        assert!(!distinctive_title("Sea Angel"));
+        assert!(!distinctive_title("TATE"));
+    }
+
     use super::*;
 
     #[test]

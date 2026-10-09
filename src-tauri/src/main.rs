@@ -10,6 +10,7 @@ mod dedupe;
 mod discord;
 mod downloads;
 mod error;
+mod geniusweb;
 mod hotkeys;
 mod logging;
 mod login;
@@ -53,6 +54,7 @@ fn main() {
             updater::start(&handle);
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
+            geniusweb::init(&handle);
             // the window is created hidden (tauri.conf.json) to avoid a flash on autostart
             if !start_hidden {
                 tray::show_main(&handle);
