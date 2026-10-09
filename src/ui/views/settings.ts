@@ -269,7 +269,13 @@ export class SettingsView implements View {
   private renderSystem(autostart: boolean, minimized: boolean): void {
     let a = autostart;
     let m = minimized;
-    const save = () => api.systemSet(a, m).catch((e) => toast(errorMessage(e), 'error'));
+    // on failure show the real state again (the switch must not lie)
+    const save = () =>
+      api.systemSet(a, m).catch(async (e) => {
+        toast(errorMessage(e), 'error');
+        const s = await api.systemGet();
+        this.renderSystem(s.autostart, s.start_minimized);
+      });
     const version = h('span', { class: 'muted small' });
     void invoke<string>('app_version').then((v) => (version.textContent = `Версия ${v}`));
     const check = btn('Проверить обновления', I.refresh);

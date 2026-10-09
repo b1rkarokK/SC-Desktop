@@ -8,7 +8,6 @@ use std::{
 
 use serde::{de::DeserializeOwned, Serialize};
 use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
@@ -712,17 +711,14 @@ pub struct SystemPrefs {
 
 #[tauri::command]
 pub fn system_get(app: AppHandle, state: State<'_, AppState>) -> SystemPrefs {
-    SystemPrefs {
-        autostart: app.autolaunch().is_enabled().unwrap_or(false),
-        start_minimized: state.config.get().start_minimized,
-    }
+    SystemPrefs { autostart: crate::autostart::is_enabled(&app), start_minimized: state.config.get().start_minimized }
 }
 
 #[tauri::command]
 pub fn system_set(app: AppHandle, state: State<'_, AppState>, autostart: bool, start_minimized: bool) -> Cmd<()> {
-    let al = app.autolaunch();
-    let r = if autostart { al.enable() } else { al.disable() };
-    r.map_err(|e| AppError::Other(format!("автозапуск: {e}")))?;
     state.config.update(|c| c.start_minimized = start_minimized)?;
+    if autostart != crate::autostart::is_enabled(&app) {
+        crate::autostart::set(&app, autostart)?;
+    }
     Ok(())
 }
