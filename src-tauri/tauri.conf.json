@@ -43,7 +43,11 @@
     "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "windows": {
-      "nsis": { "installMode": "currentUser", "languages": ["Russian", "English"] }
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Russian", "English"],
+        "installerHooks": "./windows/hooks.nsh"
+      }
     },
     "shortDescription": "SoundCloud без рекламы: лайки, волна, синхронные тексты",
     "publisher": "SC Desk",
