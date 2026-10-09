@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod api;
+mod autostart;
 mod commands;
 mod config;
 mod db;
@@ -47,6 +48,7 @@ fn main() {
             tray::build(&handle)?;
             hotkeys::register(&handle);
             updater::start(&handle);
+            autostart::sync(&handle);
             // the window is created hidden (tauri.conf.json) to avoid a flash on autostart
             if !start_hidden {
                 tray::show_main(&handle);

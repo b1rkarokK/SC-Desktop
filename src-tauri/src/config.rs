@@ -72,6 +72,8 @@ pub struct AppConfig {
     pub start_minimized: bool,
     /// «Моя волна» without liked tracks and their re-uploads
     pub wave_no_liked: bool,
+    /// autostart was set up once (enabled by default on the first launch)
+    pub autostart_initialized: bool,
     /// Frontend-owned preferences (theme, panels, fullscreen view…), stored verbatim.
     pub ui: serde_json::Value,
 }
@@ -87,6 +89,7 @@ impl Default for AppConfig {
             discord: DiscordConfig::default(),
             start_minimized: true,
             wave_no_liked: true,
+            autostart_initialized: false,
             ui:serde_json::Value::Object(Default::default()),
         }
     }
