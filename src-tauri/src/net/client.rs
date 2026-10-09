@@ -175,11 +175,6 @@ impl HttpClient {
         self.request_with(Method::GET, url, profile, auth, &[]).await
     }
 
-    /// Any method with retry/backoff (PUT/DELETE are idempotent for likes).
-    pub async fn request(&self, method: Method, url: &str, profile: Profile, auth: Option<&str>) -> AppResult<Response> {
-        self.request_with(method, url, profile, auth, &[]).await
-    }
-
     /// GET JSON with extra headers (Referer / Cookie for lyrics providers).
     pub async fn get_json_with<T: DeserializeOwned>(&self, url: &str, extra: &[(&'static str, &str)]) -> AppResult<T> {
         let resp = self.request_with(Method::GET, url, Profile::Json, None, extra).await?;
@@ -224,7 +219,8 @@ impl HttpClient {
                         attempt += 1;
                         continue;
                     }
-                    tracing::warn!(%status, host = host_of(url), "HTTP request failed");
+                    let body: String = resp.text().await.unwrap_or_default().chars().take(300).collect();
+                    tracing::warn!(%status, host = host_of(url), %method, body = %body, "HTTP request failed");
                     return Err(AppError::from_status(status));
                 }
                 Err(e) if is_transient(&e) && attempt < MAX_RETRIES => {

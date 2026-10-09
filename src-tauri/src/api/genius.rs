@@ -32,20 +32,32 @@ pub async fn search(http: &HttpClient, artist: &str, title: &str) -> AppResult<O
         .flatten()
         .flat_map(|s| s["hits"].as_array().into_iter().flatten())
         .filter(|h| h["type"] == "song");
-    let best = hits
+    let candidates: Vec<GeniusHit> = hits
         .filter_map(|h| {
             let r = &h["result"];
-            let hit = GeniusHit {
+            Some(GeniusHit {
                 url: r["url"].as_str()?.to_owned(),
                 title: r["title"].as_str().unwrap_or_default().to_owned(),
                 artist: r["primary_artist"]["name"].as_str().unwrap_or_default().to_owned(),
-            };
-            let score = match_score(&want_artist, &want_title, &normalize(&hit.artist), &normalize(&hit.title));
-            Some((score, hit))
+            })
         })
+        .collect();
+    let best = candidates
+        .iter()
+        .map(|h| (match_score(&want_artist, &want_title, &normalize(&h.artist), &normalize(&h.title)), h))
         .filter(|(s, _)| *s >= 3)
-        .max_by_key(|(s, _)| *s);
-    Ok(best.map(|(_, h)| h))
+        .max_by_key(|(s, _)| *s)
+        .map(|(_, h)| h.clone());
+    // Title in another language/script ("ТЕНТАКЛИ" on SoundCloud, "tentacles"
+    // on Genius): trust one of the two top hits if the artist matches exactly.
+    let fallback = || {
+        candidates
+            .iter()
+            .take(2)
+            .find(|h| !want_artist.is_empty() && normalize(&h.artist) == want_artist)
+            .cloned()
+    };
+    Ok(best.or_else(fallback))
 }
 
 pub async fn lyrics(http: &HttpClient, page_url: &str) -> AppResult<String> {
@@ -95,7 +107,33 @@ pub fn query_from(artist: &str, title: &str) -> (String, String) {
             break;
         }
     }
-    (first_artist(&strip_brackets(&artist)), strip_feat(&strip_brackets(&title)))
+    (first_artist(&clean(&strip_brackets(&artist))), clean(&strip_feat(&strip_brackets(&title))))
+}
+
+/// Drops emoji / decorations and tag-like junk that break lyric search:
+/// "Song 💜", "Song | free dl", "song rocket.Ri", "#tag", "out now".
+fn clean(s: &str) -> String {
+    let s = s.split(['|', '/']).next().unwrap_or(s);
+    let words: Vec<String> = s
+        .split_whitespace()
+        .filter(|w| !w.starts_with('#') && !w.starts_with('@'))
+        // "rocket.Ri", "site.com": a dot glued between letters = a tag, not lyrics title
+        .filter(|w| {
+            let chars: Vec<char> = w.chars().collect();
+            !chars.windows(3).any(|t| t[0].is_alphanumeric() && t[1] == '.' && t[2].is_alphanumeric())
+        })
+        .map(|w| w.chars().filter(|c| c.is_alphanumeric() || matches!(c, '\'' | '’' | '&' | '-' | '.' | ',' | '!' | '?')).collect::<String>())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let mut out = words.join(" ");
+    for junk in ["free download", "free dl", "out now", "official video", "official audio", "lyrics", "lyric video"] {
+        if let Some(i) = out.to_lowercase().find(junk) {
+            if out.is_char_boundary(i) {
+                out.truncate(i);
+            }
+        }
+    }
+    out.trim().trim_matches(|c: char| c == '-' || c == ',').trim().to_owned()
 }
 
 fn strip_brackets(s: &str) -> String {
@@ -210,6 +248,14 @@ mod tests {
         let (a, t) = query_from("SomeLabel", "Artist One & Two - Song Name (feat. X) [Free DL]");
         assert_eq!(a, "Artist One");
         assert_eq!(t, "Song Name");
+    }
+
+    #[test]
+    fn cleans_junk_from_titles() {
+        assert_eq!(query_from("x", "Тентакли 💜").1, "Тентакли");
+        assert_eq!(query_from("x", "Song rocket.Ri").1, "Song");
+        assert_eq!(query_from("x", "Song | free dl").1, "Song");
+        assert_eq!(query_from("x", "Song #phonk out now").1, "Song");
     }
 
     #[test]

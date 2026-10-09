@@ -2,7 +2,7 @@
 import { api, coverUrl, errorMessage, type Mood, type WaveInfo } from '../api';
 import { h, toast } from '../dom';
 import { icon, iconButton, I } from '../icons';
-import { openArtist, openTrack } from '../router';
+import { openTrack, openTrackArtist } from '../router';
 import { store } from '../store';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
 
@@ -27,7 +27,7 @@ export class WaveView implements View {
   private moods = h('div', { class: 'chips' });
   private next = h('div');
   private bans = h('div', { class: 'chips' });
-  private bansNote = h('div', { class: 'muted small' });
+  private bansNote = h('div', { class: 'disliked-list' });
   private info: WaveInfo | null = null;
   private lastTrack: number | null = null;
   private noLikedBtn = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
@@ -38,7 +38,7 @@ export class WaveView implements View {
       'div',
       { class: 'set-label' },
       h('div', { text: 'Без лайкнутых' }),
-      h('div', { class: 'muted small', text: 'не предлагать то, что уже в лайках, и их копии с другим названием (другие версии — speed up, slowed, hardtekk — остаются)' }),
+      h('div', { class: 'muted small', text: 'не предлагать то, что уже в лайках, и их копии с другим названием. Другие версии (speed up, slowed, hardtekk) остаются' }),
     ),
     this.noLikedBtn,
   );
@@ -86,8 +86,9 @@ export class WaveView implements View {
         this.noLikedRow,
         sectionTitle('Далее в волне'),
         this.next,
-        sectionTitle('Исключены', reset),
+        sectionTitle('Исключённые артисты', reset),
         this.bans,
+        sectionTitle('Не рекомендовать (треки)'),
         this.bansNote,
       ),
     );
@@ -130,7 +131,7 @@ export class WaveView implements View {
     this.sub.replaceChildren();
     if (t) {
       const artist = h('button', { type: 'button', class: 'link', text: t.artist });
-      artist.addEventListener('click', () => openArtist(t.user_id));
+      artist.addEventListener('click', () => void openTrackArtist(t));
       this.sub.append(artist);
       if (inWave && this.info?.reason) this.sub.append(` · ${this.info.reason}`);
     }
@@ -141,7 +142,8 @@ export class WaveView implements View {
       if (this.cover.getAttribute('src') !== src) this.cover.src = src;
     } else this.cover.removeAttribute('src');
     this.coverBox.classList.toggle('is-empty', !src);
-    this.startBtn.hidden = inWave;
+    // always available: after «Волна по треку» you can go back to the normal wave
+    this.startBtn.replaceChildren(icon(I.wave), h('span', { text: inWave ? 'Обычная волна' : 'Запустить волну' }));
     this.dislikeBtn.disabled = this.banBtn.disabled = !t;
   }
 
@@ -171,10 +173,10 @@ export class WaveView implements View {
 
   private async renderNext(): Promise<void> {
     if (store.snapshot?.source !== 'wave') {
-      this.next.replaceChildren(emptyState('Запустите волну — здесь появятся следующие треки.'));
+      this.next.replaceChildren(emptyState('Запустите волну, и здесь появятся следующие треки.'));
       return;
     }
-    const tracks = await api.upcoming(8);
+    const tracks = await api.upcoming(20);
     this.next.replaceChildren(tracks.length ? staticTrackList(tracks) : emptyState('Подбираем следующие треки…'));
   }
 
@@ -191,8 +193,35 @@ export class WaveView implements View {
       }),
     );
     if (!list.length) this.bans.append(h('span', { class: 'muted small', text: 'Артистов в исключениях нет.' }));
-    const n = this.info?.disliked_tracks ?? 0;
-    this.bansNote.textContent = `Дизлайкнутых треков: ${n} — они никогда не попадут в волну и рекомендации.`;
+    void this.renderDislikedTracks();
+  }
+
+  /** Each disliked track with its own «Вернуть». */
+  private async renderDislikedTracks(): Promise<void> {
+    const tracks = await api.dislikedTracks().catch(() => []);
+    if (!tracks.length) {
+      this.bansNote.replaceChildren(h('span', { class: 'muted small', text: 'Дизлайкнутых треков нет.' }));
+      return;
+    }
+    this.bansNote.replaceChildren(
+      ...tracks.map((t) => {
+        const back = h('button', { type: 'button', class: 'btn btn-quiet', text: 'Вернуть' });
+        back.addEventListener('click', async () => {
+          await store.setDisliked(t, false);
+          void this.renderDislikedTracks();
+        });
+        const img = h('img', { class: 'row-cover', alt: '' });
+        const src = coverUrl(t.artwork_url, 't67x67');
+        if (src) img.src = src;
+        return h(
+          'div',
+          { class: 'disliked-row' },
+          img,
+          h('div', { class: 'row-main' }, h('div', { class: 'row-title', dir: 'auto', text: t.title }), h('div', { class: 'row-artist', dir: 'auto', text: t.artist })),
+          back,
+        );
+      }),
+    );
   }
 
   private async start(): Promise<void> {

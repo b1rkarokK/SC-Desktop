@@ -2,11 +2,13 @@
 
 mod api;
 mod autostart;
+mod bridge;
 mod commands;
 mod config;
 mod db;
 mod dedupe;
 mod discord;
+mod downloads;
 mod error;
 mod hotkeys;
 mod logging;
@@ -31,6 +33,7 @@ fn main() {
         // second launch (e.g. from the Start menu while running in the tray) → show the window
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![MINIMIZED_FLAG])))
         .plugin(hotkeys::plugin())
@@ -49,6 +52,7 @@ fn main() {
             hotkeys::register(&handle);
             updater::start(&handle);
             autostart::sync(&handle);
+            commands::start_likes_watch(&handle);
             // the window is created hidden (tauri.conf.json) to avoid a flash on autostart
             if !start_hidden {
                 tray::show_main(&handle);
@@ -75,6 +79,15 @@ fn main() {
             commands::likes_page,
             commands::likes_ids,
             commands::like_set,
+            commands::likes_pending,
+            commands::likes_pending_flush,
+            commands::follows_pending,
+            commands::downloads_list,
+            commands::download_track,
+            commands::download_remove,
+            commands::downloads_open,
+            commands::downloads_dir,
+            commands::downloads_pick_dir,
             commands::library_playlists,
             commands::library_artists,
             commands::library_counts,
@@ -111,6 +124,7 @@ fn main() {
             commands::wave_set_no_liked,
             commands::dislike_set,
             commands::disliked_ids,
+            commands::disliked_tracks,
             commands::wave_dislike_artist,
             commands::wave_disliked_artists,
             commands::wave_undislike_artist,

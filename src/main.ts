@@ -39,6 +39,10 @@ async function boot(): Promise<void> {
     listen<number>('player:seek', (e) => clock.reset(e.payload)),
     listen<AppErrorPayload>('player:error', (e) => toast(e.payload.message, 'error')),
     listen<number>('likes:progress', (e) => main.library.setProgress(e.payload)),
+    listen<number>('likes:changed', () => {
+      void store.reloadSets();
+      main.library.reloadFromCache();
+    }),
     listen<boolean>('window:visibility', (e) => setWindowShown(e.payload)),
     listen<AuthStatus>('auth:changed', (e) => {
       store.setAuth(e.payload);

@@ -143,6 +143,12 @@ export class LibraryView implements View {
     }
   }
 
+  /** Likes changed on SoundCloud (background sync) — re-read the cache. */
+  reloadFromCache(): void {
+    void this.reloadTracks();
+    void this.refreshCounts();
+  }
+
   setProgress(n: number): void {
     this.tabs.setCount('tracks', `загрузка… ${n}`);
   }

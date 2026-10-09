@@ -107,25 +107,89 @@ pub async fn likes_sync(app: AppHandle, state: State<'_, AppState>) -> Cmd<u64> 
     if state.likes_syncing.swap(true, Ordering::AcqRel) {
         return Err(AppError::Other("Синхронизация уже идёт".into()));
     }
-    let result = async {
-        let me = state.current_user().await?;
-        let progress_app = app.clone();
-        let items = state
-            .sc()?
-            .likes_all(me.id, move |n| {
-                let _ = progress_app.emit("likes:progress", n);
-            })
-            .await?;
-        let ids: Vec<(u64, String)> = items.iter().map(|(t, at)| (t.id, at.clone())).collect();
-        state.db.upsert_tracks(items.into_iter().map(|(t, _)| t).collect()).await?;
-        state.db.replace_likes(ids).await?;
-        state.db.likes_count().await
-    }
-    .await;
+    let result = sync_likes(&app, &state).await;
     state.likes_syncing.store(false, Ordering::Release);
     let n = result?;
     tracing::info!(count = n, "likes synced");
     Ok(n)
+}
+
+pub async fn sync_likes(app: &AppHandle, state: &AppState) -> AppResult<u64> {
+    let me = state.current_user().await?;
+    let progress_app = app.clone();
+    let items = state
+        .sc()?
+        .likes_all(me.id, move |n| {
+            let _ = progress_app.emit("likes:progress", n);
+        })
+        .await?;
+    let ids: Vec<(u64, String)> = items.iter().map(|(t, at)| (t.id, at.clone())).collect();
+    state.db.upsert_tracks(items.into_iter().map(|(t, _)| t).collect()).await?;
+    state.db.replace_likes(ids).await?;
+    for (id, liked) in pending_likes(state).await? {
+        if liked {
+            state.db.like_add(id).await?;
+        } else {
+            state.db.like_remove(id).await?;
+        }
+    }
+    state.db.likes_count().await
+}
+
+/// Background: likes made on the website show up without pressing "Синхронизировать".
+/// Every 3 min the first page is compared with the cache; a full sync runs only on change.
+pub fn start_likes_watch(app: &AppHandle) {
+    use tauri::Manager;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        // pauses between retries of queued likes, growing while SoundCloud refuses
+        const BACKOFF: [u64; 5] = [60, 120, 300, 600, 900];
+        let mut fails = 0usize;
+        loop {
+            let state = app.state::<AppState>();
+            let queued = if state.credentials().is_some() {
+                flush_pending_likes(&app, &state).await.unwrap_or(1) + flush_pending_follows(&app, &state).await.unwrap_or(1)
+            } else {
+                0
+            };
+            // while likes are queued the server list legitimately differs from ours
+            let likes_queued = !pending_likes(&state).await.unwrap_or_default().is_empty();
+            if !likes_queued && state.credentials().is_some() && !state.likes_syncing.load(Ordering::Acquire) {
+                let changed = async {
+                    let me = state.current_user().await?;
+                    let remote = state.sc()?.likes_first_ids(me.id).await?;
+                    let local: Vec<u64> = state.db.likes_page(0, remote.len() as u32).await?.iter().map(|t| t.id).collect();
+                    AppResult::Ok(remote != local)
+                }
+                .await;
+                match changed {
+                    Ok(true) => {
+                        state.likes_syncing.store(true, Ordering::Release);
+                        let r = sync_likes(&app, &state).await;
+                        state.likes_syncing.store(false, Ordering::Release);
+                        match r {
+                            Ok(n) => {
+                                tracing::info!(count = n, "likes changed on SoundCloud, synced");
+                                let _ = app.emit("likes:changed", n);
+                            }
+                            Err(e) => tracing::debug!(error = %e, "background likes sync failed"),
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(e) => tracing::debug!(error = %e, "likes check failed"),
+                }
+            }
+            let pause = if queued > 0 {
+                fails += 1;
+                BACKOFF[(fails - 1).min(BACKOFF.len() - 1)]
+            } else {
+                fails = 0;
+                180
+            };
+            tokio::time::sleep(std::time::Duration::from_secs(pause)).await;
+        }
+    });
 }
 
 #[tauri::command]
@@ -143,20 +207,161 @@ pub async fn likes_ids(state: State<'_, AppState>) -> Cmd<Vec<u64>> {
     Ok(state.db.likes_ids().await?.into_iter().collect())
 }
 
-/// Like / unlike on SoundCloud, then mirror it in the local cache.
-#[tauri::command]
-pub async fn like_set(state: State<'_, AppState>, track: TrackDto, liked: bool) -> Cmd<()> {
+/// Sends a write request through the browser bridge; "not found" on removal is fine.
+async fn sc_write(app: &AppHandle, state: &AppState, req: (&'static str, Url), removing: bool) -> AppResult<()> {
+    let sc = state.sc()?;
+    let status = crate::bridge::send(app, req.0, &req.1, sc.auth_header()).await?;
+    match status {
+        200..=299 => Ok(()),
+        404 if removing => Ok(()),
+        0 => Err(AppError::Other("Нет связи с SoundCloud".into())),
+        crate::bridge::BLOCKED => Err(AppError::Other("SoundCloud временно ограничил доступ".into())),
+        s => Err(AppError::from_status(reqwest::StatusCode::from_u16(s).unwrap_or(reqwest::StatusCode::BAD_GATEWAY))),
+    }
+}
+
+const PENDING_LIKES: &str = "pending:likes";
+
+async fn pending_likes(state: &AppState) -> AppResult<Vec<(u64, bool)>> {
+    Ok(state.db.kv_get::<Vec<(u64, bool)>>(PENDING_LIKES).await?.map(|(v, _)| v).unwrap_or_default())
+}
+
+async fn send_like(app: &AppHandle, state: &AppState, track_id: u64, liked: bool) -> AppResult<()> {
     let me = state.current_user().await?;
-    state.sc()?.set_like(me.id, track.id, liked).await?;
+    let req = state.sc()?.like_request(me.id, track_id, liked)?;
+    sc_write(app, state, req, !liked).await
+}
+
+/// Like / unlike: applied locally at once, sent to SoundCloud right away or,
+/// if SoundCloud refuses for now (anti-bot block, no network), queued and
+/// retried in the background until it goes through. The user never waits.
+#[tauri::command]
+pub async fn like_set(app: AppHandle, state: State<'_, AppState>, track: TrackDto, liked: bool) -> Cmd<()> {
     if liked {
         if state.db.tracks_by_ids(vec![track.id]).await?.is_empty() {
             let full = state.sc()?.track(track.id).await?;
             state.db.upsert_tracks(vec![full]).await?;
         }
-        state.db.like_add(track.id).await
+        state.db.like_add(track.id).await?;
     } else {
-        state.db.like_remove(track.id).await
+        state.db.like_remove(track.id).await?;
     }
+
+    let mut pending = pending_likes(&state).await?;
+    let was_pending = pending.iter().any(|(id, _)| *id == track.id);
+    pending.retain(|(id, _)| *id != track.id);
+    state.db.kv_put(PENDING_LIKES, &pending).await?;
+    match send_like(&app, &state, track.id, liked).await {
+        Ok(()) => {
+            if was_pending {
+                let _ = app.emit("likes:queue", ());
+            }
+            Ok(())
+        }
+        Err(e @ (AppError::AuthExpired | AppError::NotAuthorized)) => Err(e),
+        Err(e) => {
+            tracing::info!(error = %e, track = track.id, liked, "like queued");
+            // undoing a like that never reached SoundCloud: nothing to send
+            if !(was_pending && !liked) {
+                pending.push((track.id, liked));
+                state.db.kv_put(PENDING_LIKES, &pending).await?;
+            }
+            let _ = app.emit("likes:queue", ());
+            Ok(())
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct PendingLike {
+    track: TrackDto,
+    liked: bool,
+}
+
+/// Likes / unlikes not yet accepted by SoundCloud (shown in Профиль → В очереди).
+#[tauri::command]
+pub async fn likes_pending(state: State<'_, AppState>) -> Cmd<Vec<PendingLike>> {
+    let pending = pending_likes(&state).await?;
+    let tracks = state.db.tracks_by_ids(pending.iter().map(|(id, _)| *id).collect()).await?;
+    Ok(pending
+        .into_iter()
+        .filter_map(|(id, liked)| tracks.iter().find(|t| t.id == id).map(|t| PendingLike { track: TrackDto::from(t), liked }))
+        .collect())
+}
+
+/// "Отправить сейчас": returns how many are still waiting.
+#[tauri::command]
+pub async fn likes_pending_flush(app: AppHandle, state: State<'_, AppState>) -> Cmd<usize> {
+    let left = flush_pending_likes(&app, &state).await? + flush_pending_follows(&app, &state).await?;
+    let _ = app.emit("likes:queue", ());
+    Ok(left)
+}
+
+// --------------------------------------------------------------- downloads
+
+#[tauri::command]
+pub async fn downloads_list(state: State<'_, AppState>) -> Cmd<Vec<crate::downloads::Download>> {
+    crate::downloads::existing(&state).await
+}
+
+#[tauri::command]
+pub async fn download_track(app: AppHandle, state: State<'_, AppState>, track: TrackDto) -> Cmd<crate::downloads::Download> {
+    let d = crate::downloads::download(&app, &state, track).await?;
+    let _ = app.emit("downloads:changed", ());
+    Ok(d)
+}
+
+#[tauri::command]
+pub async fn download_remove(app: AppHandle, state: State<'_, AppState>, track_id: u64) -> Cmd<()> {
+    crate::downloads::remove(&state, track_id).await?;
+    let _ = app.emit("downloads:changed", ());
+    Ok(())
+}
+
+/// Opens Music\SC Desk in Explorer (or shows the given file there).
+#[tauri::command]
+pub async fn downloads_open(app: AppHandle, path: Option<String>) -> Cmd<()> {
+    let target = match path {
+        Some(p) => std::path::PathBuf::from(p),
+        None => {
+            let dir = crate::downloads::folder(&app).await?;
+            let _ = tokio::fs::create_dir_all(&dir).await;
+            return app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| AppError::Other(e.to_string()));
+        }
+    };
+    app.opener().reveal_item_in_dir(target).map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn downloads_dir(app: AppHandle) -> Cmd<String> {
+    Ok(crate::downloads::folder(&app).await?.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn downloads_pick_dir(app: AppHandle) -> Cmd<String> {
+    Ok(crate::downloads::pick_folder(&app).await?.to_string_lossy().into_owned())
+}
+
+/// Sends queued likes; returns how many are still waiting.
+async fn flush_pending_likes(app: &AppHandle, state: &AppState) -> AppResult<usize> {
+    let pending = pending_likes(state).await?;
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let mut left = Vec::new();
+    for (id, liked) in pending {
+        // after one refusal the rest would be refused too: don't hammer SoundCloud
+        if !left.is_empty() {
+            left.push((id, liked));
+        } else if let Err(e) = send_like(app, state, id, liked).await {
+            tracing::debug!(error = %e, track = id, "queued like still refused");
+            left.push((id, liked));
+        } else {
+            let _ = app.emit("likes:queue", ());
+        }
+    }
+    state.db.kv_put(PENDING_LIKES, &left).await?;
+    Ok(left.len())
 }
 
 /// Cached-with-TTL fetch for library lists; serves stale data if offline.
@@ -214,8 +419,11 @@ pub async fn library_playlists(state: State<'_, AppState>, force: bool) -> Cmd<V
 pub async fn library_artists(state: State<'_, AppState>, force: bool) -> Cmd<Vec<UserDto>> {
     let me = state.current_user().await?;
     let sc = state.sc()?;
+    let pending = pending_follows(&state).await?;
     cached_list(&state, "lib:artists", force, || async move {
-        Ok(sc.followings(me.id).await?.iter().map(UserDto::from).collect())
+        let mut list: Vec<UserDto> = sc.followings(me.id).await?.iter().map(UserDto::from).collect();
+        apply_pending_follows(&mut list, &pending);
+        Ok(list)
     })
     .await
 }
@@ -229,16 +437,89 @@ pub async fn library_counts(state: State<'_, AppState>) -> Cmd<LibraryCounts> {
     Ok(LibraryCounts { tracks, playlists: pls.len() as u64 - albums, albums, artists })
 }
 
+const PENDING_FOLLOWS: &str = "pending:follows";
+
+async fn pending_follows(state: &AppState) -> AppResult<Vec<(UserDto, bool)>> {
+    Ok(state.db.kv_get::<Vec<(UserDto, bool)>>(PENDING_FOLLOWS).await?.map(|(v, _)| v).unwrap_or_default())
+}
+
+async fn send_follow(app: &AppHandle, state: &AppState, user_id: u64, follow: bool) -> AppResult<()> {
+    let req = state.sc()?.follow_request(user_id, follow)?;
+    sc_write(app, state, req, !follow).await
+}
+
+/// Puts queued follows / unfollows on top of a list from the server.
+fn apply_pending_follows(list: &mut Vec<UserDto>, pending: &[(UserDto, bool)]) {
+    for (user, follow) in pending {
+        list.retain(|u| u.id != user.id);
+        if *follow {
+            list.insert(0, user.clone());
+        }
+    }
+}
+
+/// Follow / unfollow: like `like_set`, applied locally at once and queued
+/// if SoundCloud refuses for now.
 #[tauri::command]
-pub async fn follow_set(state: State<'_, AppState>, user: UserDto, follow: bool) -> Cmd<()> {
-    state.sc()?.set_follow(user.id, follow).await?;
+pub async fn follow_set(app: AppHandle, state: State<'_, AppState>, user: UserDto, follow: bool) -> Cmd<()> {
     // keep the cached "Артисты" tab in sync without a refetch
     let mut list = state.db.kv_get::<Vec<UserDto>>("lib:artists").await?.map(|(v, _)| v).unwrap_or_default();
-    list.retain(|u| u.id != user.id);
-    if follow {
-        list.insert(0, user);
+    apply_pending_follows(&mut list, &[(user.clone(), follow)]);
+    state.db.kv_put("lib:artists", &list).await?;
+
+    let mut pending = pending_follows(&state).await?;
+    let was_pending = pending.iter().any(|(u, _)| u.id == user.id);
+    pending.retain(|(u, _)| u.id != user.id);
+    state.db.kv_put(PENDING_FOLLOWS, &pending).await?;
+    match send_follow(&app, &state, user.id, follow).await {
+        Ok(()) => {
+            if was_pending {
+                let _ = app.emit("likes:queue", ());
+            }
+            Ok(())
+        }
+        Err(e @ (AppError::AuthExpired | AppError::NotAuthorized)) => Err(e),
+        Err(e) => {
+            tracing::info!(error = %e, user = user.id, follow, "follow queued");
+            if !(was_pending && !follow) {
+                pending.push((user, follow));
+                state.db.kv_put(PENDING_FOLLOWS, &pending).await?;
+            }
+            let _ = app.emit("likes:queue", ());
+            Ok(())
+        }
     }
-    state.db.kv_put("lib:artists", &list).await
+}
+
+async fn flush_pending_follows(app: &AppHandle, state: &AppState) -> AppResult<usize> {
+    let pending = pending_follows(state).await?;
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let mut left = Vec::new();
+    for (user, follow) in pending {
+        if !left.is_empty() {
+            left.push((user, follow));
+        } else if let Err(e) = send_follow(app, state, user.id, follow).await {
+            tracing::debug!(error = %e, user = user.id, "queued follow still refused");
+            left.push((user, follow));
+        } else {
+            let _ = app.emit("likes:queue", ());
+        }
+    }
+    state.db.kv_put(PENDING_FOLLOWS, &left).await?;
+    Ok(left.len())
+}
+
+#[derive(serde::Serialize)]
+pub struct PendingFollow {
+    user: UserDto,
+    follow: bool,
+}
+
+#[tauri::command]
+pub async fn follows_pending(state: State<'_, AppState>) -> Cmd<Vec<PendingFollow>> {
+    Ok(pending_follows(&state).await?.into_iter().map(|(user, follow)| PendingFollow { user, follow }).collect())
 }
 
 // --------------------------------------------------------------- history
@@ -518,6 +799,11 @@ pub async fn dislike_set(
         state.db.undislike_track(track_id).await?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn disliked_tracks(state: State<'_, AppState>) -> Cmd<Vec<TrackDto>> {
+    state.db.disliked_tracks().await
 }
 
 #[tauri::command]

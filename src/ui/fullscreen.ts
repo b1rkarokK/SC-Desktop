@@ -7,7 +7,7 @@ import { LyricsView } from './lyrics_view';
 import { lyricsMenu, trackMenu } from './menus';
 import { lyricsData, SOURCE_NAMES, type LyricsState } from './lyrics_data';
 import { onPrefs, prefs, updatePrefs, type FsBackground, type FsLayout, type Highlight } from './prefs';
-import { openArtist, openTrack } from './router';
+import { openTrack, openTrackArtist } from './router';
 import { Slider } from './slider';
 import { store } from './store';
 
@@ -21,6 +21,10 @@ export class Fullscreen {
   private dislike = iconButton(I.dislike, 'Не рекомендовать');
   private context = h('span', { class: 'muted small' });
   private playBtn = iconButton(I.play, 'Воспроизвести', 'btn-play btn-play-lg');
+  private shuffleBtn = iconButton(I.shuffle, 'Перемешать');
+  private repeatBtn = iconButton(I.repeat, 'Повтор');
+  private muteBtn = iconButton(I.vol, 'Без звука');
+  private volume!: Slider;
   private seek: Slider;
   private time = h('span', { class: 'pb-time' });
   private dur = h('span', { class: 'pb-time' });
@@ -41,7 +45,7 @@ export class Fullscreen {
     this.playBtn.addEventListener('click', () => void api.toggle());
     const t = () => store.snapshot?.track ?? null;
     this.title.addEventListener('click', () => t() && (this.setOpen(false), openTrack(t()!.id)));
-    this.artist.addEventListener('click', () => t() && (this.setOpen(false), openArtist(t()!.user_id)));
+    this.artist.addEventListener('click', () => t() && (this.setOpen(false), void openTrackArtist(t()!)));
     this.like.addEventListener('click', () => t() && void store.setLiked(t()!, !store.liked.has(t()!.id)));
     this.dislike.addEventListener('click', () => t() && void store.setDisliked(t()!, !store.disliked.has(t()!.id)));
     this.seek = new Slider(
@@ -56,6 +60,21 @@ export class Fullscreen {
       },
     );
     this.cover.addEventListener('load', () => this.sampleColor());
+    this.shuffleBtn.addEventListener('click', () => void api.setShuffle(!store.snapshot?.shuffle));
+    this.repeatBtn.addEventListener('click', () => {
+      const m = store.snapshot?.repeat ?? 'off';
+      void api.setRepeat(m === 'off' ? 'all' : m === 'all' ? 'one' : 'off');
+    });
+    this.volume = new Slider(
+      'Громкость',
+      (v) => void api.setVolume(v, false),
+      (v) => void api.setVolume(v, true),
+    );
+    this.muteBtn.addEventListener('click', () => {
+      const v = (store.snapshot?.volume ?? 0) > 0 ? 0 : 0.8;
+      this.volume.set(v);
+      void api.setVolume(v, true);
+    });
 
     this.drawer = this.buildDrawer();
     this.drawer.hidden = true;
@@ -63,7 +82,7 @@ export class Fullscreen {
     this.el = h(
       'div',
       { class: 'fs', role: 'dialog', 'aria-label': 'Сейчас играет' },
-      h('div', { class: 'fs-top' }, exit, h('span', { class: 'muted small', text: 'Сейчас играет' }), this.context, h('div', { class: 'spacer' }), paletteBtn),
+      h('div', { class: 'fs-top', 'data-tauri-drag-region': true }, exit, h('span', { class: 'muted small', text: 'Сейчас играет' }), this.context, h('div', { class: 'spacer' }), paletteBtn),
       h(
         'div',
         { class: 'fs-main' },
@@ -79,7 +98,13 @@ export class Fullscreen {
         'div',
         { class: 'fs-bottom' },
         h('div', { class: 'pb-seek' }, this.time, this.seek.el, this.dur),
-        h('div', { class: 'pb-controls' }, prev, this.playBtn, next),
+        h(
+          'div',
+          { class: 'fs-controls' },
+          h('div', { class: 'fs-side' }),
+          h('div', { class: 'pb-controls' }, this.shuffleBtn, prev, this.playBtn, next, this.repeatBtn),
+          h('div', { class: 'fs-side fs-vol' }, this.muteBtn, this.volume.el),
+        ),
       ),
       this.drawer,
     );
@@ -153,6 +178,13 @@ export class Fullscreen {
     this.artist.textContent = t?.artist ?? '';
     this.dur.textContent = fmtTime(t?.duration_ms ?? 0);
     setIcon(this.playBtn, s?.playing || s?.loading ? I.pause : I.play, 20);
+    this.shuffleBtn.classList.toggle('is-on', !!s?.shuffle);
+    setIcon(this.repeatBtn, s?.repeat === 'one' ? I.repeatOne : I.repeat);
+    this.repeatBtn.classList.toggle('is-on', !!s && s.repeat !== 'off');
+    if (s && !this.volume.isDragging) {
+      this.volume.set(s.volume);
+      setIcon(this.muteBtn, s.volume === 0 ? I.mute : s.volume < 0.5 ? I.volLow : I.vol);
+    }
     const src = coverUrl(t?.artwork_url, 't500x500');
     if (src && this.cover.getAttribute('src') !== src) {
       this.coverColor = null;
