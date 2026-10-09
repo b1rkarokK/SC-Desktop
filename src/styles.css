@@ -150,7 +150,6 @@ select {
   display: flex;
   align-items: stretch;
   background: var(--panel);
-  border-bottom: 1px solid var(--border);
 }
 
 .tb-brand {
@@ -225,7 +224,6 @@ select {
   width: var(--nav-w);
   overflow: hidden;
   background: var(--panel);
-  border-right: 1px solid var(--border);
   transition: width 0.18s ease;
 }
 
@@ -403,7 +401,6 @@ select {
   align-items: center;
   height: 40px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--border);
   flex: none;
 }
 
