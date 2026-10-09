@@ -1123,11 +1123,33 @@ select {
 
 /* ----------------------------------------------------------- settings */
 
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
+/* one column, no boxes: sections are separated by space and a title */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  max-width: 720px;
+  margin: 8px auto 0;
+}
+
+.set-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.set-section h2 {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.set-section p {
+  margin: 0;
 }
 
 .group {
@@ -1138,11 +1160,6 @@ select {
   min-width: 0;
 }
 
-.settings > .group,
-.settings > div > .group {
-  margin-bottom: 16px;
-}
-
 .group h2 {
   margin: 0;
   font-size: 14px;
@@ -1151,6 +1168,10 @@ select {
 
 .group p {
   margin: 0;
+}
+
+.proxy-row .input {
+  max-width: 300px;
 }
 
 .set-row {
@@ -1246,8 +1267,8 @@ select {
 
 .theme-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(3, 150px);
+  gap: 12px;
 }
 
 .theme-card {
@@ -1336,50 +1357,43 @@ select {
   accent-color: var(--text);
 }
 
-.net-group {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 24px;
-  margin-bottom: 16px;
-}
-
-.net-left {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .faq {
-  padding-left: 24px;
-  border-left: 1px solid var(--border);
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .faq-title {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
-  color: var(--text);
+  color: var(--muted);
   font-size: 13px;
-  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.faq-title::-webkit-details-marker {
+  display: none;
+}
+
+.faq-title:hover,
+.faq[open] .faq-title {
+  color: var(--text);
+}
+
+.faq[open] .faq-title {
+  margin-bottom: 10px;
 }
 
 .faq p {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
+  max-width: 620px;
 }
 
 .faq b {
   color: var(--text);
   font-weight: 600;
-}
-
-.two-col {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 32px;
 }
 
 /* ------------------------------------------------------------- player */

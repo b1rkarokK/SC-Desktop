@@ -297,6 +297,17 @@ impl Player {
             if has_queue {
                 self.lock().active = true;
                 self.load_current();
+            } else {
+                // nothing queued yet (fresh start): ▶ plays the likes from the top
+                let this = self.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = this.app.state::<AppState>();
+                    match state.db.likes_all().await {
+                        Ok(tracks) if !tracks.is_empty() => this.play_queue(tracks, 0, QueueSource::Likes),
+                        Ok(_) => this.emit_error(&AppError::Other("Лайков пока нет — откройте «Лайки» и синхронизируйте".into())),
+                        Err(e) => this.emit_error(&e),
+                    }
+                });
             }
             return;
         }
