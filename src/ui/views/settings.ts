@@ -28,15 +28,17 @@ function row(label: string, control: HTMLElement, hint?: string): HTMLElement {
   return h('div', { class: 'set-row' }, h('div', { class: 'set-label' }, h('div', { text: label }), hint ? h('div', { class: 'muted small', text: hint }) : null), control);
 }
 
+/** A settings section: title + rows, no box — sections are separated by space. */
 function group(title: string, ...children: (HTMLElement | null)[]): HTMLElement {
-  return h('div', { class: 'group panel' }, h('h2', { text: title }), ...children);
+  return h('section', { class: 'set-section' }, h('h2', { text: title }), ...children);
 }
 
+/** Collapsible help: one line «? title», details on click. */
 function faq(title: string, items: [string, string][]): HTMLElement {
   return h(
-    'div',
+    'details',
     { class: 'faq' },
-    h('div', { class: 'faq-title' }, icon(I.help), h('span', { text: title })),
+    h('summary', { class: 'faq-title' }, icon(I.help), h('span', { text: title })),
     ...items.map(([k, v]) => h('p', {}, h('b', { text: `${k}: ` }), v)),
   );
 }
@@ -58,10 +60,8 @@ export class SettingsView implements View {
       viewHead('Настройки'),
       h(
         'div',
-        { class: 'view-scroll pad settings' },
-        h('div', { class: 'settings-grid' }, this.account, this.themeBox, this.discordBox, this.lyricsBox),
-        this.netBox,
-        this.systemBox,
+        { class: 'view-scroll pad' },
+        h('div', { class: 'settings' }, this.account, this.themeBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox),
       ),
     );
     store.on('auth', () => this.renderAccount());
@@ -242,19 +242,12 @@ export class SettingsView implements View {
       }
     });
     this.netBox.replaceChildren(
-      h(
-        'div',
-        { class: 'group panel net-group' },
-        h(
-          'div',
-          { class: 'net-left' },
-          h('h2', { text: 'Сеть' }),
-          radios,
-          h('div', { class: 'row-actions' }, proxy, check),
-          result,
-          h('div', { class: 'row-actions' }, apply),
-        ),
-        faq('Как пользоваться прокси', [
+      group(
+        'Сеть',
+        radios,
+        h('div', { class: 'row-actions proxy-row' }, proxy, check, apply),
+        result,
+        faq('Как пользоваться прокси?', [
           ['Зачем', 'весь трафик приложения пойдёт через указанный адрес — например, через ваш VPN-клиент, если он не включён системно.'],
           ['Где взять адрес', 'в настройках VPN-клиента найдите «локальный SOCKS-порт» (v2rayN — 10808, NekoBox — 2080, Clash — 7890).'],
           ['Что вписать', 'socks5h://127.0.0.1:ПОРТ (h — DNS тоже идёт через прокси). С паролем: socks5://логин:пароль@адрес:порт'],
@@ -293,12 +286,8 @@ export class SettingsView implements View {
     this.systemBox.replaceChildren(
       group(
         'Система',
-        h(
-          'div',
-          { class: 'two-col' },
-          row('Запускать вместе с системой', toggle(a, (v) => ((a = v), void save()))),
-          row('При запуске сворачивать в трей', toggle(m, (v) => ((m = v), void save()))),
-        ),
+        row('Запускать вместе с системой', toggle(a, (v) => ((a = v), void save()))),
+        row('При запуске сворачивать в трей', toggle(m, (v) => ((m = v), void save()))),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),
       ),
     );
