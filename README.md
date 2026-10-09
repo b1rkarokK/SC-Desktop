@@ -1,50 +1,54 @@
+<p align="right"><b>English</b> | <a href="README.ru.md">Русский</a></p>
+
 # SC Desk
 
-Лёгкий десктопный клиент SoundCloud для Windows — без рекламы, с синхронными текстами песен и статусом в Discord.
+A SoundCloud app for Windows. No ads, light on your PC, with synced lyrics and Discord status.
 
-**[Скачать последнюю версию →](https://github.com/b1rkarokK/SC-Desktop/releases/latest)** (файл `SC.Desk_x.y.z_x64-setup.exe`)
+**[Download the latest version](https://github.com/b1rkarokK/SC-Desktop/releases/latest)** - the `SC.Desk_x.y.z_x64-setup.exe` file.
 
-После установки программа сама проверяет обновления и предлагает поставить новую версию прямо в окне.
+Installs in a couple of seconds, no admin rights needed. You get a desktop shortcut and a Start menu entry. The app finds updates on its own and installs them with one click.
 
-## Возможности
+## What it does
 
-- **Лайки** — треки, плейлисты, альбомы и любимые артисты; лайк и дизлайк в один клик.
-- **Моя волна** — бесконечный поток похожих треков, настроение (больше нового, только знакомое, спокойнее, энергичнее). Дизлайк запоминается навсегда.
-- **Поиск по всему SoundCloud**, страницы треков, артистов и плейлистов.
-- **Синхронный текст** с подсветкой слов (LRCLIB, NetEase, Musixmatch; обычный текст — Genius). Полноэкранный режим с настройкой вида.
-- **Эквалайзер** на 10 полос, темы **OLED / тёмная / светлая**.
-- **Discord** — статус «Слушает SC Desk» с треком, обложкой и прогрессом.
-- Работает из трея, медиаклавиши, автозапуск с системой. В фоне почти не нагружает процессор.
-- Никакой рекламы: звук идёт напрямую, без рекламных вставок веб-плеера.
+- Likes: tracks, albums, playlists (yours and liked ones), artists you follow
+- My Wave: an endless mix based on your taste. Pick a mood and keep tracks you already liked out of it
+- Search all of SoundCloud, open track, artist and playlist pages
+- Lyrics that light up in time with the song, sometimes word by word. There's a fullscreen mode you can tweak
+- Listening history by day
+- 10-band equalizer
+- Themes: OLED, dark, light
+- Discord status: what's playing, cover art and time left
+- Lives in the tray, works with media keys, can start with Windows
+- Switch headphones or speakers mid-song and the sound follows
 
-## Вход
+No ads at all. Audio comes straight from SoundCloud, without the inserts the website plays.
 
-Настройки → «Войти через SoundCloud» — откроется обычное окно входа soundcloud.com. Ключ входа хранится в системном хранилище Windows (Credential Manager), никуда не отправляется.
+## Signing in
 
-## Сеть
+Settings - "Sign in with SoundCloud". The regular SoundCloud login window opens, you can use email, Google, Facebook or Apple. Your login is kept in the Windows credential store and never leaves your PC.
 
-По умолчанию программа ходит в интернет напрямую — если у вас включён «запрет» или VPN, она работает через них. Можно указать свой прокси (SOCKS5/HTTP) в Настройках → Сеть, там же подсказка и кнопка «Проверить».
+## If SoundCloud doesn't load
 
-Треки, закрытые в вашем регионе, и треки SoundCloud Go+ (защищены DRM) программа пропускает.
+By default the app goes online the same way your browser does, so if you use a VPN, it works through it. You can also set your own proxy in Settings - Network, there's a short guide and a "Check" button.
 
-## Сборка из исходников
+Tracks blocked in your country and SoundCloud Go+ tracks (they're DRM protected) are skipped.
 
-Нужны Node.js 22+ и Rust (stable).
+## Building it yourself
+
+You'll need Node.js 22+ and Rust.
 
 ```bash
 npm ci
-npm run tauri dev     # запуск для разработки
-npm run tauri build   # установщик в src-tauri/target/release/bundle/nsis
+npm run tauri dev
+npm run tauri build
 ```
 
-## Выпуск новой версии (для автора)
+## For the author: releasing a version
 
-1. Поднять версию в `package.json`, `src-tauri/Cargo.toml` и `src-tauri/tauri.conf.json`.
-2. Дописать раздел в `CHANGELOG.md` — его увидят пользователи в окне обновления.
-3. `git tag v0.2.0 && git push --tags` — GitHub Actions соберёт, подпишет и опубликует релиз.
-
-Секреты репозитория: `TAURI_SIGNING_PRIVATE_KEY` (содержимое приватного ключа подписи) и `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (пустой).
+1. Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
+2. Add what changed to `CHANGELOG.md`. Everyone sees this text in the update window.
+3. `git tag v0.3.0 && git push --tags`. GitHub builds and publishes the rest.
 
 ---
 
-SC Desk — неофициальный клиент, не связан с SoundCloud.
+SC Desk is an unofficial app and isn't affiliated with SoundCloud.
