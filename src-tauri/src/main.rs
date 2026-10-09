@@ -3,6 +3,7 @@
 mod api;
 mod autostart;
 mod bridge;
+mod charts;
 mod commands;
 mod config;
 mod db;
@@ -10,11 +11,14 @@ mod dedupe;
 mod discord;
 mod downloads;
 mod error;
+mod fingerprint;
 mod geniusweb;
+mod home;
 mod hotkeys;
 mod logging;
 mod login;
 mod models;
+mod picks;
 mod net;
 mod player;
 mod secrets;
@@ -55,6 +59,7 @@ fn main() {
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
             geniusweb::init(&handle);
+            charts::start_daily(&handle);
             // the window is created hidden (tauri.conf.json) to avoid a flash on autostart
             if !start_hidden {
                 tray::show_main(&handle);
@@ -106,6 +111,16 @@ fn main() {
             commands::artist_get,
             commands::artist_section,
             commands::playlist_page,
+            commands::home_sections,
+            commands::mix_page,
+            commands::category_tracks,
+            commands::category_covers,
+            commands::picks,
+            commands::chart_page,
+            commands::chart_years,
+            #[cfg(debug_assertions)]
+            commands::debug_fp_compare,
+            commands::feed_page,
             commands::player_play_likes,
             commands::player_play_tracks,
             commands::player_enqueue,

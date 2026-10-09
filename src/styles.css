@@ -2199,3 +2199,196 @@ select {
 .row-cover.is-round {
   border-radius: 50%;
 }
+
+/* -------------------------------------------------------- home shelves */
+
+.shelf {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 160px;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+/* the scrollbar shows only while the pointer is over the shelf */
+.shelf::-webkit-scrollbar {
+  height: 4px;
+}
+
+.shelf::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shelf::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.shelf:hover::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+
+.shelf::-webkit-scrollbar-button {
+  display: none;
+}
+
+.mix-desc {
+  max-width: 560px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* -------------------------------------------------------- categories */
+
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.cat-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  height: 108px;
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cat-tile:hover,
+.cat-tile:focus-visible {
+  border-color: var(--accent);
+}
+
+.cat-chip {
+  margin-bottom: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.cat-title {
+  max-width: 52%;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.cat-sub {
+  max-width: 52%;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* «Ящик пластинок»: the top-3 covers fanned out like records in a crate */
+.crate {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 116px;
+  height: 64px;
+  transform: translateY(-50%);
+}
+
+.crate-cover {
+  position: absolute;
+  top: 0;
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  transition: transform 0.15s ease;
+}
+
+.crate-2 { right: 52px; transform: rotate(-10deg); }
+.crate-1 { right: 28px; transform: rotate(-2deg); }
+.crate-0 { right: 0; transform: rotate(8deg); }
+
+.cat-tile:hover .crate-2 { transform: rotate(-16deg) translateX(-6px); }
+.cat-tile:hover .crate-0 { transform: rotate(12deg) translateX(4px); }
+
+.crate-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.crate-empty .icon {
+  width: 26px;
+  height: 26px;
+}
+
+.cat-mark {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.pick-actions {
+  margin-bottom: 16px;
+}
+
+/* -------------------------------------------------------- charts */
+
+.chart-title {
+  margin: 0 0 12px;
+}
+
+.chart-picker {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chips-scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.chip-btn {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip-btn:hover {
+  color: var(--text);
+}
+
+.chip-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}

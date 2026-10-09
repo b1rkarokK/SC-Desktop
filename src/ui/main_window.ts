@@ -8,14 +8,16 @@ import { router, type Route, type Section } from './router';
 import { store } from './store';
 import type { View } from './views/common';
 import { HistoryView } from './views/history';
+import { HomeView } from './views/home';
 import { ProfileView } from './views/profile';
 import { LibraryView } from './views/library';
-import { ArtistPageView, PlaylistPageView, TrackPageView } from './views/pages';
+import { ArtistPageView, CategoryPageView, ChartPageView, MixPageView, PlaylistPageView, TrackPageView } from './views/pages';
 import { SearchView } from './views/search';
 import { SettingsView } from './views/settings';
 import { WaveView } from './views/wave';
 
 const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
+  ['home', 'Главная', I.home],
   ['likes', 'Лайки', I.heart],
   ['wave', 'Моя волна', I.wave],
   ['history', 'История', I.history],
@@ -25,6 +27,7 @@ const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
 
 export class MainWindow {
   readonly library = new LibraryView();
+  private home = new HomeView();
   private wave = new WaveView();
   private history = new HistoryView();
   private search = new SearchView();
@@ -79,6 +82,10 @@ export class MainWindow {
     this.user.classList.toggle('is-active', section === 'profile');
     let view: View;
     switch (r.name) {
+      case 'home':
+        this.center.replaceChildren(this.home.el);
+        this.home.show(r.tab);
+        return;
       case 'likes':
         view = this.library;
         this.center.replaceChildren(view.el);
@@ -108,6 +115,15 @@ export class MainWindow {
         break;
       case 'playlist':
         view = new PlaylistPageView(r.id);
+        break;
+      case 'mix':
+        view = new MixPageView(r.urn);
+        break;
+      case 'category':
+        view = new CategoryPageView(r.key);
+        break;
+      case 'chart':
+        view = new ChartPageView(r.kind);
         break;
     }
     this.center.replaceChildren(view.el);

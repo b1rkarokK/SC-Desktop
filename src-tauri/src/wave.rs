@@ -422,7 +422,7 @@ pub async fn generate(state: &AppState, batch: usize, exclude: &HashSet<u64>) ->
     Ok(mixed.iter().map(TrackDto::from).collect())
 }
 
-async fn related_cached(state: &AppState, sc: &SoundCloud, seed: u64) -> AppResult<Vec<ScTrack>> {
+pub async fn related_cached(state: &AppState, sc: &SoundCloud, seed: u64) -> AppResult<Vec<ScTrack>> {
     if let Some(ids) = state.db.related_get(seed, RELATED_TTL_SECS).await? {
         let tracks = state.db.tracks_by_ids(ids).await?;
         if !tracks.is_empty() {

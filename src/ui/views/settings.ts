@@ -81,7 +81,7 @@ export class SettingsView implements View {
       this.renderDiscord();
       this.renderNet();
       const sys = await api.systemGet();
-      this.renderSystem(sys.autostart, sys.start_minimized);
+      this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected);
     } catch (e) {
       toast(errorMessage(e), 'error');
     }
@@ -259,15 +259,16 @@ export class SettingsView implements View {
 
   // ----------------------------------------------------------- system
 
-  private renderSystem(autostart: boolean, minimized: boolean): void {
+  private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean): void {
     let a = autostart;
     let m = minimized;
+    let f = fastProtected;
     // on failure show the real state again (the switch must not lie)
     const save = () =>
-      api.systemSet(a, m).catch(async (e) => {
+      api.systemSet(a, m, f).catch(async (e) => {
         toast(errorMessage(e), 'error');
         const s = await api.systemGet();
-        this.renderSystem(s.autostart, s.start_minimized);
+        this.renderSystem(s.autostart, s.start_minimized, s.fast_protected);
       });
     const version = h('span', { class: 'muted small' });
     void invoke<string>('app_version').then((v) => (version.textContent = `Версия ${v}`));
@@ -288,6 +289,11 @@ export class SettingsView implements View {
         'Система',
         row('Запускать вместе с системой', toggle(a, (v) => ((a = v), void save()))),
         row('При запуске сворачивать в трей', toggle(m, (v) => ((m = v), void save()))),
+        row(
+          'Мгновенный старт защищённых треков',
+          toggle(f, (v) => ((f = v), void save())),
+          'Держит плеер SoundCloud готовым, примерно +60 МБ памяти. Без этого первый такой трек стартует 5-10 секунд.',
+        ),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),
       ),
     );

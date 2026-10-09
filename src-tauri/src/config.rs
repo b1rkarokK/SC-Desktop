@@ -70,6 +70,9 @@ pub struct AppConfig {
     pub eq: EqConfig,
     pub discord: DiscordConfig,
     pub start_minimized: bool,
+    /// keep SoundCloud's player warmed up for protected tracks (+50-70 MB, instant start)
+    #[serde(default = "yes")]
+    pub fast_protected: bool,
     /// «Моя волна» without liked tracks and their re-uploads
     pub wave_no_liked: bool,
     /// autostart was set up once (enabled by default on the first launch)
@@ -88,6 +91,7 @@ impl Default for AppConfig {
             eq: EqConfig::default(),
             discord: DiscordConfig::default(),
             start_minimized: true,
+            fast_protected: true,
             wave_no_liked: true,
             autostart_initialized: false,
             ui:serde_json::Value::Object(Default::default()),
@@ -145,4 +149,8 @@ fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, data)?;
     fs::rename(tmp, path)
+}
+
+fn yes() -> bool {
+    true
 }

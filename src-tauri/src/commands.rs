@@ -658,6 +658,179 @@ pub async fn playlist_page(state: State<'_, AppState>, id: u64) -> Cmd<PlaylistP
     Ok(PlaylistPage { playlist: PlaylistDto::from(&pl), tracks: dtos })
 }
 
+// ---------------------------------------------------------------- home
+
+/// SoundCloud's own shelves change a few times a day: 30 min cache.
+const HOME_TTL: i64 = 30 * 60;
+
+#[tauri::command]
+pub async fn home_sections(state: State<'_, AppState>, force: bool) -> Cmd<Vec<crate::home::HomeSection>> {
+    let cached = state.db.kv_get::<Vec<crate::home::HomeSection>>("home").await?;
+    if !force {
+        if let Some((v, at)) = &cached {
+            if now() - at < HOME_TTL {
+                return Ok(v.clone());
+            }
+        }
+    }
+    match state.sc()?.home().await {
+        Ok(resp) => {
+            let sections = crate::home::sections(&resp);
+            state.db.kv_put("home", &sections).await?;
+            Ok(sections)
+        }
+        // offline: yesterday's shelves are better than nothing
+        Err(e) => cached.map(|(v, _)| v).ok_or(e),
+    }
+}
+
+/// «Категории» tile backed by searches ("хиты 90-х", "suno ai" …): tracks the
+/// most liked playlists for the theme agree on. Cached for a day.
+#[tauri::command]
+pub async fn category_tracks(state: State<'_, AppState>, key: String, queries: Vec<String>) -> Cmd<Vec<TrackDto>> {
+    category_tracks_cached(&state, &key, &queries).await
+}
+
+async fn category_tracks_cached(state: &AppState, key: &str, queries: &[String]) -> AppResult<Vec<TrackDto>> {
+    const TTL: i64 = 24 * 3600;
+    let cache_key = format!("category2:{key}");
+    if let Some((v, at)) = state.db.kv_get::<Vec<TrackDto>>(&cache_key).await? {
+        if now() - at < TTL && !v.is_empty() {
+            return Ok(v);
+        }
+    }
+    let tracks = Box::pin(crate::home::category_tracks(&state.sc()?, queries)).await?;
+    let list: Vec<TrackDto> = tracks.iter().map(TrackDto::from).collect();
+    state.db.upsert_tracks(tracks).await?;
+    state.db.kv_put(&cache_key, &list).await?;
+    Ok(list)
+}
+
+#[derive(serde::Deserialize)]
+pub struct CoverReq {
+    key: String,
+    mix: Option<String>,
+    queries: Option<Vec<String>>,
+    pick: Option<String>,
+    #[serde(default)]
+    chart: Option<String>,
+}
+
+/// Tile art for «Категории»: covers of the category's top-3 tracks (a fan of records).
+/// Refreshed once a day in the background, one tile at a time; the page
+/// listens to "categories:covers". Theme tracks get cached on the way, so
+/// opening a theme is instant.
+#[tauri::command]
+pub async fn category_covers(app: AppHandle, state: State<'_, AppState>, tiles: Vec<CoverReq>) -> Cmd<std::collections::HashMap<String, Vec<String>>> {
+    const TTL: i64 = 24 * 3600;
+    let mut out = std::collections::HashMap::new();
+    let mut stale = Vec::new();
+    for t in tiles {
+        match state.db.kv_get::<Vec<String>>(&format!("cover3:{}", t.key)).await? {
+            Some((urls, at)) => {
+                if !urls.is_empty() {
+                    out.insert(t.key.clone(), urls);
+                }
+                if now() - at >= TTL {
+                    stale.push(t);
+                }
+            }
+            None => stale.push(t),
+        }
+    }
+    if !stale.is_empty() && !state.covers_busy.swap(true, Ordering::AcqRel) {
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            use tauri::Manager;
+            let state = app2.state::<AppState>();
+            for t in stale {
+                let tracks: Vec<TrackDto> = if let Some(urn) = &t.mix {
+                    match state.sc() {
+                        Ok(sc) => Box::pin(crate::home::mix(&sc, urn)).await.map(|(p, _)| p.tracks).unwrap_or_default(),
+                        Err(_) => Vec::new(),
+                    }
+                } else if let Some(q) = &t.queries {
+                    category_tracks_cached(&state, &t.key, q).await.unwrap_or_default()
+                } else if let Some(kind) = &t.pick {
+                    crate::picks::get(&state, kind).await.unwrap_or_default()
+                } else if let Some(kind) = &t.chart {
+                    Box::pin(crate::charts::page(&state, kind)).await.map(|p| p.tracks).unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                // top-3 distinct covers
+                let mut urls: Vec<String> = Vec::new();
+                for u in tracks.into_iter().filter_map(|t| t.artwork_url) {
+                    if !urls.contains(&u) {
+                        urls.push(u);
+                    }
+                    if urls.len() == 3 {
+                        break;
+                    }
+                }
+                let _ = state.db.kv_put(&format!("cover3:{}", t.key), &urls).await;
+                let _ = app2.emit("categories:covers", ());
+                // gentle on SoundCloud and the network
+                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            }
+            state.covers_busy.store(false, Ordering::Release);
+        });
+    }
+    Ok(out)
+}
+
+/// Real charts on SoundCloud: "ru:day" | "world:day" | "ru:week" | "ru:month" | "ru:year" | "ru:2021" | "world:2019" …
+#[tauri::command]
+pub async fn chart_page(state: State<'_, AppState>, kind: String) -> Cmd<crate::charts::ChartPage> {
+    Box::pin(crate::charts::page(&state, &kind)).await
+}
+
+/// Debug builds only: bit error rate between two tracks' audio (tuning fingerprint.rs).
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn debug_fp_compare(state: State<'_, AppState>, a: u64, b: u64) -> Cmd<(f32, f32)> {
+    let sc = state.sc()?;
+    let mut fps = Vec::new();
+    for id in [a, b] {
+        let t = sc.track(id).await?;
+        let bytes = Box::pin(sc.download_audio(&t)).await?;
+        let fp = tauri::async_runtime::spawn_blocking(move || crate::fingerprint::compute(&bytes))
+            .await
+            .map_err(|e| AppError::Other(e.to_string()))?
+            .ok_or_else(|| AppError::Other("no fingerprint".into()))?;
+        fps.push(fp);
+    }
+    Ok(crate::fingerprint::best_match(&fps[0], &fps[1]))
+}
+
+/// Years with a Russian year-end chart.
+#[tauri::command]
+pub fn chart_years() -> Vec<u16> {
+    crate::charts::ya_years()
+}
+
+/// «Только в SC Desk»: forgotten | year-ago | repeat | radar.
+#[tauri::command]
+pub async fn picks(state: State<'_, AppState>, kind: String) -> Cmd<Vec<TrackDto>> {
+    crate::picks::get(&state, &kind).await
+}
+
+#[tauri::command]
+pub async fn mix_page(state: State<'_, AppState>, urn: String) -> Cmd<crate::home::MixPage> {
+    let (page, tracks) = crate::home::mix(&state.sc()?, &urn).await?;
+    state.db.upsert_tracks(tracks).await?;
+    Ok(page)
+}
+
+#[tauri::command]
+pub async fn feed_page(state: State<'_, AppState>, next: Option<String>) -> Cmd<crate::home::FeedPage> {
+    let resp = state.sc()?.stream(next.as_deref()).await?;
+    let (items, tracks) = crate::home::feed_items(&resp);
+    state.db.upsert_tracks(tracks).await?;
+    let next = resp["next_href"].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    Ok(crate::home::FeedPage { items, next })
+}
+
 // ---------------------------------------------------------------- player
 
 #[tauri::command]
@@ -993,16 +1166,32 @@ pub fn discord_set(state: State<'_, AppState>, player: State<'_, Arc<Player>>, d
 pub struct SystemPrefs {
     autostart: bool,
     start_minimized: bool,
+    fast_protected: bool,
 }
 
 #[tauri::command]
 pub fn system_get(app: AppHandle, state: State<'_, AppState>) -> SystemPrefs {
-    SystemPrefs { autostart: crate::autostart::is_enabled(&app), start_minimized: state.config.get().start_minimized }
+    let cfg = state.config.get();
+    SystemPrefs { autostart: crate::autostart::is_enabled(&app), start_minimized: cfg.start_minimized, fast_protected: cfg.fast_protected }
 }
 
 #[tauri::command]
-pub fn system_set(app: AppHandle, state: State<'_, AppState>, autostart: bool, start_minimized: bool) -> Cmd<()> {
-    state.config.update(|c| c.start_minimized = start_minimized)?;
+pub fn system_set(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    player: State<'_, Arc<Player>>,
+    autostart: bool,
+    start_minimized: bool,
+    fast_protected: bool,
+) -> Cmd<()> {
+    let was = state.config.get().fast_protected;
+    state.config.update(|c| {
+        c.start_minimized = start_minimized;
+        c.fast_protected = fast_protected;
+    })?;
+    if was != fast_protected {
+        player.set_fast_protected(fast_protected);
+    }
     if autostart != crate::autostart::is_enabled(&app) {
         crate::autostart::set(&app, autostart)?;
     }

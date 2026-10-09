@@ -175,6 +175,7 @@ export interface NetCheck {
 export interface SystemPrefs {
   autostart: boolean;
   start_minimized: boolean;
+  fast_protected: boolean;
 }
 
 export interface AppErrorPayload {
@@ -195,6 +196,47 @@ export function errorMessage(e: unknown): string {
 export interface PendingLike {
   track: Track;
   liked: boolean;
+}
+
+export interface HomeCard {
+  kind: 'mix' | 'playlist';
+  id: number;
+  urn: string | null;
+  title: string;
+  subtitle: string;
+  artwork_url: string | null;
+  track_count: number;
+}
+
+export interface HomeSection {
+  title: string;
+  cards: HomeCard[];
+}
+
+export interface MixPage {
+  title: string;
+  description: string;
+  artwork_url: string | null;
+  permalink_url: string | null;
+  tracks: Track[];
+}
+
+export interface FeedItem {
+  track: Track;
+  reposted_by: string[];
+  at: string;
+}
+
+export interface FeedPage {
+  items: FeedItem[];
+  next: string | null;
+}
+
+export interface ChartPage {
+  title: string;
+  note: string;
+  tracks: Track[];
+  missing: number;
 }
 
 export interface PendingFollow {
@@ -225,6 +267,15 @@ export const api = {
   downloads: () => invoke<Download[]>('downloads_list'),
   download: (track: Track) => invoke<Download>('download_track', { track }),
   downloadRemove: (trackId: number) => invoke<void>('download_remove', { trackId }),
+  homeSections: (force: boolean) => invoke<HomeSection[]>('home_sections', { force }),
+  categoryTracks: (key: string, queries: string[]) => invoke<Track[]>('category_tracks', { key, queries }),
+  categoryCovers: (tiles: { key: string; mix: string | null; queries: string[] | null; pick: string | null; chart: string | null }[]) =>
+    invoke<Record<string, string[]>>('category_covers', { tiles }),
+  chartPage: (kind: string) => invoke<ChartPage>('chart_page', { kind }),
+  chartYears: () => invoke<number[]>('chart_years'),
+  picks: (kind: string) => invoke<Track[]>('picks', { kind }),
+  mixPage: (urn: string) => invoke<MixPage>('mix_page', { urn }),
+  feedPage: (next: string | null) => invoke<FeedPage>('feed_page', { next }),
   downloadsDir: () => invoke<string>('downloads_dir'),
   downloadsPickDir: () => invoke<string>('downloads_pick_dir'),
   followsPending: () => invoke<PendingFollow[]>('follows_pending'),
@@ -286,8 +337,8 @@ export const api = {
   eqSet: (eq: EqConfig, persist: boolean) => invoke<void>('eq_set', { eq, persist }),
   discordSet: (discord: DiscordConfig) => invoke<void>('discord_set', { discord }),
   systemGet: () => invoke<SystemPrefs>('system_get'),
-  systemSet: (autostart: boolean, startMinimized: boolean) =>
-    invoke<void>('system_set', { autostart, startMinimized }),
+  systemSet: (autostart: boolean, startMinimized: boolean, fastProtected: boolean) =>
+    invoke<void>('system_set', { autostart, startMinimized, fastProtected }),
 };
 
 export type CoverSize = 't67x67' | 't300x300' | 't500x500';

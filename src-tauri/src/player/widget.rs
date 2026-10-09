@@ -26,7 +26,8 @@ use crate::error::{AppError, AppResult};
 
 const LABEL: &str = "sc-widget";
 const PAGE: &str = "https://soundcloud.com/robots.txt";
-const IDLE: Duration = Duration::from_secs(90);
+/// kept ready this long after the last widget track: the next one then starts in 1-2 s, not 6-10
+const IDLE: Duration = Duration::from_secs(10 * 60);
 /// no "play" from the widget within this time → the track can't be played
 const START_TIMEOUT: Duration = Duration::from_secs(25);
 
@@ -41,6 +42,8 @@ struct St {
     since: Option<Instant>,
     volume: f32,
     last_use: Option<Instant>,
+    /// warmed up for the session: never closed for being idle
+    keep: bool,
 }
 
 pub struct Widget {
@@ -119,6 +122,20 @@ fn host_script() -> String {
     seek(ms) {{ cur && cur.w.seekTo(ms); }},
     volume(v) {{ cur && cur.w.setVolume(v); }},
     stop() {{ gen = -1; if (cur) {{ cur.f.remove(); cur = null; }} }},
+    // play a DRM track silently for a moment: loads the player and Windows'
+    // DRM module, so the user's first protected track starts as fast as a repeat
+    async warm(id) {{
+      await api;
+      if (!window.SC || cur) return;
+      const o = make(id);
+      await o.ready;
+      o.w.setVolume(0);
+      o.w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {{
+        if (e.currentPosition > 300) {{ o.w.pause(); setTimeout(() => o.f.remove(), 500); }}
+      }});
+      o.w.play();
+      setTimeout(() => o.f.isConnected && o.f.remove(), 20000);
+    }},
   }};
 }})();"#,
         page = serde_json::to_string(PAGE).unwrap_or_default(),
@@ -165,7 +182,7 @@ impl Widget {
     pub fn load(&self, track_id: u64, generation: u64) {
         let volume = {
             let mut s = self.lock();
-            *s = St { generation, active: true, volume: s.volume, last_use: Some(Instant::now()), ..Default::default() };
+            *s = St { generation, active: true, volume: s.volume, keep: s.keep, last_use: Some(Instant::now()), ..Default::default() };
             s.volume
         };
         let app = self.app.clone();
@@ -193,6 +210,32 @@ impl Widget {
                 let _ = events.send(AudioEvent::Error { generation, message: "SoundCloud не отдал этот трек".into() });
             }
         });
+    }
+
+    /// Gets SoundCloud's player ready before the user needs it: the window, the
+    /// player script and the DRM module are loaded by a silent half-second play
+    /// of a protected track. The window then stays for the whole session.
+    pub fn warm_up(&self, sample_track: u64) {
+        self.lock().keep = true;
+        let app = self.app.clone();
+        let st = self.st.clone();
+        let ready = self.ready.clone();
+        let events = self.events.clone();
+        tauri::async_runtime::spawn(async move {
+            if ensure_window(&app, &st, &ready, &events).await.is_ok() {
+                if let Some(w) = app.get_webview_window(LABEL) {
+                    let _ = w.eval(&format!("{}\nwindow.scw.warm({sample_track});", host_script()));
+                    tracing::debug!(track = sample_track, "widget: warmed up");
+                }
+            }
+        });
+    }
+
+    /// The warm-up is switched off: the window goes away once idle, as before.
+    pub fn cool_down(&self) {
+        let mut s = self.lock();
+        s.keep = false;
+        s.last_use = Some(Instant::now() - IDLE);
     }
 
     /// Loads `track_id` paused in advance (the next track is DRM-only too),
@@ -394,7 +437,7 @@ fn spawn_idle_closer(app: AppHandle, st: Arc<Mutex<St>>, ready: Arc<Mutex<Option
             };
             let idle = {
                 let s = st.lock().unwrap_or_else(|p| p.into_inner());
-                !s.active && s.last_use.map_or(true, |t| t.elapsed() > IDLE)
+                !s.keep && !s.active && s.last_use.map_or(true, |t| t.elapsed() > IDLE)
             };
             if idle {
                 *ready.lock().unwrap_or_else(|p| p.into_inner()) = None;

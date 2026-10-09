@@ -15,6 +15,8 @@ class LyricsData {
   private wanted = false;
   private seq = 0;
   private listeners = new Set<Listener>();
+  /** ms the playing upload is shifted by against the original (Go+ stand-ins) */
+  private shifts = new Map<number, number>();
 
   on(cb: Listener): void {
     this.listeners.add(cb);
@@ -37,6 +39,13 @@ class LyricsData {
     }
   }
 
+  /** The track plays through an upload with a longer intro: move the lyrics by `ms`. */
+  setShift(trackId: number, ms: number): void {
+    if ((this.shifts.get(trackId) ?? 0) === ms) return;
+    this.shifts.set(trackId, ms);
+    if (this.state.kind === 'ready' && this.state.track.id === trackId) this.set({ ...this.state });
+  }
+
   reload(): void {
     void this.load(true);
   }
@@ -55,9 +64,28 @@ class LyricsData {
   }
 
   private set(s: LyricsState): void {
+    if (s.kind === 'ready') s = { ...s, lyrics: shifted(s.lyrics, this.shifts.get(s.track.id) ?? 0) };
     this.state = s;
     this.listeners.forEach((cb) => cb(s));
   }
+}
+
+/** Lyrics with every timestamp moved by `ms` (a no-op for 0 or unsynced text). */
+function shifted(l: Lyrics, ms: number): Lyrics {
+  if (!ms || !l.synced || (l as Lyrics & { shiftedBy?: number }).shiftedBy === ms) return l;
+  const prev = (l as Lyrics & { shiftedBy?: number }).shiftedBy ?? 0;
+  const d = ms - prev;
+  const mv = (t: number | null) => (t === null ? null : Math.max(0, t + d));
+  return {
+    ...l,
+    shiftedBy: ms,
+    lines: l.lines.map((x) => ({
+      ...x,
+      start_ms: mv(x.start_ms),
+      end_ms: mv(x.end_ms),
+      words: x.words.map((w) => ({ ...w, start_ms: w.start_ms + d, end_ms: w.end_ms + d })),
+    })),
+  } as Lyrics;
 }
 
 export const lyricsData = new LyricsData();

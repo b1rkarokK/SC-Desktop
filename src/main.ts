@@ -37,6 +37,7 @@ async function boot(): Promise<void> {
       lyricsData.setTrack(e.payload);
     }),
     listen<number>('player:seek', (e) => clock.reset(e.payload)),
+    listen<{ id: number; ms: number }>('player:lyrics-shift', (e) => lyricsData.setShift(e.payload.id, e.payload.ms)),
     listen<AppErrorPayload>('player:error', (e) => toast(e.payload.message, 'error')),
     listen<number>('likes:progress', (e) => main.library.setProgress(e.payload)),
     listen<number>('likes:changed', () => {
@@ -63,7 +64,7 @@ async function boot(): Promise<void> {
     main.start({ name: 'settings' });
     return;
   }
-  main.start({ name: 'likes' });
+  main.start({ name: 'home' });
   void store.reloadSets();
   api.libraryArtists(false).then((u) => store.setFollowing(u), () => undefined);
   api.authVerify().then(

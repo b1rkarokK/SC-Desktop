@@ -22,6 +22,8 @@ pub struct AppState {
     pub wave: WaveState,
     pub lyrics: LyricsState,
     pub likes_syncing: AtomicBool,
+    /// «Категории» tile covers are being fetched
+    pub covers_busy: AtomicBool,
     http: RwLock<Arc<HttpClient>>,
     creds: RwLock<Option<Credentials>>,
     me: RwLock<Option<ScUser>>,
@@ -73,6 +75,7 @@ impl AppState {
             wave,
             lyrics: LyricsState::default(),
             likes_syncing: AtomicBool::new(false),
+            covers_busy: AtomicBool::new(false),
             http: RwLock::new(Arc::new(http)),
             creds: RwLock::new(creds),
             me: RwLock::new(None),

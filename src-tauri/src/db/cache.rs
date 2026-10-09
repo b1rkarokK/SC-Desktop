@@ -266,6 +266,46 @@ impl Db {
         .await
     }
 
+    /// Likes not played in the app since `since` (unix s), oldest likes first.
+    pub async fn forgotten_likes(&self, since: i64, limit: u32) -> AppResult<Vec<TrackDto>> {
+        self.run(move |c| {
+            let mut st = c.prepare_cached(&format!(
+                "SELECT {TRACK_COLS} FROM likes l JOIN tracks t ON t.id = l.track_id
+                 WHERE NOT EXISTS (SELECT 1 FROM plays p WHERE p.track_id = l.track_id AND p.at > ?1)
+                 ORDER BY l.position DESC LIMIT ?2"
+            ))?;
+            let rows = st.query_map(params![since, limit as i64], row_to_dto)?;
+            rows.collect()
+        })
+        .await
+    }
+
+    /// Likes whose date (ISO, compared as text) falls in `[from, to)`, e.g. "2025-09-20".."2025-10-30".
+    pub async fn likes_between(&self, from: String, to: String) -> AppResult<Vec<TrackDto>> {
+        self.run(move |c| {
+            let mut st = c.prepare_cached(&format!(
+                "SELECT {TRACK_COLS} FROM likes l JOIN tracks t ON t.id = l.track_id
+                 WHERE l.liked_at >= ?1 AND l.liked_at < ?2 ORDER BY l.liked_at"
+            ))?;
+            let rows = st.query_map(params![from, to], row_to_dto)?;
+            rows.collect()
+        })
+        .await
+    }
+
+    /// Most played since `since` (2+ plays), most played first.
+    pub async fn on_repeat(&self, since: i64, limit: u32) -> AppResult<Vec<TrackDto>> {
+        self.run(move |c| {
+            let mut st = c.prepare_cached(&format!(
+                "SELECT {TRACK_COLS}, COUNT(*) AS n FROM plays p JOIN tracks t ON t.id = p.track_id
+                 WHERE p.at > ?1 GROUP BY p.track_id HAVING n >= 2 ORDER BY n DESC, MAX(p.at) DESC LIMIT ?2"
+            ))?;
+            let rows = st.query_map(params![since, limit as i64], row_to_dto)?;
+            rows.collect()
+        })
+        .await
+    }
+
     pub async fn likes_all(&self) -> AppResult<Vec<TrackDto>> {
         self.likes_page(0, u32::MAX >> 1).await
     }

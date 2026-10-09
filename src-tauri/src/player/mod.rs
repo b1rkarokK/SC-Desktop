@@ -117,12 +117,15 @@ impl State {
 }
 
 const DRM_ONLY_KEY: &str = "drm_only";
+/// a public DRM-only track (gazz / меня плавит), for the warm-up when none is known yet
+const WARM_SAMPLE: u64 = 1_505_419_138;
 
 enum Fetched {
     /// decoded natively
     Bytes(Vec<u8>),
     /// DRM-only: SoundCloud's widget plays it
-    Widget,
+    /// the track id the widget plays (a full upload may stand in for a Go+ preview)
+    Widget(u64),
 }
 
 pub struct Player {
@@ -134,6 +137,11 @@ pub struct Player {
     external: std::sync::atomic::AtomicBool,
     /// tracks known to be DRM-only: go straight to the widget (kv "drm_only")
     drm_only: Mutex<HashSet<u64>>,
+    /// a Go+ preview played through someone else's upload: (track id, seconds the
+    /// recording is shifted by in that upload). The lyrics shift with it.
+    stand_in: Mutex<Option<(u64, f32)>>,
+    /// the next track's audio, fetched while the current one plays (one slot)
+    prefetched: Mutex<Option<(u64, Arc<Vec<u8>>, Option<f32>)>>,
     eq: Arc<EqShared>,
     discord: Discord,
     st: Mutex<State>,
@@ -156,6 +164,8 @@ impl Player {
             widget,
             external: std::sync::atomic::AtomicBool::new(false),
             drm_only: Mutex::new(HashSet::new()),
+            stand_in: Mutex::new(None),
+            prefetched: Mutex::new(None),
             eq,
             discord: Discord::start(cfg.discord.clone()),
             st: Mutex::new(State {
@@ -180,6 +190,13 @@ impl Player {
             let known = p.app.state::<AppState>().db.kv_get::<Vec<u64>>(DRM_ONLY_KEY).await;
             if let Ok(Some((ids, _))) = known {
                 p.drm_only.lock().unwrap_or_else(|e| e.into_inner()).extend(ids);
+            }
+            // once the app has settled, warm SoundCloud's player up for protected tracks
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            let state = p.app.state::<AppState>();
+            if state.credentials().is_some() && state.config.get().fast_protected {
+                let sample = p.drm_only.lock().unwrap_or_else(|e| e.into_inner()).iter().next().copied().unwrap_or(WARM_SAMPLE);
+                p.widget.warm_up(sample);
             }
         });
         let p = player.clone();
@@ -208,6 +225,16 @@ impl Player {
             source: s.source,
             queue_len: s.queue.len(),
             queue_pos: s.pos,
+        }
+    }
+
+    /// «Мгновенный старт защищённых треков» switched in Settings.
+    pub fn set_fast_protected(&self, on: bool) {
+        if on {
+            let sample = self.drm_only.lock().unwrap_or_else(|e| e.into_inner()).iter().next().copied().unwrap_or(WARM_SAMPLE);
+            self.widget.warm_up(sample);
+        } else {
+            self.widget.cool_down();
         }
     }
 
@@ -676,7 +703,27 @@ impl Player {
         tauri::async_runtime::spawn(async move {
             // boxed: the download future is large, and debug builds keep it on the worker's stack
             let t0 = std::time::Instant::now();
-            let result = Box::pin(this.fetch_audio(track.id)).await;
+            // already fetched while the previous track played: start at once
+            let ready = {
+                let mut slot = this.prefetched.lock().unwrap_or_else(|e| e.into_inner());
+                match slot.take() {
+                    Some((id, data, stand_in)) if id == track.id => Some((data, stand_in)),
+                    other => {
+                        *slot = other;
+                        None
+                    }
+                }
+            };
+            let result = match ready {
+                Some((data, stand_in)) => {
+                    if let Some(shift) = stand_in {
+                        *this.stand_in.lock().unwrap_or_else(|e| e.into_inner()) = Some((track.id, shift));
+                    }
+                    tracing::debug!(track = track.id, "prefetched audio used");
+                    Ok(Fetched::Bytes(Arc::try_unwrap(data).unwrap_or_else(|a| (*a).clone())))
+                }
+                None => Box::pin(this.fetch_audio(track.id)).await,
+            };
             tracing::debug!(ms = t0.elapsed().as_millis() as u64, ok = result.is_ok(), "track fetched");
             if this.generation.load(Ordering::SeqCst) != generation {
                 return; // user already moved on
@@ -684,12 +731,20 @@ impl Player {
             match result {
                 Ok(fetched) => {
                     match fetched {
-                        Fetched::Bytes(data) => this.out(AudioCmd::Load { data: Arc::new(data), generation }),
-                        Fetched::Widget => {
+                        Fetched::Bytes(data) => {
+                            this.out(AudioCmd::Load { data: Arc::new(data), generation });
+                            // a stand-in for a Go+ preview may be another edit (longer intro …):
+                            // the lyrics must follow the recording that really plays
+                            let stand_in = this.stand_in.lock().unwrap_or_else(|e| e.into_inner()).take();
+                            if let Some((_, shift)) = stand_in.filter(|(for_id, _)| *for_id == track.id) {
+                                let _ = this.app.emit("player:lyrics-shift", serde_json::json!({ "id": track.id, "ms": (shift * 1000.0).round() as i64 }));
+                            }
+                        }
+                        Fetched::Widget(play_id) => {
                             tracing::info!(track = track.id, "DRM-only stream: playing in SoundCloud's widget");
                             this.out(AudioCmd::Stop);
                             this.external.store(true, Ordering::SeqCst);
-                            this.widget.load(track.id, generation);
+                            this.widget.load(play_id, generation);
                         }
                     }
                     let widget = this.external.load(Ordering::SeqCst);
@@ -736,7 +791,7 @@ impl Player {
             }
         }
         if self.drm_only.lock().unwrap_or_else(|e| e.into_inner()).contains(&track_id) {
-            return Ok(Fetched::Widget);
+            return Ok(Fetched::Widget(track_id));
         }
         let used = state.db.streams_last_24h().await?;
         if used >= STREAM_QUOTA {
@@ -744,13 +799,34 @@ impl Player {
         }
         let sc = state.sc()?;
         // always fresh: track_authorization in cached JSON expires
-        let full = sc.track(track_id).await?;
-        let data = match Box::pin(sc.download_audio(&full)).await {
+        let mut full = sc.track(track_id).await?;
+        let mut ready: Option<Vec<u8>> = None;
+        if full.is_preview() {
+            // 30 s Go+ preview: play someone else's full upload of the very same recording
+            let shift;
+            (full, ready, shift) = match self.full_upload(&state, &sc, &full).await? {
+                Some(found) => found,
+                None => {
+                    return Err(AppError::UnsupportedStream(
+                        "в SoundCloud это только 30-секундное превью для Go+, а полной загрузки этой записи нет".into(),
+                    ))
+                }
+            };
+            *self.stand_in.lock().unwrap_or_else(|e| e.into_inner()) = Some((track_id, shift));
+        }
+        let downloaded = match ready {
+            Some(bytes) => Ok(bytes),
+            None => Box::pin(sc.download_audio(&full)).await,
+        };
+        let data = match downloaded {
             Ok(d) => Fetched::Bytes(d),
             // only DRM streams are actually served: SoundCloud's own player can play them
             Err(AppError::NotFound | AppError::UnsupportedStream(_)) if crate::api::soundcloud::has_drm_stream(&full) => {
-                self.remember_drm(track_id).await;
-                Fetched::Widget
+                // a stand-in for a preview is found again next time, don't cache the preview's id
+                if full.id == track_id {
+                    self.remember_drm(track_id).await;
+                }
+                Fetched::Widget(full.id)
             }
             Err(AppError::NotFound) => {
                 return Err(AppError::UnsupportedStream("он удалён, закрыт автором или недоступен в вашей стране".into()))
@@ -760,6 +836,34 @@ impl Player {
         state.db.log_stream().await?;
         state.db.upsert_tracks(vec![full]).await?;
         Ok(data)
+    }
+
+    /// Full upload for a Go+ preview, remembered per track (kv "full_alt:<id>").
+    /// Full upload for a Go+ preview, checked by ear once and then remembered
+    /// with its shift (kv "full_alt3:<id>"). Returns the audio too when it was
+    /// just downloaded for the check.
+    async fn full_upload(
+        &self,
+        state: &AppState,
+        sc: &crate::api::soundcloud::SoundCloud,
+        preview: &crate::api::soundcloud::ScTrack,
+    ) -> AppResult<Option<(crate::api::soundcloud::ScTrack, Option<Vec<u8>>, f32)>> {
+        let key = format!("full_alt3:{}", preview.id);
+        if let Some(((alt_id, shift), _)) = state.db.kv_get::<(u64, f32)>(&key).await? {
+            if let Ok(alt) = sc.track(alt_id).await {
+                if alt.is_fully_playable() {
+                    return Ok(Some((alt, None, shift)));
+                }
+            }
+        }
+        Ok(match Box::pin(crate::home::full_version(sc, preview)).await? {
+            Some(v) => {
+                tracing::info!(preview = preview.id, full = v.track.id, shift = v.shift_secs, "Go+ preview: playing a verified full upload instead");
+                state.db.kv_put(&key, &(v.track.id, v.shift_secs)).await?;
+                Some((v.track, Some(v.audio), v.shift_secs))
+            }
+            None => None,
+        })
     }
 
     async fn remember_drm(&self, track_id: u64) {
@@ -773,29 +877,42 @@ impl Player {
         let _ = self.app.state::<AppState>().db.kv_put(DRM_ONLY_KEY, &ids).await;
     }
 
-    /// While a track plays: if the next one is DRM-only, load it in the widget
-    /// in advance so it starts instantly.
+    /// While a track plays, get the next one ready so it starts at once:
+    /// its audio is downloaded (a Go+ preview's stand-in found and checked by
+    /// ear too), or, if only SoundCloud's own player can play it, that player
+    /// loads it paused. Only one track ahead: little memory, little traffic.
     fn lookahead(self: &Arc<Self>) {
         let Some(next) = self.upcoming(1).into_iter().next() else { return };
+        if self.prefetched.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(id, ..)| *id == next.id) {
+            return;
+        }
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
-            let state = this.app.state::<AppState>();
-            if crate::downloads::file_of(&state, next.id).await.is_some() {
+            // let the current track settle first
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            if this.upcoming(1).first().map(|t| t.id) != Some(next.id) {
                 return;
             }
-            let known = this.drm_only.lock().unwrap_or_else(|e| e.into_inner()).contains(&next.id);
-            let drm = if known {
-                true
-            } else {
-                let Ok(sc) = state.sc() else { return };
-                let Ok(full) = Box::pin(sc.track(next.id)).await else { return };
-                crate::api::soundcloud::has_drm_stream(&full) && matches!(Box::pin(sc.native_stream_ok(&full)).await, Ok(false))
-            };
-            if drm {
-                this.remember_drm(next.id).await;
-                if this.upcoming(1).first().map(|t| t.id) == Some(next.id) {
-                    this.widget.preload(next.id);
+            let fetched = Box::pin(this.fetch_audio(next.id)).await;
+            let still_next = this.upcoming(1).first().map(|t| t.id) == Some(next.id);
+            match fetched {
+                Ok(Fetched::Bytes(data)) if still_next => {
+                    let stand_in = {
+                        let mut s = this.stand_in.lock().unwrap_or_else(|e| e.into_inner());
+                        match s.take() {
+                            Some((id, shift)) if id == next.id => Some(shift),
+                            other => {
+                                *s = other;
+                                None
+                            }
+                        }
+                    };
+                    tracing::debug!(track = next.id, bytes = data.len(), "next track prefetched");
+                    *this.prefetched.lock().unwrap_or_else(|e| e.into_inner()) = Some((next.id, Arc::new(data), stand_in));
                 }
+                Ok(Fetched::Widget(play_id)) if still_next => this.widget.preload(play_id),
+                Ok(_) => {}
+                Err(e) => tracing::debug!(track = next.id, error = %e, "prefetch failed"),
             }
         });
     }

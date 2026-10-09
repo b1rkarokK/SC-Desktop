@@ -3,8 +3,10 @@
 
 export type LibTab = 'tracks' | 'playlists' | 'albums' | 'artists';
 export type ProfileTab = 'downloads' | 'queue';
+export type HomeTab = 'home' | 'categories' | 'feed';
 
 export type Route =
+  | { name: 'home'; tab?: HomeTab }
   | { name: 'likes'; tab?: LibTab }
   | { name: 'wave' }
   | { name: 'history' }
@@ -13,14 +15,17 @@ export type Route =
   | { name: 'profile'; tab?: ProfileTab }
   | { name: 'track'; id: number }
   | { name: 'artist'; id: number }
-  | { name: 'playlist'; id: number };
+  | { name: 'playlist'; id: number }
+  | { name: 'mix'; urn: string }
+  | { name: 'category'; key: string }
+  | { name: 'chart'; kind: string };
 
-export type Section = 'likes' | 'wave' | 'history' | 'search' | 'settings' | 'profile';
+export type Section = 'home' | 'likes' | 'wave' | 'history' | 'search' | 'settings' | 'profile';
 
-const TOP: ReadonlySet<string> = new Set(['likes', 'wave', 'history', 'search', 'settings', 'profile']);
+const TOP: ReadonlySet<string> = new Set(['home', 'likes', 'wave', 'history', 'search', 'settings', 'profile']);
 
 class Router {
-  private stack: Route[] = [{ name: 'likes' }];
+  private stack: Route[] = [{ name: 'home' }];
   private listeners = new Set<(r: Route) => void>();
 
   get current(): Route {
@@ -45,6 +50,9 @@ class Router {
     else {
       const cur = this.current;
       if ('id' in cur && 'id' in route && cur.name === route.name && cur.id === route.id) return;
+      if ('urn' in cur && 'urn' in route && cur.urn === route.urn) return;
+      if ('key' in cur && 'key' in route && cur.key === route.key) return;
+      if ('kind' in cur && 'kind' in route && cur.kind === route.kind) return;
       this.stack.push(route);
       if (this.stack.length > 50) this.stack.splice(1, 1);
     }
@@ -97,4 +105,16 @@ export async function openTrackArtist(t: { artist: string; user_id: number }): P
 
 export function openPlaylist(id: number): void {
   router.go({ name: 'playlist', id });
+}
+
+export function openChart(kind: string): void {
+  router.go({ name: 'chart', kind });
+}
+
+export function openCategory(key: string): void {
+  router.go({ name: 'category', key });
+}
+
+export function openMix(urn: string): void {
+  router.go({ name: 'mix', urn });
 }

@@ -1,6 +1,6 @@
 [package]
 name = "sc-desk"
-version = "0.3.1"
+version = "0.4.0"
 description = "Lightweight native SoundCloud desktop client"
 edition = "2021"
 rust-version = "1.80"
@@ -55,9 +55,15 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 tauri-plugin-dialog = "2"
+rustfft = "6"
 
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+# Debug builds: optimise dependencies (audio decoding, FFT, crypto) so the dev
+# app behaves like the real one; our own crate stays fast to rebuild.
+[profile.dev.package."*"]
+opt-level = 2

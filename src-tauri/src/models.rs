@@ -26,7 +26,8 @@ impl From<&ScTrack> for TrackDto {
             title: t.title.clone(),
             artist: t.artist_name(),
             user_id: t.artist_id(),
-            duration_ms: t.duration,
+            // previews: show the song's real length, the player finds a full upload
+            duration_ms: t.full_duration.filter(|_| t.is_preview()).unwrap_or(t.duration).max(t.duration),
             artwork_url: t.artwork().map(str::to_owned),
             permalink_url: t.permalink_url.clone(),
             genre: t.genre.clone().filter(|g| !g.trim().is_empty()),

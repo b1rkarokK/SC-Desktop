@@ -67,6 +67,8 @@ pub struct ScPlaylist {
     pub release_date: Option<String>,
     #[serde(default)]
     pub duration: Option<u64>,
+    #[serde(default)]
+    pub likes_count: Option<u64>,
     /// first few are full, the rest only carry `id`
     #[serde(default)]
     pub tracks: Vec<Value>,
@@ -111,9 +113,12 @@ pub struct ScTrack {
     pub id: u64,
     #[serde(default)]
     pub title: String,
-    /// milliseconds
+    /// milliseconds (30 000 for a Go+ preview)
     #[serde(default)]
     pub duration: u64,
+    /// length of the whole song, also for previews
+    #[serde(default)]
+    pub full_duration: Option<u64>,
     #[serde(default)]
     pub genre: Option<String>,
     #[serde(default)]
@@ -171,6 +176,16 @@ impl ScTrack {
         self.artwork_url
             .as_deref()
             .or_else(|| self.user.as_ref().and_then(|u| u.avatar_url.as_deref()))
+    }
+
+    /// A 30-second SoundCloud Go+ preview of a major-label track.
+    pub fn is_preview(&self) -> bool {
+        self.policy.as_deref() == Some("SNIP")
+    }
+
+    /// Region-blocked or not streamable at all: no way to play it.
+    pub fn is_unplayable(&self) -> bool {
+        self.policy.as_deref() == Some("BLOCK") || self.streamable == Some(false)
     }
 
     /// Full-length playback is possible (no preview-only / geo-blocked tracks).
@@ -385,6 +400,31 @@ impl SoundCloud {
         Ok((pl, tracks))
     }
 
+    /// SoundCloud's home shelves (`/mixed-selections`), raw.
+    pub async fn home(&self) -> AppResult<Value> {
+        self.get(self.api_url("/mixed-selections", &[("limit", "10".into())])?).await
+    }
+
+    /// A system playlist ("Your Mix 1", "Daily Drops", a station …), raw; tracks are ids only.
+    pub async fn system_playlist(&self, urn: &str) -> AppResult<Value> {
+        self.get(self.api_url(&format!("/system-playlists/{urn}"), &[])?).await
+    }
+
+    /// The feed: posts and reposts of followings. `next` = `next_href` of the previous page.
+    pub async fn stream(&self, next: Option<&str>) -> AppResult<Value> {
+        let url = match next {
+            Some(href) => self.api_href(href)?,
+            None => self.api_url("/stream", &[("limit", "40".into())])?,
+        };
+        self.get(url).await
+    }
+
+    /// Track ids of a playlist, in order (no hydration: one cheap request).
+    pub async fn playlist_track_ids(&self, id: u64) -> AppResult<Vec<u64>> {
+        let pl: ScPlaylist = self.get(self.api_url(&format!("/playlists/{id}"), &[("representation", "full".into())])?).await?;
+        Ok(pl.tracks.iter().filter_map(|t| t["id"].as_u64()).collect())
+    }
+
     /// Hydrates partial tracks, keeping the given order (max 50 ids per request).
     pub async fn tracks_by_ids(&self, ids: &[u64]) -> AppResult<Vec<ScTrack>> {
         let mut found = std::collections::HashMap::new();
@@ -458,21 +498,6 @@ impl SoundCloud {
             "progressive" => self.http.get_bytes(&resolved.url, Profile::Media, None).await,
             "hls" => self.fetch_hls(&resolved.url).await,
             other => Err(AppError::UnsupportedStream(format!("протокол {other}"))),
-        }
-    }
-
-    /// Whether the native engine can get this track's stream (cheap: resolves
-    /// the stream URL, downloads nothing).
-    pub async fn native_stream_ok(&self, track: &ScTrack) -> AppResult<bool> {
-        let Ok(tc) = pick_transcoding(track) else { return Ok(false) };
-        let mut url = self.api_href(&tc.url)?;
-        if let Some(auth) = &track.track_authorization {
-            url.query_pairs_mut().append_pair("track_authorization", auth);
-        }
-        match self.get::<ResolvedStream>(url).await {
-            Ok(_) => Ok(true),
-            Err(AppError::NotFound) => Ok(false),
-            Err(e) => Err(e),
         }
     }
 
