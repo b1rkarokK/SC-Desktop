@@ -43,12 +43,6 @@ npm run tauri dev
 npm run tauri build
 ```
 
-## Для автора: как выпустить версию
-
-1. Поменять номер версии в `package.json`, `src-tauri/Cargo.toml` и `src-tauri/tauri.conf.json`.
-2. Дописать, что изменилось, в `CHANGELOG.md`. Этот текст увидят все в окне обновления.
-3. `git tag v0.3.0 && git push --tags`. Дальше GitHub всё соберёт и выложит сам.
-
 ---
 
 SC Desk - неофициальная программа, к SoundCloud отношения не имеет.

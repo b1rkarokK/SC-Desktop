@@ -43,12 +43,6 @@ npm run tauri dev
 npm run tauri build
 ```
 
-## For the author: releasing a version
-
-1. Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
-2. Add what changed to `CHANGELOG.md`. Everyone sees this text in the update window.
-3. `git tag v0.3.0 && git push --tags`. GitHub builds and publishes the rest.
-
 ---
 
 SC Desk is an unofficial app and isn't affiliated with SoundCloud.
