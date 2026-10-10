@@ -3182,3 +3182,22 @@ kbd {
 .fs[data-viz='line'] .fs-main {
   padding-bottom: 128px;
 }
+
+.seg-wrap {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.seg-wrap .seg-tab {
+  justify-content: center;
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+
+.seg-wrap .seg-tab:nth-child(3n + 1) {
+  border-left: 0;
+}
+
+.seg-wrap .seg-tab:nth-child(-n + 3) {
+  border-top: 0;
+}

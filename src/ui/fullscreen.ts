@@ -299,7 +299,7 @@ export class Fullscreen {
         return b;
       });
       this.segEls.set(key, btns);
-      return h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: label }), h('div', { class: 'seg seg-full' }, ...btns));
+      return h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: label }), h('div', { class: 'seg seg-full' + (btns.length > 4 ? ' seg-wrap' : '') }, ...btns));
     };
     this.sizeSlider = new Slider(
       T('Размер текста'),
