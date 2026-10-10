@@ -30,9 +30,10 @@ jobs:
           workspaces: src-tauri -> target
           shared-key: release
 
-      # tauri-build wants the built frontend to exist
       - run: npm ci
-      - run: npm run build
 
+      # exactly what tauri-action runs for a release (same features, same
+      # profile), minus the installer: a plain cargo build compiled the tauri
+      # crates with other features and the release rebuilt them all
       - name: Build the core like a release does
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+        run: npx tauri build --no-bundle
