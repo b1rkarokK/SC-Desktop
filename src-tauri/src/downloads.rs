@@ -69,7 +69,7 @@ pub async fn pick_folder(app: &AppHandle) -> AppResult<PathBuf> {
     use tauri_plugin_dialog::DialogExt;
     let current = folder(app).await?;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let mut dialog = app.dialog().file().set_title("Куда сохранять музыку");
+    let mut dialog = app.dialog().file().set_title(crate::lang::pick("Куда сохранять музыку", "Where to save music"));
     if current.is_dir() {
         dialog = dialog.set_directory(&current);
     }

@@ -144,6 +144,9 @@ pub struct ScTrack {
     pub streamable: Option<bool>,
     #[serde(default)]
     pub playback_count: Option<u64>,
+    /// "public" | "private"
+    #[serde(default)]
+    pub sharing: Option<String>,
     #[serde(default)]
     pub likes_count: Option<u64>,
     #[serde(default)]
@@ -354,6 +357,44 @@ impl SoundCloud {
     pub fn follow_request(&self, user_id: u64, follow: bool) -> AppResult<(&'static str, Url)> {
         let url = self.api_url(&format!("/me/followings/{user_id}"), &[])?;
         Ok((if follow { "POST" } else { "DELETE" }, url))
+    }
+
+    /// api-v2 URL for a write sent through the browser bridge.
+    pub fn write_url(&self, path: &str) -> AppResult<Url> {
+        self.api_url(path, &[])
+    }
+
+    /// Transcoding state of an upload: {"status": "queued|preparing|transcoding|finished|failure|not_found", "percentage"}.
+    pub async fn upload_status(&self, uid: &str) -> AppResult<Value> {
+        self.get(self.api_url(&format!("/uploads/{uid}/track-transcoding"), &[])?).await
+    }
+
+    /// One of the user's own tracks, private ones too.
+    pub async fn track_as_owner(&self, id: u64) -> AppResult<ScTrack> {
+        self.get(self.api_url(&format!("/tracks/soundcloud:tracks:{id}"), &[("representation", "owner".into())])?).await
+    }
+
+    /// The user's own uploads, private ones included (owner token).
+    pub async fn own_tracks(&self, user_id: u64) -> AppResult<Vec<ScTrack>> {
+        let url = self.api_url(
+            &format!("/users/{user_id}/tracks"),
+            &[("limit", PAGE_SIZE.to_string()), ("linked_partitioning", "1".into()), ("representation", "owner".into())],
+        )?;
+        self.paged(url, 20).await
+    }
+
+    /// Replaces a playlist's track list (PUT with `{"playlist":{"tracks":[…]}}`).
+    pub fn playlist_tracks_request(&self, playlist_id: u64, tracks: &[u64]) -> AppResult<(&'static str, Url, String)> {
+        let url = self.api_url(&format!("/playlists/{playlist_id}"), &[])?;
+        let body = serde_json::json!({ "playlist": { "tracks": tracks } }).to_string();
+        Ok(("PUT", url, body))
+    }
+
+    /// A new private playlist with these tracks.
+    pub fn playlist_create_request(&self, title: &str, tracks: &[u64]) -> AppResult<(&'static str, Url, String)> {
+        let url = self.api_url("/playlists", &[])?;
+        let body = serde_json::json!({ "playlist": { "title": title, "sharing": "private", "tracks": tracks } }).to_string();
+        Ok(("POST", url, body))
     }
 
     pub fn auth_header(&self) -> &str {

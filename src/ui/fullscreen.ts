@@ -10,6 +10,7 @@ import { onPrefs, prefs, updatePrefs, type FsBackground, type FsLayout, type Hig
 import { openTrack, openTrackArtist } from './router';
 import { Slider } from './slider';
 import { store } from './store';
+import { T } from './i18n';
 
 export class Fullscreen {
   readonly el: HTMLDivElement;
@@ -17,13 +18,13 @@ export class Fullscreen {
   private cover = h('img', { class: 'fs-cover', alt: '', crossorigin: 'anonymous' });
   private title = h('button', { type: 'button', class: 'fs-title link', dir: 'auto' });
   private artist = h('button', { type: 'button', class: 'fs-artist link', dir: 'auto' });
-  private like = iconButton(I.heart, 'Лайкнуть');
-  private dislike = iconButton(I.dislike, 'Не рекомендовать');
+  private like = iconButton(I.heart, T('Лайкнуть'));
+  private dislike = iconButton(I.dislike, T('Не рекомендовать'));
   private context = h('span', { class: 'muted small' });
-  private playBtn = iconButton(I.play, 'Воспроизвести', 'btn-play btn-play-lg');
-  private shuffleBtn = iconButton(I.shuffle, 'Перемешать');
-  private repeatBtn = iconButton(I.repeat, 'Повтор');
-  private muteBtn = iconButton(I.vol, 'Без звука');
+  private playBtn = iconButton(I.play, T('Воспроизвести'), 'btn-play btn-play-lg');
+  private shuffleBtn = iconButton(I.shuffle, T('Перемешать'));
+  private repeatBtn = iconButton(I.repeat, T('Повтор'));
+  private muteBtn = iconButton(I.vol, T('Без звука'));
   private volume!: Slider;
   private seek: Slider;
   private time = h('span', { class: 'pb-time' });
@@ -34,12 +35,12 @@ export class Fullscreen {
   private timer = 0;
 
   constructor() {
-    const exit = iconButton(I.exitFullscreen, 'Свернуть (Esc)');
+    const exit = iconButton(I.exitFullscreen, T('Свернуть (Esc)'));
     exit.addEventListener('click', () => this.setOpen(false));
-    const paletteBtn = iconButton(I.palette, 'Вид полного экрана');
+    const paletteBtn = iconButton(I.palette, T('Вид полного экрана'));
     paletteBtn.addEventListener('click', () => (this.drawer.hidden = !this.drawer.hidden));
-    const prev = iconButton(I.prev, 'Предыдущий');
-    const next = iconButton(I.next, 'Следующий');
+    const prev = iconButton(I.prev, T('Предыдущий'));
+    const next = iconButton(I.next, T('Следующий'));
     prev.addEventListener('click', () => void api.prev());
     next.addEventListener('click', () => void api.next());
     this.playBtn.addEventListener('click', () => void api.toggle());
@@ -49,7 +50,7 @@ export class Fullscreen {
     this.like.addEventListener('click', () => t() && void store.setLiked(t()!, !store.liked.has(t()!.id)));
     this.dislike.addEventListener('click', () => t() && void store.setDisliked(t()!, !store.disliked.has(t()!.id)));
     this.seek = new Slider(
-      'Позиция',
+      T('Позиция'),
       (v) => (this.time.textContent = fmtTime(v * (t()?.duration_ms ?? 0))),
       (v) => {
         const d = t()?.duration_ms ?? 0;
@@ -66,7 +67,7 @@ export class Fullscreen {
       void api.setRepeat(m === 'off' ? 'all' : m === 'all' ? 'one' : 'off');
     });
     this.volume = new Slider(
-      'Громкость',
+      T('Громкость'),
       (v) => void api.setVolume(v, false),
       (v) => void api.setVolume(v, true),
     );
@@ -81,8 +82,8 @@ export class Fullscreen {
 
     this.el = h(
       'div',
-      { class: 'fs', role: 'dialog', 'aria-label': 'Сейчас играет' },
-      h('div', { class: 'fs-top', 'data-tauri-drag-region': true }, exit, h('span', { class: 'muted small', text: 'Сейчас играет' }), this.context, h('div', { class: 'spacer' }), paletteBtn),
+      { class: 'fs', role: 'dialog', 'aria-label': T('Сейчас играет') },
+      h('div', { class: 'fs-top', 'data-tauri-drag-region': true }, exit, h('span', { class: 'muted small', text: T('Сейчас играет') }), this.context, h('div', { class: 'spacer' }), paletteBtn),
       h(
         'div',
         { class: 'fs-main' },
@@ -174,7 +175,7 @@ export class Fullscreen {
   private renderTrack(): void {
     const s = store.snapshot;
     const t = s?.track;
-    this.title.textContent = t?.title ?? 'Ничего не играет';
+    this.title.textContent = t?.title ?? T('Ничего не играет');
     this.artist.textContent = t?.artist ?? '';
     this.dur.textContent = fmtTime(t?.duration_ms ?? 0);
     setIcon(this.playBtn, s?.playing || s?.loading ? I.pause : I.play, 20);
@@ -191,7 +192,7 @@ export class Fullscreen {
       this.cover.src = src;
     }
     this.cover.hidden = !src;
-    this.context.textContent = s?.source === 'wave' ? '· Моя волна' : s?.source === 'likes' ? '· Лайки' : '';
+    this.context.textContent = s?.source === 'wave' ? T('· Моя волна') : s?.source === 'likes' ? T('· Лайки') : '';
     this.renderFlags();
     this.renderPos(clock.now());
     this.updateTimer();
@@ -225,9 +226,9 @@ export class Fullscreen {
       this.view.setLyrics(s.lyrics);
       const l = s.lyrics;
       this.el.dataset.source = `${SOURCE_NAMES[l.source ?? ''] ?? ''}`;
-    } else if (s.kind === 'loading') this.view.setMessage('Ищем текст…');
+    } else if (s.kind === 'loading') this.view.setMessage(T('Ищем текст…'));
     else if (s.kind === 'error') this.view.setMessage(s.message);
-    else if (s.kind === 'ready') this.view.setMessage('Текст не найден.');
+    else if (s.kind === 'ready') this.view.setMessage(T('Текст не найден.'));
     else this.view.setMessage('');
   }
 
@@ -269,7 +270,7 @@ export class Fullscreen {
   private offsetVal = h('span', { class: 'small' });
 
   private buildDrawer(): HTMLElement {
-    const close = iconButton(I.close, 'Закрыть');
+    const close = iconButton(I.close, T('Закрыть'));
     close.addEventListener('click', () => (this.drawer.hidden = true));
     const seg = <T extends string>(key: string, label: string, items: [T, string][], set: (v: T) => void) => {
       const btns = items.map(([v, text]) => {
@@ -281,24 +282,24 @@ export class Fullscreen {
       return h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: label }), h('div', { class: 'seg seg-full' }, ...btns));
     };
     this.sizeSlider = new Slider(
-      'Размер текста',
+      T('Размер текста'),
       (v) => (this.sizeVal.textContent = String(Math.round(16 + v * 32))),
       (v) => updatePrefs((p) => (p.fs.size = Math.round(16 + v * 32))),
     );
-    const minus = h('button', { type: 'button', class: 'btn btn-square', text: '−', title: 'Текст позже' });
-    const plus = h('button', { type: 'button', class: 'btn btn-square', text: '+', title: 'Текст раньше' });
+    const minus = h('button', { type: 'button', class: 'btn btn-square', text: '−', title: T('Текст позже') });
+    const plus = h('button', { type: 'button', class: 'btn btn-square', text: '+', title: T('Текст раньше') });
     minus.addEventListener('click', () => updatePrefs((p) => (p.fs.offset -= 250)));
     plus.addEventListener('click', () => updatePrefs((p) => (p.fs.offset += 250)));
     return h(
       'div',
       { class: 'fs-drawer panel' },
-      h('div', { class: 'dr-head' }, h('span', { class: 'strong', text: 'Вид полного экрана' }), h('div', { class: 'spacer' }), close),
-      seg<FsLayout>('layout', 'Раскладка', [['side', 'Рядом'], ['text', 'Текст'], ['cover', 'Обложка']], (v) => (prefs().fs.layout = v)),
-      seg<FsBackground>('background', 'Фон', [['theme', 'Тема'], ['cover', 'По обложке'], ['oled', 'OLED']], (v) => (prefs().fs.background = v)),
-      seg<Highlight>('highlight', 'Подсветка', [['word', 'Слово'], ['line', 'Строка'], ['none', 'Нет']], (v) => (prefs().fs.highlight = v)),
-      seg<'left' | 'center'>('align', 'Выравнивание', [['left', 'Слева'], ['center', 'По центру']], (v) => (prefs().fs.align = v)),
-      h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: 'Размер текста' }), h('div', { class: 'dr-inline' }, this.sizeSlider.el, this.sizeVal)),
-      h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: 'Сдвиг текста (если отстаёт или спешит)' }), h('div', { class: 'dr-inline' }, minus, this.offsetVal, plus)),
+      h('div', { class: 'dr-head' }, h('span', { class: 'strong', text: T('Вид полного экрана') }), h('div', { class: 'spacer' }), close),
+      seg<FsLayout>('layout', T('Раскладка'), [['side', T('Рядом')], ['text', T('Текст')], ['cover', T('Обложка')]], (v) => (prefs().fs.layout = v)),
+      seg<FsBackground>('background', T('Фон'), [['theme', T('Тема')], ['cover', T('По обложке')], ['oled', 'OLED']], (v) => (prefs().fs.background = v)),
+      seg<Highlight>('highlight', T('Подсветка'), [['word', T('Слово')], ['line', T('Строка')], ['none', T('Нет')]], (v) => (prefs().fs.highlight = v)),
+      seg<'left' | 'center'>('align', T('Выравнивание'), [['left', T('Слева')], ['center', T('По центру')]], (v) => (prefs().fs.align = v)),
+      h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: T('Размер текста') }), h('div', { class: 'dr-inline' }, this.sizeSlider.el, this.sizeVal)),
+      h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: T('Сдвиг текста (если отстаёт или спешит)') }), h('div', { class: 'dr-inline' }, minus, this.offsetVal, plus)),
     );
   }
 
@@ -309,6 +310,6 @@ export class Fullscreen {
     for (const [key, btns] of this.segEls) btns.forEach((b) => b.classList.toggle('is-active', b.dataset.v === cur[key]));
     this.sizeSlider.set((f.size - 16) / 32);
     this.sizeVal.textContent = String(f.size);
-    this.offsetVal.textContent = `${f.offset > 0 ? '+' : f.offset < 0 ? '−' : ''}${(Math.abs(f.offset) / 1000).toFixed(2).replace('.', ',')} с`;
+    this.offsetVal.textContent = T('{0}{1} с', f.offset > 0 ? '+' : f.offset < 0 ? '−' : '', (Math.abs(f.offset) / 1000).toFixed(2).replace('.', ','));
   }
 }

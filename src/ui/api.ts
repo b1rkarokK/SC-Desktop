@@ -1,5 +1,6 @@
 // Typed bridge to the Rust commands (src-tauri/src/commands.rs).
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { T, tr } from './i18n';
 
 export interface Track {
   id: number;
@@ -35,6 +36,30 @@ export interface Playlist {
   own: boolean;
 }
 
+export interface PickedFile {
+  path: string;
+  name: string;
+  size: number;
+  /** file name without extension */
+  title: string;
+}
+
+export interface UploadForm {
+  path: string;
+  title: string;
+  genre: string | null;
+  tags: string | null;
+  private: boolean;
+  artwork: string | null;
+}
+
+export interface MyTrack {
+  track: Track;
+  private: boolean;
+  plays: number;
+  created_at: string | null;
+}
+
 export interface HistoryItem {
   track: Track;
   played_at: number;
@@ -56,6 +81,10 @@ export interface PlayerSnapshot {
   source: QueueSource;
   queue_len: number;
   queue_pos: number;
+  /** Smart Shuffle: recommendations mixed into the list */
+  smart: boolean;
+  /** the current track is such a recommendation */
+  recommended: boolean;
 }
 
 export interface AuthStatus {
@@ -72,6 +101,29 @@ export interface EqConfig {
   preset: string;
 }
 
+export interface FxConfig {
+  /** playback rate: < 1 slowed, > 1 sped up */
+  speed: number;
+  /** 0 … 1 */
+  reverb: number;
+  normalize: boolean;
+  /** seconds, 0 = off */
+  crossfade: number;
+}
+
+export interface QueueView {
+  /** place of the current track in the play order */
+  current: number | null;
+  items: { at: number; track: Track; recommended: boolean }[];
+  upcoming: number;
+  source: QueueSource;
+}
+
+export interface SleepState {
+  remaining_s: number | null;
+  end_of_track: boolean;
+}
+
 export interface DiscordConfig {
   enabled: boolean;
   app_id: string;
@@ -86,6 +138,7 @@ export interface AppConfig {
   chrome_version: number;
   volume: number;
   eq: EqConfig;
+  fx?: FxConfig;
   discord: DiscordConfig;
   start_minimized: boolean;
   ui: Record<string, unknown>;
@@ -113,6 +166,8 @@ export interface Lyrics {
   lines: LyricLine[];
   url: string | null;
   cached: boolean;
+  /** the original song's text over a changed version (slowed …) */
+  original?: boolean;
 }
 
 export interface SearchPage {
@@ -161,6 +216,8 @@ export interface WaveInfo {
   mood: Mood;
   no_liked: boolean;
   reason: string | null;
+  /** "по плейлисту «…»" when the wave is built around something */
+  context: string | null;
   disliked_tracks: number;
   disliked_artists: DislikedArtist[];
 }
@@ -176,6 +233,7 @@ export interface SystemPrefs {
   autostart: boolean;
   start_minimized: boolean;
   fast_protected: boolean;
+  notify_new: boolean;
 }
 
 export interface AppErrorPayload {
@@ -188,9 +246,10 @@ export function isAppError(e: unknown): e is AppErrorPayload {
 }
 
 export function errorMessage(e: unknown): string {
-  if (isAppError(e)) return e.message;
-  if (e instanceof Error) return e.message;
-  return String(e);
+  // messages come from the core in Russian
+  if (isAppError(e)) return tr(e.message);
+  if (e instanceof Error) return tr(e.message);
+  return tr(String(e));
 }
 
 export interface PendingLike {
@@ -264,6 +323,7 @@ export const api = {
   likeSet: (track: Track, liked: boolean) => invoke<void>('like_set', { track, liked }),
   likesPending: () => invoke<PendingLike[]>('likes_pending'),
   likesPendingFlush: () => invoke<number>('likes_pending_flush'),
+  captchaWaiting: () => invoke<boolean>('captcha_waiting'),
   downloads: () => invoke<Download[]>('downloads_list'),
   download: (track: Track) => invoke<Download>('download_track', { track }),
   downloadRemove: (trackId: number) => invoke<void>('download_remove', { trackId }),
@@ -281,6 +341,13 @@ export const api = {
   followsPending: () => invoke<PendingFollow[]>('follows_pending'),
   downloadsOpen: (path?: string) => invoke<void>('downloads_open', { path: path ?? null }),
   libraryPlaylists: (force: boolean) => invoke<Playlist[]>('library_playlists', { force }),
+  playlistAddTrack: (playlistId: number, trackId: number) => invoke<void>('playlist_add_track', { playlistId, trackId }),
+  playlistRemoveTrack: (playlistId: number, trackId: number) => invoke<void>('playlist_remove_track', { playlistId, trackId }),
+  playlistCreate: (title: string, trackId: number | null) => invoke<void>('playlist_create', { title, trackId }),
+  uploadPick: (image: boolean) => invoke<PickedFile | null>('upload_pick', { image }),
+  uploadTrack: (form: UploadForm) => invoke<Track>('upload_track', { form }),
+  uploadDelete: (trackId: number) => invoke<void>('upload_delete', { trackId }),
+  myTracks: () => invoke<MyTrack[]>('my_tracks'),
   libraryArtists: (force: boolean) => invoke<User[]>('library_artists', { force }),
   libraryCounts: () => invoke<LibraryCounts>('library_counts'),
   followSet: (user: User, follow: boolean) => invoke<void>('follow_set', { user, follow }),
@@ -308,6 +375,7 @@ export const api = {
   seek: (positionMs: number) => invoke<void>('player_seek', { positionMs: Math.max(0, Math.round(positionMs)) }),
   setVolume: (volume: number, persist: boolean) => invoke<void>('player_set_volume', { volume, persist }),
   setShuffle: (enabled: boolean) => invoke<void>('player_set_shuffle', { enabled }),
+  setSmartShuffle: (enabled: boolean) => invoke<void>('player_set_smart_shuffle', { enabled }),
   setRepeat: (mode: RepeatMode) => invoke<void>('player_set_repeat', { mode }),
   snapshot: () => invoke<PlayerSnapshot>('player_snapshot'),
   position: () => invoke<number>('player_position'),
@@ -316,6 +384,7 @@ export const api = {
   waveStart: () => invoke<number>('wave_start'),
   waveStartFrom: (trackId: number | null, artistId: number | null) =>
     invoke<number>('wave_start_from', { trackId, artistId }),
+  waveStartPlaylist: (playlistId: number) => invoke<number>('wave_start_playlist', { playlistId }),
   waveSetMood: (mood: Mood) => invoke<void>('wave_set_mood', { mood }),
   waveInfo: (trackId: number | null) => invoke<WaveInfo>('wave_info', { trackId }),
   waveSetNoLiked: (enabled: boolean) => invoke<void>('wave_set_no_liked', { enabled }),
@@ -334,9 +403,19 @@ export const api = {
     invoke<AppConfig>('config_set_network', { netMode, proxy, chromeVersion }),
   netCheck: (netMode: NetMode, proxy: string | null) => invoke<NetCheck>('net_check', { netMode, proxy }),
   configSetUi: (ui: Record<string, unknown>) => invoke<void>('config_set_ui', { ui }),
+  fxSet: (fx: FxConfig, persist: boolean) => invoke<void>('fx_set', { fx, persist }),
+  sleepSet: (minutes: number | null, endOfTrack: boolean) => invoke<SleepState>('sleep_set', { minutes, endOfTrack }),
+  sleepGet: () => invoke<SleepState>('sleep_get'),
+  queueGet: (limit: number) => invoke<QueueView>('queue_get', { limit }),
+  queueMove: (from: number, to: number) => invoke<void>('queue_move', { from, to }),
+  queueRemove: (at: number) => invoke<void>('queue_remove', { at }),
+  queueClear: () => invoke<void>('queue_clear'),
+  queuePlay: (at: number) => invoke<void>('queue_play', { at }),
+  playlistSetTracks: (playlistId: number, trackIds: number[]) => invoke<void>('playlist_set_tracks', { playlistId, trackIds }),
   eqSet: (eq: EqConfig, persist: boolean) => invoke<void>('eq_set', { eq, persist }),
   discordSet: (discord: DiscordConfig) => invoke<void>('discord_set', { discord }),
   systemGet: () => invoke<SystemPrefs>('system_get'),
+  newsSet: (enabled: boolean) => invoke<void>('news_set', { enabled }),
   systemSet: (autostart: boolean, startMinimized: boolean, fastProtected: boolean) =>
     invoke<void>('system_set', { autostart, startMinimized, fastProtected }),
 };
@@ -362,16 +441,10 @@ const nf = new Intl.NumberFormat('ru-RU');
 
 export function fmtCount(n: number | null | undefined): string {
   if (n === null || n === undefined) return '';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')} млн`;
-  if (n >= 10_000) return `${(n / 1000).toFixed(1).replace('.', ',')} тыс.`;
+  if (n >= 1_000_000) return T('{0} млн', (n / 1_000_000).toFixed(1).replace('.', ','));
+  if (n >= 10_000) return T('{0} тыс.', (n / 1000).toFixed(1).replace('.', ','));
   return nf.format(n);
 }
 
-/** 1 трек, 2 трека, 5 треков */
-export function plural(n: number, one: string, few: string, many: string): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-}
+/** 1 трек, 2 трека, 5 треков (or the English pair) */
+export { plural } from './i18n';

@@ -9,6 +9,7 @@ import { store } from '../store';
 import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
 import { ArraySource, PagedSource, VirtualList } from '../virtual_list';
 import { btn, emptyState, viewHead, type View } from './common';
+import { T } from '../i18n';
 
 export class LibraryView implements View {
   el: HTMLElement;
@@ -22,21 +23,21 @@ export class LibraryView implements View {
   private loadedTracks = false;
 
   constructor() {
-    this.syncBtn = btn('Синхронизировать', I.refresh);
+    this.syncBtn = btn(T('Синхронизировать'), I.refresh);
     this.syncBtn.addEventListener('click', () => void this.sync());
     this.tabs = new SegTabs<LibTab>(
       [
-        { key: 'tracks', label: 'Треки' },
-        { key: 'playlists', label: 'Плейлисты' },
-        { key: 'albums', label: 'Альбомы' },
-        { key: 'artists', label: 'Артисты' },
+        { key: 'tracks', label: T('Треки') },
+        { key: 'playlists', label: T('Плейлисты') },
+        { key: 'albums', label: T('Альбомы') },
+        { key: 'artists', label: T('Артисты') },
       ],
       'tracks',
       () => this.renderTab(),
     );
     this.list = new VirtualList<Track>(new ArraySource(), trackRowRenderer(), ROW_HEIGHT);
     this.list.onRowActivate((i) => api.playLikes(i).catch((e) => toast(errorMessage(e), 'error')));
-    this.el = h('section', { class: 'view' }, viewHead('Лайки', this.syncBtn), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
+    this.el = h('section', { class: 'view' }, viewHead(T('Лайки'), this.syncBtn), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
     const refresh = () => this.list.refresh();
     store.on('player', refresh);
     store.on('likes', refresh);
@@ -62,13 +63,13 @@ export class LibraryView implements View {
     }
     const scroller = h('div', { class: 'view-scroll' });
     if (tab === 'artists') {
-      if (this.artists === null) scroller.append(emptyState('Загрузка…'));
-      else if (!this.artists.length) scroller.append(emptyState('Вы пока ни на кого не подписаны.'));
+      if (this.artists === null) scroller.append(emptyState(T('Загрузка…')));
+      else if (!this.artists.length) scroller.append(emptyState(T('Вы пока ни на кого не подписаны.')));
       else scroller.append(artistGrid(this.artists));
     } else {
       const items = (this.playlists ?? []).filter((p) => (tab === 'albums' ? p.is_album : !p.is_album));
-      if (this.playlists === null) scroller.append(emptyState('Загрузка…'));
-      else if (!items.length) scroller.append(emptyState(tab === 'albums' ? 'Нет лайкнутых альбомов.' : 'Нет лайкнутых плейлистов.'));
+      if (this.playlists === null) scroller.append(emptyState(T('Загрузка…')));
+      else if (!items.length) scroller.append(emptyState(tab === 'albums' ? T('Нет лайкнутых альбомов.') : T('Нет лайкнутых плейлистов.')));
       else scroller.append(playlistGrid(items));
     }
     this.body.replaceChildren(scroller);
@@ -77,8 +78,8 @@ export class LibraryView implements View {
   private emptyTracks(): HTMLElement {
     return emptyState(
       store.auth.has_credentials
-        ? 'Кэш пуст. Нажмите «Синхронизировать», чтобы загрузить лайки.'
-        : 'Войдите в SoundCloud в Настройках.',
+        ? T('Кэш пуст. Нажмите «Синхронизировать», чтобы загрузить лайки.')
+        : T('Войдите в SoundCloud в Настройках.'),
     );
   }
 
@@ -134,7 +135,7 @@ export class LibraryView implements View {
     this.syncBtn.disabled = true;
     try {
       const n = await api.likesSync();
-      toast(`Загружено лайков: ${n}`);
+      toast(T('Загружено лайков: {0}', n));
       await Promise.all([store.reloadSets(), this.reloadTracks(), this.loadPlaylists(true), this.loadArtists(true)]);
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -150,6 +151,6 @@ export class LibraryView implements View {
   }
 
   setProgress(n: number): void {
-    this.tabs.setCount('tracks', `загрузка… ${n}`);
+    this.tabs.setCount('tracks', T('загрузка… {0}', n));
   }
 }

@@ -4,6 +4,8 @@ import { h, toast } from './dom';
 import { icon, I } from './icons';
 import { artistMenu, playlistMenu } from './menus';
 import { openArtist, openPlaylist } from './router';
+import { T } from './i18n';
+import { tr } from './i18n';
 
 export function playlistGrid(items: Playlist[]): HTMLElement {
   const grid = h('div', { class: 'grid grid-cards' });
@@ -11,7 +13,7 @@ export function playlistGrid(items: Playlist[]): HTMLElement {
     const img = h('img', { class: 'card-cover', alt: '', loading: 'lazy', decoding: 'async' });
     const src = coverUrl(p.artwork_url, 't300x300');
     if (src) img.src = src;
-    const play = h('button', { type: 'button', class: 'card-play', title: 'Слушать', 'aria-label': 'Слушать' }, icon(I.play));
+    const play = h('button', { type: 'button', class: 'card-play', title: T('Слушать'), 'aria-label': T('Слушать') }, icon(I.play));
     play.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
@@ -24,14 +26,14 @@ export function playlistGrid(items: Playlist[]): HTMLElement {
         toast(errorMessage(err), 'error');
       }
     });
-    const sub = [p.own ? 'Мой' : p.artist, p.is_album && p.year ? p.year : null, `${p.track_count} ${plural(p.track_count, 'трек', 'трека', 'треков')}`]
+    const sub = [p.own ? T('Мой') : p.artist, p.is_album && p.year ? p.year : null, T('{0} {1}', p.track_count, plural(p.track_count, 'трек', 'трека', 'треков'))]
       .filter(Boolean)
       .join(' · ');
     const card = h(
       'div',
       { class: 'card', tabindex: 0, role: 'button' },
       h('div', { class: 'card-art' }, img, play),
-      h('div', { class: 'card-title', dir: 'auto', text: p.title }),
+      h('div', { class: 'card-title', dir: 'auto', text: tr(p.title) }),
       h('div', { class: 'card-sub', dir: 'auto', text: sub }),
     );
     card.addEventListener('click', () => openPlaylist(p.id));
@@ -53,7 +55,7 @@ export function artistGrid(items: User[]): HTMLElement {
       { class: 'artist-card', tabindex: 0, role: 'button' },
       img,
       h('div', { class: 'card-title center', dir: 'auto', text: u.username }),
-      h('div', { class: 'card-sub center', text: u.followers_count !== null ? `${fmtCount(u.followers_count)} подписчиков` : '' }),
+      h('div', { class: 'card-sub center', text: u.followers_count !== null ? T('{0} подписчиков', fmtCount(u.followers_count)) : '' }),
     );
     card.addEventListener('click', () => openArtist(u.id));
     card.addEventListener('contextmenu', (e) => artistMenu(e, u));
@@ -77,7 +79,7 @@ export function userChips(items: User[]): HTMLElement {
         'div',
         { class: 'user-chip-meta' },
         h('div', { class: 'card-title', dir: 'auto', text: u.username }),
-        h('div', { class: 'card-sub', text: u.followers_count !== null ? `${fmtCount(u.followers_count)} подписчиков` : '' }),
+        h('div', { class: 'card-sub', text: u.followers_count !== null ? T('{0} подписчиков', fmtCount(u.followers_count)) : '' }),
       ),
     );
     card.addEventListener('click', () => openArtist(u.id));

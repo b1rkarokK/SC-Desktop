@@ -1,5 +1,6 @@
 // Frontend-owned preferences, persisted in config.json → `ui` (debounced).
 import { api } from './api';
+import type { Lang } from './i18n';
 
 export type Theme = 'dark' | 'oled' | 'light';
 export type FsLayout = 'side' | 'text' | 'cover';
@@ -7,6 +8,8 @@ export type FsBackground = 'theme' | 'cover' | 'oled';
 export type Highlight = 'word' | 'line' | 'none';
 
 export interface UiPrefs {
+  /** mirrored for the core (tray, Discord); the UI reads it from localStorage */
+  lang?: Lang;
   theme: Theme;
   themeSystem: boolean;
   navCollapsed: boolean;

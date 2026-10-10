@@ -156,6 +156,9 @@ pub struct LyricsDto {
     pub url: Option<String>,
     #[serde(default)]
     pub cached: bool,
+    /// the original song's text shown for a changed version (slowed …)
+    #[serde(default)]
+    pub original: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -169,6 +172,8 @@ pub struct WaveInfo {
     pub mood: String,
     pub no_liked: bool,
     pub reason: Option<String>,
+    /// "по плейлисту «…»" when the wave is built around something
+    pub context: Option<String>,
     pub disliked_tracks: u64,
     pub disliked_artists: Vec<DislikedArtist>,
 }

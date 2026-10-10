@@ -5,6 +5,7 @@ import { icon, I } from '../icons';
 import { router } from '../router';
 import { store } from '../store';
 import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
+import { T } from '../i18n';
 
 export interface View {
   el: HTMLElement;
@@ -14,7 +15,7 @@ export interface View {
 export function viewHead(title: string | null, ...right: (HTMLElement | null)[]): HTMLElement {
   const head = h('header', { class: 'view-head' });
   if (router.canGoBack) {
-    const back = h('button', { type: 'button', class: 'back-btn' }, icon(I.back), h('span', { text: 'Назад' }));
+    const back = h('button', { type: 'button', class: 'back-btn' }, icon(I.back), h('span', { text: T('Назад') }));
     back.addEventListener('click', () => router.back());
     head.append(back);
   }

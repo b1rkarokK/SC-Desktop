@@ -138,20 +138,41 @@ pub async fn sync_likes(app: &AppHandle, state: &AppState) -> AppResult<u64> {
 
 /// Background: likes made on the website show up without pressing "Синхронизировать".
 /// Every 3 min the first page is compared with the cache; a full sync runs only on change.
+/// Tracks referenced by likes / history without their metadata get it back.
+async fn heal_orphan_tracks(state: &AppState) {
+    let Ok(ids) = state.db.orphan_track_ids().await else { return };
+    if ids.is_empty() || state.credentials().is_none() {
+        return;
+    }
+    let result = async {
+        let tracks = state.sc()?.tracks_by_ids(&ids).await?;
+        let n = tracks.len();
+        state.db.upsert_tracks(tracks).await?;
+        AppResult::Ok(n)
+    }
+    .await;
+    match result {
+        Ok(n) => tracing::info!(missing = ids.len(), restored = n, "track metadata restored"),
+        Err(e) => tracing::warn!(error = %e, "restoring track metadata failed"),
+    }
+}
+
 pub fn start_likes_watch(app: &AppHandle) {
     use tauri::Manager;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        heal_orphan_tracks(&app.state::<AppState>()).await;
         // pauses between retries of queued likes, growing while SoundCloud refuses
         const BACKOFF: [u64; 5] = [60, 120, 300, 600, 900];
         let mut fails = 0usize;
         loop {
             let state = app.state::<AppState>();
-            let queued = if state.credentials().is_some() {
-                flush_pending_likes(&app, &state).await.unwrap_or(1) + flush_pending_follows(&app, &state).await.unwrap_or(1)
+            // while a captcha waits for the user, quiet retries would only annoy DataDome
+            let queued = if state.credentials().is_some() && !crate::bridge::captcha_waiting() {
+                flush_pending_likes(&app, &state, true).await.unwrap_or(1) + flush_pending_follows(&app, &state, true).await.unwrap_or(1)
             } else {
-                0
+                pending_likes(&state).await.map(|v| v.len()).unwrap_or(0) + pending_follows(&state).await.map(|v| v.len()).unwrap_or(0)
             };
             // while likes are queued the server list legitimately differs from ours
             let likes_queued = !pending_likes(&state).await.unwrap_or_default().is_empty();
@@ -209,13 +230,39 @@ pub async fn likes_ids(state: State<'_, AppState>) -> Cmd<Vec<u64>> {
 
 /// Sends a write request through the browser bridge; "not found" on removal is fine.
 async fn sc_write(app: &AppHandle, state: &AppState, req: (&'static str, Url), removing: bool) -> AppResult<()> {
+    sc_write_body(app, state, req, None, removing).await
+}
+
+/// Queueable write (like, follow): a captcha is never popped up for it.
+async fn sc_write_quiet(app: &AppHandle, state: &AppState, req: (&'static str, Url), removing: bool) -> AppResult<()> {
+    if crate::bridge::captcha_waiting() {
+        // it would only meet the same captcha: straight to the queue
+        return write_result(crate::bridge::CAPTCHA, removing);
+    }
     let sc = state.sc()?;
-    let status = crate::bridge::send(app, req.0, &req.1, sc.auth_header()).await?;
+    let status = crate::bridge::send_quiet(app, req.0, &req.1, sc.auth_header()).await?;
+    write_result(status, removing)
+}
+
+async fn sc_write_body(
+    app: &AppHandle,
+    state: &AppState,
+    req: (&'static str, Url),
+    body: Option<String>,
+    removing: bool,
+) -> AppResult<()> {
+    let sc = state.sc()?;
+    let status = crate::bridge::send(app, req.0, &req.1, sc.auth_header(), body.as_deref()).await?;
+    write_result(status, removing)
+}
+
+fn write_result(status: u16, removing: bool) -> AppResult<()> {
     match status {
         200..=299 => Ok(()),
         404 if removing => Ok(()),
         0 => Err(AppError::Other("Нет связи с SoundCloud".into())),
         crate::bridge::BLOCKED => Err(AppError::Other("SoundCloud временно ограничил доступ".into())),
+        crate::bridge::CAPTCHA => Err(AppError::Other("SoundCloud просит пройти проверку".into())),
         s => Err(AppError::from_status(reqwest::StatusCode::from_u16(s).unwrap_or(reqwest::StatusCode::BAD_GATEWAY))),
     }
 }
@@ -226,10 +273,15 @@ async fn pending_likes(state: &AppState) -> AppResult<Vec<(u64, bool)>> {
     Ok(state.db.kv_get::<Vec<(u64, bool)>>(PENDING_LIKES).await?.map(|(v, _)| v).unwrap_or_default())
 }
 
-async fn send_like(app: &AppHandle, state: &AppState, track_id: u64, liked: bool) -> AppResult<()> {
+/// `quiet`: no captcha pops up (the like waits in the queue instead).
+async fn send_like(app: &AppHandle, state: &AppState, track_id: u64, liked: bool, quiet: bool) -> AppResult<()> {
     let me = state.current_user().await?;
     let req = state.sc()?.like_request(me.id, track_id, liked)?;
-    sc_write(app, state, req, !liked).await
+    if quiet {
+        sc_write_quiet(app, state, req, !liked).await
+    } else {
+        sc_write(app, state, req, !liked).await
+    }
 }
 
 /// Like / unlike: applied locally at once, sent to SoundCloud right away or,
@@ -251,7 +303,7 @@ pub async fn like_set(app: AppHandle, state: State<'_, AppState>, track: TrackDt
     let was_pending = pending.iter().any(|(id, _)| *id == track.id);
     pending.retain(|(id, _)| *id != track.id);
     state.db.kv_put(PENDING_LIKES, &pending).await?;
-    match send_like(&app, &state, track.id, liked).await {
+    match send_like(&app, &state, track.id, liked, true).await {
         Ok(()) => {
             if was_pending {
                 let _ = app.emit("likes:queue", ());
@@ -289,10 +341,17 @@ pub async fn likes_pending(state: State<'_, AppState>) -> Cmd<Vec<PendingLike>> 
         .collect())
 }
 
+/// SoundCloud wants a captcha before queued likes can go.
+#[tauri::command]
+pub fn captcha_waiting() -> bool {
+    crate::bridge::captcha_waiting()
+}
+
 /// "Отправить сейчас": returns how many are still waiting.
 #[tauri::command]
 pub async fn likes_pending_flush(app: AppHandle, state: State<'_, AppState>) -> Cmd<usize> {
-    let left = flush_pending_likes(&app, &state).await? + flush_pending_follows(&app, &state).await?;
+    // the user asked: a captcha may be shown now
+    let left = flush_pending_likes(&app, &state, false).await? + flush_pending_follows(&app, &state, false).await?;
     let _ = app.emit("likes:queue", ());
     Ok(left)
 }
@@ -343,7 +402,7 @@ pub async fn downloads_pick_dir(app: AppHandle) -> Cmd<String> {
 }
 
 /// Sends queued likes; returns how many are still waiting.
-async fn flush_pending_likes(app: &AppHandle, state: &AppState) -> AppResult<usize> {
+async fn flush_pending_likes(app: &AppHandle, state: &AppState, quiet: bool) -> AppResult<usize> {
     let pending = pending_likes(state).await?;
     if pending.is_empty() {
         return Ok(0);
@@ -353,7 +412,7 @@ async fn flush_pending_likes(app: &AppHandle, state: &AppState) -> AppResult<usi
         // after one refusal the rest would be refused too: don't hammer SoundCloud
         if !left.is_empty() {
             left.push((id, liked));
-        } else if let Err(e) = send_like(app, state, id, liked).await {
+        } else if let Err(e) = send_like(app, state, id, liked, quiet).await {
             tracing::debug!(error = %e, track = id, "queued like still refused");
             left.push((id, liked));
         } else {
@@ -415,6 +474,101 @@ pub async fn library_playlists(state: State<'_, AppState>, force: bool) -> Cmd<V
     .await
 }
 
+// ---------------------------------------------------------------- upload
+
+#[tauri::command]
+pub async fn upload_pick(app: AppHandle, image: bool) -> Cmd<Option<crate::upload::PickedFile>> {
+    crate::upload::pick(&app, image).await
+}
+
+#[tauri::command]
+pub async fn upload_track(app: AppHandle, state: State<'_, AppState>, form: crate::upload::UploadForm) -> Cmd<TrackDto> {
+    crate::upload::upload(&app, &state, form).await
+}
+
+#[tauri::command]
+pub async fn upload_delete(app: AppHandle, state: State<'_, AppState>, track_id: u64) -> Cmd<()> {
+    crate::upload::delete(&app, &state, track_id).await
+}
+
+/// The user's own uploads (newest first), private ones too.
+#[tauri::command]
+pub async fn my_tracks(state: State<'_, AppState>) -> Cmd<Vec<MyTrack>> {
+    let me = state.current_user().await?;
+    let tracks = state.sc()?.own_tracks(me.id).await?;
+    state.db.upsert_tracks(tracks.clone()).await?;
+    Ok(tracks
+        .iter()
+        .map(|t| MyTrack {
+            private: t.sharing.as_deref() == Some("private"),
+            plays: t.playback_count.unwrap_or(0),
+            created_at: t.created_at.clone(),
+            track: TrackDto::from(t),
+        })
+        .collect())
+}
+
+#[derive(serde::Serialize)]
+pub struct MyTrack {
+    track: TrackDto,
+    private: bool,
+    plays: u64,
+    created_at: Option<String>,
+}
+
+/// Adds a track to one of the user's playlists (to the end).
+#[tauri::command]
+pub async fn playlist_add_track(app: AppHandle, state: State<'_, AppState>, playlist_id: u64, track_id: u64) -> Cmd<()> {
+    let sc = state.sc()?;
+    let mut ids = sc.playlist_track_ids(playlist_id).await?;
+    if ids.contains(&track_id) {
+        return Err(AppError::Other("Этот трек уже есть в плейлисте".into()));
+    }
+    ids.push(track_id);
+    let (method, url, body) = sc.playlist_tracks_request(playlist_id, &ids)?;
+    sc_write_body(&app, &state, (method, url), Some(body), false).await?;
+    set_cached_track_count(&state, playlist_id, ids.len() as u64).await
+}
+
+/// Removes a track from one of the user's playlists.
+#[tauri::command]
+pub async fn playlist_remove_track(app: AppHandle, state: State<'_, AppState>, playlist_id: u64, track_id: u64) -> Cmd<()> {
+    let sc = state.sc()?;
+    let mut ids = sc.playlist_track_ids(playlist_id).await?;
+    let before = ids.len();
+    ids.retain(|&id| id != track_id);
+    if ids.len() == before {
+        return Ok(());
+    }
+    let (method, url, body) = sc.playlist_tracks_request(playlist_id, &ids)?;
+    sc_write_body(&app, &state, (method, url), Some(body), false).await?;
+    set_cached_track_count(&state, playlist_id, ids.len() as u64).await
+}
+
+/// New private playlist, optionally with a first track.
+#[tauri::command]
+pub async fn playlist_create(app: AppHandle, state: State<'_, AppState>, title: String, track_id: Option<u64>) -> Cmd<()> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(AppError::Other("Введите название плейлиста".into()));
+    }
+    let tracks: Vec<u64> = track_id.into_iter().collect();
+    let (method, url, body) = state.sc()?.playlist_create_request(title, &tracks)?;
+    sc_write_body(&app, &state, (method, url), Some(body), false).await?;
+    // the new playlist shows up in the library at once
+    library_playlists(state, true).await.map(|_| ())
+}
+
+async fn set_cached_track_count(state: &AppState, playlist_id: u64, n: u64) -> AppResult<()> {
+    if let Some((mut list, _)) = state.db.kv_get::<Vec<PlaylistDto>>("lib:playlists2").await? {
+        if let Some(p) = list.iter_mut().find(|p| p.id == playlist_id) {
+            p.track_count = n;
+            state.db.kv_put("lib:playlists2", &list).await?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn library_artists(state: State<'_, AppState>, force: bool) -> Cmd<Vec<UserDto>> {
     let me = state.current_user().await?;
@@ -443,9 +597,13 @@ async fn pending_follows(state: &AppState) -> AppResult<Vec<(UserDto, bool)>> {
     Ok(state.db.kv_get::<Vec<(UserDto, bool)>>(PENDING_FOLLOWS).await?.map(|(v, _)| v).unwrap_or_default())
 }
 
-async fn send_follow(app: &AppHandle, state: &AppState, user_id: u64, follow: bool) -> AppResult<()> {
+async fn send_follow(app: &AppHandle, state: &AppState, user_id: u64, follow: bool, quiet: bool) -> AppResult<()> {
     let req = state.sc()?.follow_request(user_id, follow)?;
-    sc_write(app, state, req, !follow).await
+    if quiet {
+        sc_write_quiet(app, state, req, !follow).await
+    } else {
+        sc_write(app, state, req, !follow).await
+    }
 }
 
 /// Puts queued follows / unfollows on top of a list from the server.
@@ -471,7 +629,7 @@ pub async fn follow_set(app: AppHandle, state: State<'_, AppState>, user: UserDt
     let was_pending = pending.iter().any(|(u, _)| u.id == user.id);
     pending.retain(|(u, _)| u.id != user.id);
     state.db.kv_put(PENDING_FOLLOWS, &pending).await?;
-    match send_follow(&app, &state, user.id, follow).await {
+    match send_follow(&app, &state, user.id, follow, true).await {
         Ok(()) => {
             if was_pending {
                 let _ = app.emit("likes:queue", ());
@@ -491,7 +649,7 @@ pub async fn follow_set(app: AppHandle, state: State<'_, AppState>, user: UserDt
     }
 }
 
-async fn flush_pending_follows(app: &AppHandle, state: &AppState) -> AppResult<usize> {
+async fn flush_pending_follows(app: &AppHandle, state: &AppState, quiet: bool) -> AppResult<usize> {
     let pending = pending_follows(state).await?;
     if pending.is_empty() {
         return Ok(0);
@@ -500,7 +658,7 @@ async fn flush_pending_follows(app: &AppHandle, state: &AppState) -> AppResult<u
     for (user, follow) in pending {
         if !left.is_empty() {
             left.push((user, follow));
-        } else if let Err(e) = send_follow(app, state, user.id, follow).await {
+        } else if let Err(e) = send_follow(app, state, user.id, follow, quiet).await {
             tracing::debug!(error = %e, user = user.id, "queued follow still refused");
             left.push((user, follow));
         } else {
@@ -785,6 +943,13 @@ pub async fn chart_page(state: State<'_, AppState>, kind: String) -> Cmd<crate::
     Box::pin(crate::charts::page(&state, &kind)).await
 }
 
+/// Debug builds only: run the news check as if the last one was at `since`.
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn debug_news_check(app: AppHandle, since: String) -> Cmd<()> {
+    crate::news::debug_check(&app, since).await
+}
+
 /// Debug builds only: bit error rate between two tracks' audio (tuning fingerprint.rs).
 #[cfg(debug_assertions)]
 #[tauri::command]
@@ -891,6 +1056,11 @@ pub fn player_set_shuffle(player: State<'_, Arc<Player>>, enabled: bool) {
 }
 
 #[tauri::command]
+pub fn player_set_smart_shuffle(player: State<'_, Arc<Player>>, enabled: bool) {
+    player.inner().set_smart_shuffle(enabled);
+}
+
+#[tauri::command]
 pub fn player_set_repeat(player: State<'_, Arc<Player>>, mode: RepeatMode) {
     player.set_repeat(mode);
 }
@@ -923,6 +1093,11 @@ pub async fn wave_start_from(player: State<'_, Arc<Player>>, track_id: Option<u6
 }
 
 #[tauri::command]
+pub async fn wave_start_playlist(player: State<'_, Arc<Player>>, playlist_id: u64) -> Cmd<usize> {
+    player.inner().start_wave_playlist(playlist_id).await
+}
+
+#[tauri::command]
 pub async fn wave_set_mood(state: State<'_, AppState>, player: State<'_, Arc<Player>>, mood: String) -> Cmd<()> {
     if !["normal", "fresh", "familiar", "calm", "energetic"].contains(&mood.as_str()) {
         return Err(AppError::Config(format!("неизвестное настроение {mood}")));
@@ -950,6 +1125,7 @@ pub async fn wave_info(state: State<'_, AppState>, track_id: Option<u64>) -> Cmd
         mood: state.wave.mood(),
         no_liked: state.wave.no_liked(),
         reason: track_id.and_then(|id| state.wave.reason(id)),
+        context: state.wave.context().map(|c| c.label()),
         disliked_tracks: state.db.disliked_tracks_count().await?,
         disliked_artists: state.db.disliked_artists().await?,
     })
@@ -1026,7 +1202,10 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
         }
     }
     let (artist, title) = genius::query_from(&track.artist, &track.title);
-    let q = Query { artist, title, duration_ms: track.duration_ms };
+    // "love nwantiti slowed": searched without the mark; the original's text is the fallback
+    let version_of = lyrics::version_base(&track.title).map(|b| genius::query_from(&track.artist, &b).1).filter(|b| !b.is_empty());
+    let title = version_of.clone().unwrap_or(title);
+    let q = Query { artist, title, duration_ms: track.duration_ms, version_of };
     let http = state.http();
     let found = lyrics::find(&http, &state.lyrics, &q).await?;
     let dto = match found {
@@ -1039,6 +1218,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             lines: l.lines,
             url: l.url,
             cached: false,
+            original: l.original,
         },
         None => LyricsDto {
             track_id: track.id,
@@ -1049,6 +1229,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             lines: vec![],
             url: None,
             cached: false,
+            original: false,
         },
     };
     tracing::info!(track = track.id, source = ?dto.source, word = dto.word_level, "lyrics resolved");
@@ -1137,9 +1318,68 @@ pub async fn net_check(state: State<'_, AppState>, net_mode: NetMode, proxy: Opt
 }
 
 #[tauri::command]
-pub fn config_set_ui(state: State<'_, AppState>, ui: serde_json::Value) -> Cmd<()> {
+pub fn config_set_ui(app: AppHandle, state: State<'_, AppState>, ui: serde_json::Value) -> Cmd<()> {
+    let lang_changed = crate::lang::set_from_ui(&ui);
     state.config.update(|c| c.ui = ui)?;
+    if lang_changed {
+        crate::tray::refresh_menu(&app);
+    }
     Ok(())
+}
+
+/// Effects (speed, reverb, loudness, crossfade): live; `persist` on release of a slider.
+#[tauri::command]
+pub fn fx_set(state: State<'_, AppState>, player: State<'_, Arc<Player>>, fx: crate::config::FxConfig, persist: bool) -> Cmd<()> {
+    player.set_fx(&fx);
+    if persist {
+        state.config.update(|c| c.fx = fx)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sleep_set(player: State<'_, Arc<Player>>, minutes: Option<u32>, end_of_track: bool) -> crate::player::SleepState {
+    player.inner().set_sleep(minutes, end_of_track);
+    player.sleep_state()
+}
+
+#[tauri::command]
+pub fn queue_get(player: State<'_, Arc<Player>>, limit: usize) -> crate::player::QueueView {
+    player.queue_view(limit.clamp(1, 500))
+}
+
+#[tauri::command]
+pub fn queue_move(player: State<'_, Arc<Player>>, from: usize, to: usize) {
+    player.inner().queue_move(from, to);
+}
+
+#[tauri::command]
+pub fn queue_remove(player: State<'_, Arc<Player>>, at: usize) {
+    player.inner().queue_remove(at);
+}
+
+#[tauri::command]
+pub fn queue_clear(player: State<'_, Arc<Player>>) {
+    player.inner().queue_clear();
+}
+
+#[tauri::command]
+pub fn queue_play(player: State<'_, Arc<Player>>, at: usize) {
+    player.inner().queue_play(at);
+}
+
+/// Own playlist edited (order changed / tracks removed): the full new order.
+#[tauri::command]
+pub async fn playlist_set_tracks(app: AppHandle, state: State<'_, AppState>, playlist_id: u64, track_ids: Vec<u64>) -> Cmd<()> {
+    let sc = state.sc()?;
+    let (method, url, body) = sc.playlist_tracks_request(playlist_id, &track_ids)?;
+    sc_write_body(&app, &state, (method, url), Some(body), false).await?;
+    set_cached_track_count(&state, playlist_id, track_ids.len() as u64).await
+}
+
+#[tauri::command]
+pub fn sleep_get(player: State<'_, Arc<Player>>) -> crate::player::SleepState {
+    player.sleep_state()
 }
 
 #[tauri::command]
@@ -1167,12 +1407,25 @@ pub struct SystemPrefs {
     autostart: bool,
     start_minimized: bool,
     fast_protected: bool,
+    notify_new: bool,
+}
+
+/// «Уведомлять о новых треках подписок».
+#[tauri::command]
+pub fn news_set(state: State<'_, AppState>, enabled: bool) -> Cmd<()> {
+    state.config.update(|c| c.notify_new = enabled)?;
+    Ok(())
 }
 
 #[tauri::command]
 pub fn system_get(app: AppHandle, state: State<'_, AppState>) -> SystemPrefs {
     let cfg = state.config.get();
-    SystemPrefs { autostart: crate::autostart::is_enabled(&app), start_minimized: cfg.start_minimized, fast_protected: cfg.fast_protected }
+    SystemPrefs {
+        autostart: crate::autostart::is_enabled(&app),
+        start_minimized: cfg.start_minimized,
+        fast_protected: cfg.fast_protected,
+        notify_new: cfg.notify_new,
+    }
 }
 
 #[tauri::command]

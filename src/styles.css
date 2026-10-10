@@ -332,6 +332,23 @@ select {
   text-overflow: ellipsis;
 }
 
+.nav-user.has-alert {
+  position: relative;
+}
+
+/* SoundCloud wants a captcha: a dot on the avatar, like an unread mark */
+.nav-user.has-alert::before {
+  content: '';
+  position: absolute;
+  left: 34px;
+  top: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel);
+}
+
 .nav-avatar {
   width: 24px;
   height: 24px;
@@ -2391,4 +2408,287 @@ select {
 .chip-btn.is-active {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* -------------------------------------------------------- upload dialog */
+
+.upl {
+  width: 460px;
+}
+
+.upl-top {
+  display: flex;
+  gap: 12px;
+}
+
+.upl-cover {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 96px;
+  height: 96px;
+  padding: 6px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.upl-cover span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upl-cover:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.upl-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.upl-fields,
+.upl-grow {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.upl-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.upl-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upl-label {
+  margin: 8px 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.upl-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.upl-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------ effects (EQ popover) */
+
+.fx {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.fx-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fx-chips {
+  display: flex;
+  gap: 4px;
+}
+
+.fx-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 64px;
+  align-items: center;
+  gap: 12px;
+}
+
+.fx-norm {
+  grid-template-columns: 1fr auto;
+}
+
+/* ---------------------------------------------------------------- queue */
+
+.q-pop {
+  position: absolute;
+  right: 16px;
+  bottom: 72px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-height: min(560px, calc(100vh - 140px));
+  padding: 10px 0 6px;
+}
+
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 6px 14px;
+}
+
+.q-body {
+  overflow-y: auto;
+  padding: 0 6px;
+}
+
+.q-label {
+  padding: 8px 8px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.q-label:empty {
+  display: none;
+}
+
+.q-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 4px 0 2px;
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.q-row.is-next {
+  cursor: pointer;
+}
+
+.q-row.is-next:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--panel));
+}
+
+.q-row.is-now .q-title {
+  color: var(--accent);
+}
+
+.q-row .btn-icon {
+  visibility: hidden;
+}
+
+.q-row:hover .btn-icon {
+  visibility: visible;
+}
+
+.q-cover {
+  width: 32px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--border);
+  object-fit: cover;
+  flex: none;
+}
+
+.q-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.q-title,
+.q-artist {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.q-artist {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.q-rec,
+.q-now-mark {
+  display: flex;
+  color: var(--muted);
+}
+
+.q-now-mark {
+  width: 20px;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.q-more {
+  padding: 8px;
+}
+
+.drag-handle {
+  display: flex;
+  width: 20px;
+  justify-content: center;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-gap {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.is-dragging {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  outline: 1px solid var(--accent);
+}
+
+body.is-sorting,
+body.is-sorting * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* ------------------------------------------------------ own playlist edit */
+
+.pl-edit-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.pl-edit-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.pl-edit-row {
+  cursor: default;
+}
+
+.pl-edit-row .btn-icon {
+  visibility: visible;
 }

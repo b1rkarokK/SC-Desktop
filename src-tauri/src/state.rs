@@ -48,6 +48,7 @@ impl AppState {
         }
 
         let config = ConfigStore::load(config_dir.join("config.json"));
+        crate::lang::set_from_ui(&config.get().ui);
         let http = match HttpClient::new(&config.get()) {
             Ok(c) => c,
             Err(e) => {

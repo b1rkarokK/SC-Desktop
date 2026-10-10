@@ -6,23 +6,24 @@ import { LyricsView } from './lyrics_view';
 import { lyricsData, SOURCE_NAMES, type LyricsState } from './lyrics_data';
 import { lyricsMenu } from './menus';
 import { onPrefs, prefs, updatePrefs } from './prefs';
+import { T } from './i18n';
 
 export class LyricsPanel {
   private view = new LyricsView('ly-panel');
   private badge = h('span', { class: 'badge' });
   private footer = h('div', { class: 'ly-foot muted small' });
-  private extBtn = iconButton(I.external, 'Открыть на Genius');
+  private extBtn = iconButton(I.external, T('Открыть на Genius'));
   private url: string | null = null;
 
   constructor(private host: HTMLElement, onFullscreen: () => void) {
-    const fs = iconButton(I.fullscreen, 'Полный экран');
+    const fs = iconButton(I.fullscreen, T('Полный экран'));
     fs.addEventListener('click', onFullscreen);
     this.extBtn.addEventListener('click', () => this.url && void api.openExternal(this.url));
-    const hide = iconButton(I.lyrics, 'Скрыть текст');
+    const hide = iconButton(I.lyrics, T('Скрыть текст'));
     hide.classList.add('is-on');
     hide.addEventListener('click', () => updatePrefs((p) => (p.lyricsOpen = false)));
     host.append(
-      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: 'Текст' }), this.badge, h('div', { class: 'spacer' }), fs, this.extBtn, hide),
+      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), fs, this.extBtn, hide),
       this.view.el,
       this.footer,
     );
@@ -57,10 +58,10 @@ export class LyricsPanel {
     this.footer.textContent = '';
     switch (s.kind) {
       case 'idle':
-        this.view.setMessage('Ничего не играет.');
+        this.view.setMessage(T('Ничего не играет.'));
         return;
       case 'loading':
-        this.view.setMessage('Ищем текст…');
+        this.view.setMessage(T('Ищем текст…'));
         return;
       case 'error':
         this.view.setMessage(s.message);
@@ -68,15 +69,15 @@ export class LyricsPanel {
       case 'ready': {
         const l = s.lyrics;
         if (!l.found) {
-          this.view.setMessage('Текст не найден ни в одном источнике.');
+          this.view.setMessage(T('Текст не найден ни в одном источнике.'));
           return;
         }
         this.view.setLyrics(l);
         this.badge.hidden = false;
-        this.badge.textContent = l.word_level ? 'по словам' : l.synced ? 'синхронный' : 'без таймингов';
+        this.badge.textContent = l.word_level ? T('по словам') : l.synced ? T('синхронный') : T('без таймингов');
         this.url = l.url;
         this.extBtn.hidden = !l.url;
-        this.footer.textContent = `Источник: ${SOURCE_NAMES[l.source ?? ''] ?? l.source}${l.word_level ? ' · по словам' : l.synced ? ' · по строкам' : ''}`;
+        this.footer.textContent = T('Источник: {0}{1}', SOURCE_NAMES[l.source ?? ''] ?? l.source, l.original ? T(' · текст оригинала') : l.word_level ? T(' · по словам') : l.synced ? T(' · по строкам') : '');
       }
     }
   }

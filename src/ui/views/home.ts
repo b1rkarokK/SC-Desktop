@@ -8,6 +8,8 @@ import { CATEGORY_GROUPS, type Category } from '../categories';
 import { openCategory, openChart, openMix, openPlaylist, type HomeTab } from '../router';
 import { SegTabs } from '../seg_tabs';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
+import { T } from '../i18n';
+import { tr } from '../i18n';
 
 async function cardTracks(c: HomeCard): Promise<Track[]> {
   if (c.kind === 'mix' && c.urn) return (await api.mixPage(c.urn)).tracks;
@@ -25,23 +27,23 @@ function shelf(cards: HomeCard[]): HTMLElement {
     const img = h('img', { class: 'card-cover', alt: '', loading: 'lazy', decoding: 'async' });
     const src = coverUrl(c.artwork_url, 't300x300');
     if (src) img.src = src;
-    const play = h('button', { type: 'button', class: 'card-play', title: 'Слушать', 'aria-label': 'Слушать' }, icon(I.play));
+    const play = h('button', { type: 'button', class: 'card-play', title: T('Слушать'), 'aria-label': T('Слушать') }, icon(I.play));
     play.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
         const tracks = await cardTracks(c);
         if (tracks.length) await api.playTracks(tracks, 0);
-        else toast('Здесь пока пусто');
+        else toast(T('Здесь пока пусто'));
       } catch (err) {
         toast(errorMessage(err), 'error');
       }
     });
-    const sub = c.subtitle || (c.track_count ? `${c.track_count} ${plural(c.track_count, 'трек', 'трека', 'треков')}` : '');
+    const sub = (c.subtitle && tr(c.subtitle)) || (c.track_count ? T('{0} {1}', c.track_count, plural(c.track_count, 'трек', 'трека', 'треков')) : '');
     const card = h(
       'div',
-      { class: 'card', tabindex: 0, role: 'button', title: c.title },
+      { class: 'card', tabindex: 0, role: 'button', title: tr(c.title) },
       h('div', { class: 'card-art' }, img, play),
-      h('div', { class: 'card-title', dir: 'auto', text: c.title }),
+      h('div', { class: 'card-title', dir: 'auto', text: tr(c.title) }),
       h('div', { class: 'card-sub', dir: 'auto', text: sub }),
     );
     card.addEventListener('click', () => open(c));
@@ -53,12 +55,12 @@ function shelf(cards: HomeCard[]): HTMLElement {
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'Раньше';
+  if (Number.isNaN(d.getTime())) return T('Раньше');
   const today = new Date();
   const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((start(today) - start(d)) / 86_400_000);
-  if (diff === 0) return 'Сегодня';
-  if (diff === 1) return 'Вчера';
+  if (diff === 0) return T('Сегодня');
+  if (diff === 1) return T('Вчера');
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
 }
 
@@ -73,19 +75,19 @@ export class HomeView implements View {
   private feedLoaded = false;
 
   constructor() {
-    this.refreshBtn = btn('Обновить', I.refresh);
+    this.refreshBtn = btn(T('Обновить'), I.refresh);
     this.refreshBtn.classList.add('btn-quiet');
     this.refreshBtn.addEventListener('click', () => void this.reload());
     this.tabs = new SegTabs<HomeTab>(
       [
-        { key: 'home', label: 'Главная' },
-        { key: 'categories', label: 'Категории' },
-        { key: 'feed', label: 'Лента' },
+        { key: 'home', label: T('Главная') },
+        { key: 'categories', label: T('Категории') },
+        { key: 'feed', label: T('Лента') },
       ],
       'home',
       () => this.render(),
     );
-    this.el = h('section', { class: 'view' }, viewHead('Главная', this.refreshBtn), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
+    this.el = h('section', { class: 'view' }, viewHead(T('Главная'), this.refreshBtn), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
   }
 
   show(tab?: HomeTab): void {
@@ -138,14 +140,14 @@ export class HomeView implements View {
 
   private renderHome(): void {
     if (this.sections === null) {
-      this.body.replaceChildren(emptyState('Загрузка…'));
+      this.body.replaceChildren(emptyState(T('Загрузка…')));
       return;
     }
     if (!this.sections.length) {
-      this.body.replaceChildren(emptyState('SoundCloud пока ничего не подобрал. Послушайте и полайкайте треки, и здесь появятся миксы.'));
+      this.body.replaceChildren(emptyState(T('SoundCloud пока ничего не подобрал. Послушайте и полайкайте треки, и здесь появятся миксы.')));
       return;
     }
-    this.body.replaceChildren(...this.sections.flatMap((s) => [sectionTitle(s.title), shelf(s.cards)]));
+    this.body.replaceChildren(...this.sections.flatMap((s) => [sectionTitle(tr(s.title)), shelf(s.cards)]));
   }
 
   private covers: Record<string, string[]> = {};
@@ -165,13 +167,13 @@ export class HomeView implements View {
             : h('div', { class: `crate-cover crate-${i} crate-empty` }, i === 0 ? (c.icon ? icon(c.icon) : h('span', { class: 'cat-mark', text: c.mark ?? '' })) : null),
         );
       }
-      const mark = c.pick ? 'только у нас' : c.chart ? (/:\d{4}$/.test(c.chart) ? 'по годам' : '№1 сейчас') : c.mix ? '№1 сегодня' : 'лучшее';
+      const mark = c.pick ? T('только у нас') : c.chart ? (/:\d{4}$/.test(c.chart) ? T('по годам') : T('№1 сейчас')) : c.mix ? T('№1 сегодня') : T('лучшее');
       const b = h(
         'button',
         { type: 'button', class: 'cat-tile' },
         h('span', { class: 'cat-chip', text: mark }),
         h('span', { class: 'cat-title', text: c.title }),
-        h('span', { class: 'cat-sub', text: c.note ?? (c.mix ? 'чарт · каждый день' : 'из любимых подборок') }),
+        h('span', { class: 'cat-sub', text: c.note ?? (c.mix ? T('чарт · каждый день') : T('из любимых подборок')) }),
         fan,
       );
       b.addEventListener('click', () => (c.chart ? openChart(c.chart) : c.mix ? openMix(c.mix) : openCategory(c.key)));
@@ -201,11 +203,11 @@ export class HomeView implements View {
 
   private renderFeed(): void {
     if (!this.feedLoaded) {
-      this.body.replaceChildren(emptyState('Загрузка…'));
+      this.body.replaceChildren(emptyState(T('Загрузка…')));
       return;
     }
     if (!this.feed.length) {
-      this.body.replaceChildren(emptyState('В ленте пусто. Подпишитесь на артистов, и здесь появятся их новые треки и репосты.'));
+      this.body.replaceChildren(emptyState(T('В ленте пусто. Подпишитесь на артистов, и здесь появятся их новые треки и репосты.')));
       return;
     }
     // by day; the whole feed plays as one queue from the clicked track
@@ -216,7 +218,7 @@ export class HomeView implements View {
     const flush = () => {
       if (!group.length) return;
       const reposts = group.filter((i) => i.reposted_by.length).length;
-      frag.append(sectionTitle(reposts ? `${label} · репостов: ${reposts}` : label));
+      frag.append(sectionTitle(reposts ? T('{0} · репостов: {1}', label, reposts) : label));
       const offset = all.indexOf(group[0]!.track);
       const list = staticTrackList(group.map((i) => i.track));
       // play from the whole feed, not just this day
@@ -243,7 +245,7 @@ export class HomeView implements View {
     }
     flush();
     if (this.feedNext) {
-      const more = btn('Показать ещё', I.chevronDown);
+      const more = btn(T('Показать ещё'), I.chevronDown);
       more.addEventListener('click', async () => {
         more.disabled = true;
         await this.loadFeed(true);

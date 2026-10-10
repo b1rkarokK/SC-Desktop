@@ -1,4 +1,4 @@
-//! Write requests (like, follow) sent from a real browser page.
+//! Write requests (like, follow, playlist edits, uploads) sent from a real browser page.
 //!
 //! SoundCloud's anti-bot (DataDome) answers PUT/POST/DELETE from a non-browser
 //! TLS stack with a captcha, cookies or not. So these few requests go through a
@@ -13,6 +13,13 @@
 //! The window exists only while needed: it is closed after `IDLE` without
 //! requests. The page talks to Rust by navigating to marker URLs, which
 //! `on_navigation` catches and cancels. It has no IPC access.
+//!
+//! Fewer captchas: DataDome asks again mostly on the first request of a fresh
+//! page, so the window lives for minutes after the last request and the first
+//! request waits until the tag has handed out its cookie. Quiet requests
+//! (likes, follows: they can wait in the queue) never pop a captcha up: they
+//! report `CAPTCHA`, the app marks "SoundCloud просит проверку" and the user
+//! passes it when convenient (an interactive flush of the queue).
 
 use std::{
     collections::HashMap,
@@ -23,7 +30,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tauri::{webview::PageLoadEvent, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{webview::PageLoadEvent, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tokio::sync::{oneshot, watch};
 use url::Url;
 
@@ -32,14 +39,22 @@ use crate::error::{AppError, AppResult};
 const LABEL: &str = "sc-bridge";
 const PAGE: &str = "https://soundcloud.com/robots.txt";
 const MARKER: &str = "scdesk";
-const IDLE: Duration = Duration::from_secs(30);
+const IDLE: Duration = Duration::from_secs(10 * 60);
 const TIMEOUT: Duration = Duration::from_secs(20);
 /// Status reported when DataDome blocks outright (no captcha to solve).
 pub const BLOCKED: u16 = 1;
+/// Status of a quiet request that would need a captcha (not shown).
+pub const CAPTCHA: u16 = 2;
+/// A quiet request met a captcha and nobody has passed it yet.
+static CAPTCHA_WAITING: AtomicBool = AtomicBool::new(false);
+
+pub fn captcha_waiting() -> bool {
+    CAPTCHA_WAITING.load(Ordering::Relaxed)
+}
 const CAPTCHA_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-static PENDING: Mutex<Option<HashMap<u64, oneshot::Sender<u16>>>> = Mutex::new(None);
+static PENDING: Mutex<Option<HashMap<u64, oneshot::Sender<(u16, Option<String>)>>>> = Mutex::new(None);
 static LAST_USE: Mutex<Option<Instant>> = Mutex::new(None);
 static READY: Mutex<Option<watch::Sender<bool>>> = Mutex::new(None);
 /// The captcha is on screen: no idle close, longer wait.
@@ -50,34 +65,35 @@ fn no_answer() -> AppError {
 }
 
 enum Marker {
-    /// final HTTP status of request `id`
-    Done(u64, u16),
+    /// final HTTP status of request `id` (and its body, when asked for)
+    Done(u64, u16, Option<String>),
     /// captcha shown (true) / solved and hidden (false)
     Captcha(bool),
 }
 
 fn marker_of(url: &Url) -> Option<Marker> {
-    let (mut id, mut status, mut captcha) = (None, None, None);
+    let (mut id, mut status, mut captcha, mut body) = (None, None, None, None);
     for (k, v) in url.query_pairs() {
         match &*k {
             MARKER => id = v.parse().ok(),
             "status" => status = v.parse().ok(),
             "captcha" => captcha = Some(v == "1"),
+            "body" => body = Some(v.into_owned()),
             _ => {}
         }
     }
     match (id, status, captcha) {
         (_, _, Some(show)) => Some(Marker::Captcha(show)),
-        (Some(id), Some(s), None) => Some(Marker::Done(id, s)),
+        (Some(id), Some(s), None) => Some(Marker::Done(id, s, body)),
         _ => None,
     }
 }
 
 fn on_marker(app: &AppHandle, m: Marker) {
     match m {
-        Marker::Done(id, status) => {
+        Marker::Done(id, status, body) => {
             if let Some(tx) = PENDING.lock().unwrap().as_mut().and_then(|p| p.remove(&id)) {
-                let _ = tx.send(status);
+                let _ = tx.send((status, body));
             }
         }
         Marker::Captcha(show) => {
@@ -116,7 +132,7 @@ async fn window(app: &AppHandle) -> AppResult<WebviewWindow> {
     if existing.is_none() {
         let handle = app.clone();
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(Url::parse(PAGE)?))
-            .title("Проверка SoundCloud")
+            .title(crate::lang::pick("Проверка SoundCloud", "SoundCloud check"))
             .visible(false)
             .skip_taskbar(true)
             .inner_size(440.0, 620.0)
@@ -175,6 +191,11 @@ const DD_OPTIONS: &str = r#"{
     {"host":"api-v2.soundcloud.com","path":"/users/*/track_likes/*","strict":true},
     {"host":"api-v2.soundcloud.com","path":"/users/*/playlist_likes/*","strict":true},
     {"host":"api-v2.soundcloud.com","path":"/me/track_reposts/*","strict":true},
+    {"host":"api-v2.soundcloud.com","path":"/playlists","strict":true},
+    {"host":"api-v2.soundcloud.com","path":"/playlists/*","strict":true},
+    {"host":"api-v2.soundcloud.com","path":"/uploads/*","strict":true},
+    {"host":"api-v2.soundcloud.com","path":"/tracks","strict":true},
+    {"host":"api-v2.soundcloud.com","path":"/tracks/*","strict":true},
     {"host":"api-v2.soundcloud.com","path":"/me","strict":true}
   ],
   overrideAbortFetch: true,
@@ -189,7 +210,7 @@ const DD_OPTIONS: &str = r#"{
 /// In-page script: load the DataDome tag once, send the request; on a captcha
 /// show the window until it is passed (the tag's own captcha, or ours in an
 /// iframe if the tag did not show one), then send once more.
-fn script(id: u64, method: &str, url: &Url, auth: &str) -> AppResult<String> {
+fn script(id: u64, method: &str, url: &Url, auth: &str, body: Option<&str>, want_body: bool, quiet: bool) -> AppResult<String> {
     Ok(format!(
         r#"(async () => {{
   const page = {page};
@@ -207,7 +228,12 @@ fn script(id: u64, method: &str, url: &Url, auth: &str) -> AppResult<String> {
       const s = document.createElement('script');
       s.src = {tag};
       s.async = true;
-      s.onload = () => setTimeout(ready, 1500);
+      // the first request goes once the tag has its cookie: before that it looks like a bot
+      s.onload = () => {{
+        const t0 = Date.now();
+        const wait = () => (document.cookie.includes('datadome=') && Date.now() - t0 > 800) || Date.now() - t0 > 5000 ? ready() : setTimeout(wait, 100);
+        setTimeout(wait, 300);
+      }};
       s.onerror = () => ready();
       (document.head || document.documentElement).append(s);
       setTimeout(ready, 8000);
@@ -216,7 +242,9 @@ fn script(id: u64, method: &str, url: &Url, auth: &str) -> AppResult<String> {
   await window.__scdDD;
   const st = window.__scdState;
   st.blocked = false;
+  const body = {body};
   const opts = {{ method: {method}, headers: {{ Authorization: {auth} }}, credentials: 'include' }};
+  if (body !== null) {{ opts.headers['Content-Type'] = 'application/json'; opts.body = body; }}
   const send = async () => {{
     try {{ return await fetch({url}, opts); }}
     catch (_) {{ return await fetch({url}, {{ ...opts, credentials: 'omit' }}); }}
@@ -248,7 +276,7 @@ fn script(id: u64, method: &str, url: &Url, auth: &str) -> AppResult<String> {
     // the tag shows its captcha by itself; if it did not, show ours
     setTimeout(() => {{ if (!st.shown) {{ st.passed = null; iframeCaptcha(src).then(done); }} }}, 2500);
   }});
-  let status = 0;
+  let status = 0, text = null;
   try {{
     let r = await send();
     if (r.status === 403) {{
@@ -261,11 +289,15 @@ fn script(id: u64, method: &str, url: &Url, auth: &str) -> AppResult<String> {
         mark('{MARKER}={id}&status=' + BLOCKED);
         return;
       }}
-      if (src.startsWith('https://')) {{ await solved(src); r = await send(); }}
+      if (src.startsWith('https://')) {{
+        if ({quiet}) {{ mark('{MARKER}={id}&status={CAPTCHA}'); return; }}
+        await solved(src); r = await send();
+      }}
     }}
     status = r.status;
+    if ({want_body}) text = await r.text();
   }} catch (_) {{}}
-  mark('{MARKER}={id}&status=' + status);
+  mark('{MARKER}={id}&status=' + status + (text === null ? '' : '&body=' + encodeURIComponent(text)));
 }})();"#,
         page = serde_json::to_string(PAGE)?,
         key = serde_json::to_string(DD_KEY)?,
@@ -274,6 +306,9 @@ fn script(id: u64, method: &str, url: &Url, auth: &str) -> AppResult<String> {
         method = serde_json::to_string(method)?,
         auth = serde_json::to_string(auth)?,
         url = serde_json::to_string(url.as_str())?,
+        body = serde_json::to_string(&body)?,
+        want_body = want_body,
+        quiet = quiet,
     ))
 }
 
@@ -286,16 +321,52 @@ pub async fn session_token(app: &AppHandle) -> Option<String> {
     w.cookies_for_url(url).ok()?.into_iter().find(|c| c.name() == "oauth_token" && !c.value().is_empty()).map(|c| c.value().to_owned())
 }
 
-pub async fn send(app: &AppHandle, method: &str, url: &Url, auth: &str) -> AppResult<u16> {
-    let status = send_once(app, method, url, auth).await?;
-    if status != BLOCKED {
-        return Ok(status);
+pub async fn send(app: &AppHandle, method: &str, url: &Url, auth: &str, body: Option<&str>) -> AppResult<u16> {
+    Ok(send_full(app, method, url, auth, body, false, false).await?.0)
+}
+
+/// For writes that can wait in a queue: a captcha is not shown, `CAPTCHA` is returned.
+pub async fn send_quiet(app: &AppHandle, method: &str, url: &Url, auth: &str) -> AppResult<u16> {
+    Ok(send_full(app, method, url, auth, None, false, true).await?.0)
+}
+
+/// Like `send`, and returns the response body too (JSON answers of uploads).
+pub async fn send_for_body(app: &AppHandle, method: &str, url: &Url, auth: &str, body: Option<&str>) -> AppResult<(u16, String)> {
+    let (status, text) = send_full(app, method, url, auth, body, true, false).await?;
+    Ok((status, text.unwrap_or_default()))
+}
+
+async fn send_full(
+    app: &AppHandle,
+    method: &str,
+    url: &Url,
+    auth: &str,
+    body: Option<&str>,
+    want_body: bool,
+    quiet: bool,
+) -> AppResult<(u16, Option<String>)> {
+    let first = send_once(app, method, url, auth, body, want_body, quiet).await?;
+    match first.0 {
+        CAPTCHA => {
+            if !CAPTCHA_WAITING.swap(true, Ordering::Relaxed) {
+                tracing::info!("bridge: SoundCloud wants a captcha, waiting for the user");
+                let _ = app.emit("bridge:captcha", true);
+            }
+            return Ok(first);
+        }
+        BLOCKED => {}
+        200..=299 if !quiet && CAPTCHA_WAITING.swap(false, Ordering::Relaxed) => {
+            // passed interactively: the queue can go
+            let _ = app.emit("bridge:captcha", false);
+            return Ok(first);
+        }
+        _ => return Ok(first),
     }
     // A hard block sticks to the DataDome session, not to the user: a session
     // flagged once stays flagged. Start a fresh one and try again.
     tracing::info!("bridge: DataDome session blocked, starting a new one");
     reset_session(app).await?;
-    send_once(app, method, url, auth).await
+    send_once(app, method, url, auth, body, want_body, quiet).await
 }
 
 async fn reset_session(app: &AppHandle) -> AppResult<()> {
@@ -315,13 +386,21 @@ async fn reset_session(app: &AppHandle) -> AppResult<()> {
     Ok(())
 }
 
-async fn send_once(app: &AppHandle, method: &str, url: &Url, auth: &str) -> AppResult<u16> {
+async fn send_once(
+    app: &AppHandle,
+    method: &str,
+    url: &Url,
+    auth: &str,
+    body: Option<&str>,
+    want_body: bool,
+    quiet: bool,
+) -> AppResult<(u16, Option<String>)> {
     *LAST_USE.lock().unwrap() = Some(Instant::now());
     let w = window(app).await?;
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, mut rx) = oneshot::channel();
     PENDING.lock().unwrap().get_or_insert_with(HashMap::new).insert(id, tx);
-    w.eval(&script(id, method, url, auth)?)?;
+    w.eval(&script(id, method, url, auth, body, want_body, quiet)?)?;
 
     let started = Instant::now();
     let mut saw_captcha = false;
@@ -349,7 +428,7 @@ async fn send_once(app: &AppHandle, method: &str, url: &Url, auth: &str) -> AppR
         *READY.lock().unwrap() = None;
     }
     *LAST_USE.lock().unwrap() = Some(Instant::now());
-    let status = result?;
+    let (status, text) = result?;
     tracing::debug!(%method, status, "bridge request");
-    Ok(status)
+    Ok((status, text))
 }

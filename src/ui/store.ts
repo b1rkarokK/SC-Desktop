@@ -1,6 +1,7 @@
 // Minimal shared state with change notifications.
 import { api, errorMessage, type AuthStatus, type PlayerSnapshot, type Track, type User } from './api';
 import { toast } from './dom';
+import { T } from './i18n';
 
 type Topic = 'player' | 'likes' | 'dislikes' | 'auth' | 'follows';
 type Listener = () => void;
@@ -82,7 +83,7 @@ class Store {
     this.emit('dislikes');
     try {
       await api.dislikeSet(track.id, disliked);
-      if (disliked) toast('Больше не будем рекомендовать этот трек');
+      if (disliked) toast(T('Больше не будем рекомендовать этот трек'));
     } catch (e) {
       if (disliked) this.disliked.delete(track.id);
       else this.disliked.add(track.id);

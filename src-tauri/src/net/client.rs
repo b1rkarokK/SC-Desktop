@@ -234,6 +234,58 @@ impl HttpClient {
         }
     }
 
+    /// Uploads a local file with a plain PUT (a pre-signed storage URL: no
+    /// cookies, no auth of ours). `progress(sent, total)` is called as it goes.
+    pub async fn put_file(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        path: &std::path::Path,
+        progress: impl Fn(u64, u64) + Send + Sync + 'static,
+    ) -> AppResult<()> {
+        use futures::StreamExt;
+        let file = tokio::fs::File::open(path).await?;
+        let total = file.metadata().await?.len();
+        let progress = std::sync::Arc::new(progress);
+        let sent = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let stream = futures::stream::unfold(file, |mut f| async move {
+            use tokio::io::AsyncReadExt;
+            let mut buf = vec![0u8; 256 * 1024];
+            match f.read(&mut buf).await {
+                Ok(0) => None,
+                Ok(n) => {
+                    buf.truncate(n);
+                    Some((Ok::<_, std::io::Error>(buf), f))
+                }
+                Err(e) => Some((Err(e), f)),
+            }
+        })
+        .map(move |chunk| {
+            if let Ok(c) = &chunk {
+                let now = sent.fetch_add(c.len() as u64, std::sync::atomic::Ordering::Relaxed) + c.len() as u64;
+                progress(now, total);
+            }
+            chunk
+        });
+        let mut req = self
+            .client
+            .put(url)
+            .timeout(Duration::from_secs(60 * 60))
+            .header(reqwest::header::CONTENT_LENGTH, total)
+            .body(reqwest::Body::wrap_stream(stream));
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        let body: String = resp.text().await.unwrap_or_default().chars().take(300).collect();
+        tracing::warn!(%status, host = host_of(url), body = %body, "file upload failed");
+        Err(AppError::from_status(status))
+    }
+
     /// Body download also retried: CDN connections drop mid-body more often than on connect.
     pub async fn get_bytes(&self, url: &str, profile: Profile, auth: Option<&str>) -> AppResult<Vec<u8>> {
         let mut attempt = 0u32;

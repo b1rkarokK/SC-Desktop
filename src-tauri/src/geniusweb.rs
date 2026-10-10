@@ -184,7 +184,7 @@ async fn window() -> AppResult<WebviewWindow> {
     };
     if existing.is_none() {
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(Url::parse(PAGE)?))
-            .title("Проверка Genius")
+            .title(crate::lang::pick("Проверка Genius", "Genius check"))
             .visible(false)
             .skip_taskbar(true)
             .inner_size(480.0, 640.0)

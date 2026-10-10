@@ -8,6 +8,7 @@ import { store } from '../store';
 import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
 import { ArraySource, VirtualList } from '../virtual_list';
 import { emptyState, sectionTitle, staticTrackList, type View } from './common';
+import { T } from '../i18n';
 
 type Tab = 'all' | 'tracks' | 'users' | 'playlists';
 
@@ -25,8 +26,8 @@ export class SearchView implements View {
   private busy = false;
 
   constructor() {
-    this.input = h('input', { type: 'search', class: 'input search-input', placeholder: 'Треки, артисты, плейлисты…', 'aria-label': 'Поиск' });
-    const clear = iconButton(I.close, 'Очистить');
+    this.input = h('input', { type: 'search', class: 'input search-input', placeholder: T('Треки, артисты, плейлисты…'), 'aria-label': T('Поиск') });
+    const clear = iconButton(I.close, T('Очистить'));
     clear.addEventListener('click', () => {
       this.input.value = '';
       this.input.focus();
@@ -45,10 +46,10 @@ export class SearchView implements View {
     });
     this.tabs = new SegTabs<Tab>(
       [
-        { key: 'all', label: 'Всё' },
-        { key: 'tracks', label: 'Треки' },
-        { key: 'users', label: 'Артисты' },
-        { key: 'playlists', label: 'Плейлисты' },
+        { key: 'all', label: T('Всё') },
+        { key: 'tracks', label: T('Треки') },
+        { key: 'users', label: T('Артисты') },
+        { key: 'playlists', label: T('Плейлисты') },
       ],
       'all',
       () => void this.run(true),
@@ -67,7 +68,7 @@ export class SearchView implements View {
       h('div', { class: 'tabs-row' }, this.tabs.el),
       this.body,
     );
-    this.body.append(emptyState('Введите запрос: ищем по всему SoundCloud.'));
+    this.body.append(emptyState(T('Введите запрос: ищем по всему SoundCloud.')));
   }
 
   show(): void {
@@ -80,24 +81,24 @@ export class SearchView implements View {
     this.query = q;
     const seq = ++this.seq;
     if (!q) {
-      this.body.replaceChildren(emptyState('Введите запрос: ищем по всему SoundCloud.'));
+      this.body.replaceChildren(emptyState(T('Введите запрос: ищем по всему SoundCloud.')));
       return;
     }
-    this.body.replaceChildren(emptyState('Поиск…'));
+    this.body.replaceChildren(emptyState(T('Поиск…')));
     try {
       const tab = this.tabs.value;
       if (tab === 'all') {
         const r = await api.searchAll(q);
         if (seq !== this.seq) return;
         const s = h('div', { class: 'view-scroll pad' });
-        if (r.users.length) s.append(sectionTitle('Артисты'), userChips(r.users.slice(0, 3)));
+        if (r.users.length) s.append(sectionTitle(T('Артисты')), userChips(r.users.slice(0, 3)));
         if (r.tracks.length) {
-          const all = h('button', { type: 'button', class: 'btn btn-quiet', text: 'Показать все' });
+          const all = h('button', { type: 'button', class: 'btn btn-quiet', text: T('Показать все') });
           all.addEventListener('click', () => this.tabs.select('tracks', true));
-          s.append(sectionTitle('Треки', all), staticTrackList(r.tracks.slice(0, 8)));
+          s.append(sectionTitle(T('Треки'), all), staticTrackList(r.tracks.slice(0, 8)));
         }
-        if (r.playlists.length) s.append(sectionTitle('Плейлисты'), playlistGrid(r.playlists.slice(0, 4)));
-        if (!r.users.length && !r.tracks.length && !r.playlists.length) s.append(emptyState('Ничего не найдено.'));
+        if (r.playlists.length) s.append(sectionTitle(T('Плейлисты')), playlistGrid(r.playlists.slice(0, 4)));
+        if (!r.users.length && !r.tracks.length && !r.playlists.length) s.append(emptyState(T('Ничего не найдено.')));
         this.body.replaceChildren(s);
       } else if (tab === 'tracks') {
         const page = await api.searchTracks(q, 0);
@@ -105,15 +106,15 @@ export class SearchView implements View {
         this.nextOffset = page.next_offset;
         this.source = new ArraySource<Track>(page.tracks, () => this.more(seq));
         this.list.setSource(this.source);
-        this.body.replaceChildren(page.tracks.length ? this.list.el : emptyState('Ничего не найдено.'));
+        this.body.replaceChildren(page.tracks.length ? this.list.el : emptyState(T('Ничего не найдено.')));
       } else if (tab === 'users') {
         const users = await api.searchUsers(q);
         if (seq !== this.seq) return;
-        this.body.replaceChildren(h('div', { class: 'view-scroll' }, users.length ? artistGrid(users) : emptyState('Ничего не найдено.')));
+        this.body.replaceChildren(h('div', { class: 'view-scroll' }, users.length ? artistGrid(users) : emptyState(T('Ничего не найдено.'))));
       } else {
         const pls = await api.searchPlaylists(q);
         if (seq !== this.seq) return;
-        this.body.replaceChildren(h('div', { class: 'view-scroll' }, pls.length ? playlistGrid(pls) : emptyState('Ничего не найдено.')));
+        this.body.replaceChildren(h('div', { class: 'view-scroll' }, pls.length ? playlistGrid(pls) : emptyState(T('Ничего не найдено.'))));
       }
     } catch (e) {
       if (seq === this.seq) this.body.replaceChildren(emptyState(errorMessage(e)));

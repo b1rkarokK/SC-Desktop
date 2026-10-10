@@ -292,7 +292,7 @@ impl Widget {
                 self.eval(&format!("window.scw.volume({});", widget_volume(v)));
             }
             AudioCmd::Stop => self.stop(),
-            AudioCmd::Load { .. } => {}
+            AudioCmd::Load { .. } | AudioCmd::Crossfade(_) => {}
         }
     }
 

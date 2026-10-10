@@ -12,11 +12,12 @@ const TRAY_ID: &str = "main";
 const MAIN: &str = "main";
 
 fn build_menu(app: &AppHandle, update: Option<&MenuItem<tauri::Wry>>) -> tauri::Result<Menu<tauri::Wry>> {
-    let toggle = MenuItem::with_id(app, "toggle", "Пуск / Пауза", true, None::<&str>)?;
-    let prev = MenuItem::with_id(app, "prev", "Предыдущий", true, None::<&str>)?;
-    let next = MenuItem::with_id(app, "next", "Следующий", true, None::<&str>)?;
-    let show = MenuItem::with_id(app, "show", "Открыть окно", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+    use crate::lang::pick;
+    let toggle = MenuItem::with_id(app, "toggle", pick("Пуск / Пауза", "Play / Pause"), true, None::<&str>)?;
+    let prev = MenuItem::with_id(app, "prev", pick("Предыдущий", "Previous"), true, None::<&str>)?;
+    let next = MenuItem::with_id(app, "next", pick("Следующий", "Next"), true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", pick("Открыть окно", "Open window"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", pick("Выход", "Quit"), true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep1, &show, &sep2, &quit])?;
@@ -61,7 +62,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 pub fn set_update_hint(app: &AppHandle, version: Option<&str>) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
     if let Some(v) = version {
-        if let Ok(item) = MenuItem::with_id(app, "update", format!("Доступно обновление {v}"), true, None::<&str>) {
+        let label = format!("{} {v}", crate::lang::pick("Доступно обновление", "Update available:"));
+        if let Ok(item) = MenuItem::with_id(app, "update", label, true, None::<&str>) {
             if let Ok(menu) = build_menu(app, Some(&item)) {
                 let _ = tray.set_menu(Some(menu));
             }
@@ -69,11 +71,20 @@ pub fn set_update_hint(app: &AppHandle, version: Option<&str>) {
     }
 }
 
+/// Language changed: the menu in the new language (the update item, if any,
+/// comes back with the next update check).
+pub fn refresh_menu(app: &AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
+    if let Ok(menu) = build_menu(app, None) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
 pub fn set_now_playing(app: &AppHandle, track: Option<&TrackDto>, playing: bool) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
     let text = match track {
         Some(t) => {
-            let mark = if playing { "" } else { " (пауза)" };
+            let mark = if playing { "" } else { crate::lang::pick(" (пауза)", " (paused)") };
             // Windows tray tooltips are limited to 127 chars
             let s = format!("{} — {}{}", t.artist, t.title, mark);
             s.chars().take(120).collect()

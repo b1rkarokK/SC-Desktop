@@ -6,6 +6,7 @@ import { trackMenu } from './menus';
 import { openTrack, openTrackArtist } from './router';
 import { store } from './store';
 import type { RowRenderer } from './virtual_list';
+import { T } from './i18n';
 
 export const ROW_HEIGHT = 44;
 
@@ -22,7 +23,7 @@ export function trackRowRenderer(): RowRenderer<Track> {
         '<button type="button" class="btn-icon row-dislike"></button><button type="button" class="btn-icon row-like"></button><span class="row-dur"></span>';
       const q = <T extends HTMLElement>(s: string) => row.querySelector(s) as T;
       q('.row-idx').append(icon(I.play));
-      row.title = 'Нажмите, чтобы включить';
+      row.title = T('Нажмите, чтобы включить');
       q('.row-like').append(icon(I.heart));
       q('.row-dislike').append(icon(I.dislike));
       const stop = (e: Event) => e.stopPropagation();
@@ -75,19 +76,19 @@ export function trackRowRenderer(): RowRenderer<Track> {
       const isDisliked = store.disliked.has(track.id);
       row.classList.toggle('row-disliked', isDisliked);
       title.textContent = track.title;
-      title.title = `${track.title} — открыть страницу трека`;
+      title.title = T('{0} — открыть страницу трека', track.title);
       title.dir = 'auto';
       artist.textContent = track.artist;
-      artist.title = `${track.artist} — открыть страницу автора`;
+      artist.title = T('{0} — открыть страницу автора', track.artist);
       artist.dir = 'auto';
       dur.textContent = fmtTime(track.duration_ms);
 
       const liked = store.liked.has(track.id);
       like.hidden = dislike.hidden = false;
       like.classList.toggle('is-on', liked);
-      like.title = liked ? 'Убрать из лайков' : 'Лайкнуть';
+      like.title = liked ? T('Убрать из лайков') : T('Лайкнуть');
       dislike.classList.toggle('is-on', isDisliked);
-      dislike.title = isDisliked ? 'Снова рекомендовать' : 'Не рекомендовать';
+      dislike.title = isDisliked ? T('Снова рекомендовать') : T('Не рекомендовать');
 
       const src = coverUrl(track.artwork_url, 't67x67');
       if (src) {

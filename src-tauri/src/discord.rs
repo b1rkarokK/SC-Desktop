@@ -181,7 +181,7 @@ impl Worker {
     }
 
     fn send(&mut self, p: &Presence, start: i64) -> Result<(), ()> {
-        let state = if p.playing { p.artist.clone() } else { format!("{} · на паузе", p.artist) };
+        let state = if p.playing { p.artist.clone() } else { format!("{} · {}", p.artist, crate::lang::pick("на паузе", "paused")) };
         let details = truncate(&p.title, 120);
         let state = truncate(&state, 120);
         let mut activity = Activity::new().activity_type(ActivityType::Listening).details(&details).state(&state);
@@ -200,7 +200,7 @@ impl Worker {
         let button;
         if self.cfg.button {
             if let Some(url) = &p.url {
-                button = vec![Button::new("Слушать на SoundCloud", url)];
+                button = vec![Button::new(crate::lang::pick("Слушать на SoundCloud", "Listen on SoundCloud"), url)];
                 activity = activity.buttons(button);
             }
         }

@@ -59,6 +59,26 @@ impl Default for DiscordConfig {
     }
 }
 
+/// Sound effects and transitions (Эквалайзер → «Эффекты»).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FxConfig {
+    /// playback rate: < 1 slowed, > 1 sped up (pitch follows)
+    pub speed: f32,
+    /// reverb amount 0 … 1
+    pub reverb: f32,
+    /// bring every track to the same loudness
+    pub normalize: bool,
+    /// seconds of overlap between tracks, 0 = off
+    pub crossfade: f32,
+}
+
+impl Default for FxConfig {
+    fn default() -> Self {
+        Self { speed: 1.0, reverb: 0.0, normalize: true, crossfade: 0.0 }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -68,6 +88,7 @@ pub struct AppConfig {
     pub chrome_version: u32,
     pub volume: f32,
     pub eq: EqConfig,
+    pub fx: FxConfig,
     pub discord: DiscordConfig,
     pub start_minimized: bool,
     /// keep SoundCloud's player warmed up for protected tracks (+50-70 MB, instant start)
@@ -75,6 +96,9 @@ pub struct AppConfig {
     pub fast_protected: bool,
     /// «Моя волна» without liked tracks and their re-uploads
     pub wave_no_liked: bool,
+    /// Windows notification when a followed artist posts a new track
+    #[serde(default = "yes")]
+    pub notify_new: bool,
     /// autostart was set up once (enabled by default on the first launch)
     pub autostart_initialized: bool,
     /// Frontend-owned preferences (theme, panels, fullscreen view…), stored verbatim.
@@ -89,10 +113,12 @@ impl Default for AppConfig {
             chrome_version: DEFAULT_CHROME_VERSION,
             volume: 0.8,
             eq: EqConfig::default(),
+            fx: FxConfig::default(),
             discord: DiscordConfig::default(),
             start_minimized: true,
             fast_protected: true,
             wave_no_liked: true,
+            notify_new: true,
             autostart_initialized: false,
             ui:serde_json::Value::Object(Default::default()),
         }

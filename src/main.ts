@@ -3,32 +3,38 @@ import { api, errorMessage, isAppError, type AppErrorPayload, type AuthStatus, t
 import { clock } from './ui/clock';
 import { setWindowShown, toast } from './ui/dom';
 import { EqPopover } from './ui/eq_popover';
+import { QueuePopover } from './ui/queue_popover';
 import { Fullscreen } from './ui/fullscreen';
 import { lyricsData } from './ui/lyrics_data';
 import { LyricsPanel } from './ui/lyrics_panel';
 import { MainWindow } from './ui/main_window';
 import { PlayerBar } from './ui/player_bar';
-import { loadPrefs } from './ui/prefs';
+import { loadPrefs, prefs, updatePrefs } from './ui/prefs';
 import { router } from './ui/router';
 import { store } from './ui/store';
 import { TitleBar } from './ui/titlebar';
 import { updates } from './ui/update_dialog';
+import { currentLang, T } from './ui/i18n';
 
 const $ = (id: string) => document.getElementById(id)!;
 
 async function boot(): Promise<void> {
   const cfg = await api.configGet();
   loadPrefs(cfg.ui);
+  // the core shows a few texts itself (tray, Discord): tell it the language
+  if (prefs().lang !== currentLang()) updatePrefs((p) => (p.lang = currentLang()));
 
   new TitleBar($('titlebar'));
   const fullscreen = new Fullscreen();
   document.body.append(fullscreen.el);
   const eq = new EqPopover();
   $('player').append(eq.el);
+  const queue = new QueuePopover();
+  $('player').append(queue.el);
   const main = new MainWindow($('nav'), $('center'));
   new LyricsPanel($('lyrics'), () => fullscreen.toggle());
-  const bar = new PlayerBar($('player'), eq, () => fullscreen.toggle());
-  eq.init(cfg.eq, (open, enabled) => bar.setEqActive(open, enabled));
+  const bar = new PlayerBar($('player'), eq, queue, () => fullscreen.toggle());
+  eq.init(cfg.eq, cfg.fx, (open, enabled) => bar.setEqActive(open, enabled));
 
   await Promise.all([
     listen<PlayerSnapshot>('player:state', (e) => store.setSnapshot(e.payload)),
@@ -48,7 +54,7 @@ async function boot(): Promise<void> {
     listen<AuthStatus>('auth:changed', (e) => {
       store.setAuth(e.payload);
       void store.reloadSets();
-      toast(e.payload.username ? `Вход выполнен: ${e.payload.username}` : 'Вход выполнен');
+      toast(e.payload.username ? T('Вход выполнен: {0}', e.payload.username) : T('Вход выполнен'));
       router.go({ name: 'likes' });
       void main.library.sync();
     }),
@@ -97,4 +103,4 @@ document.addEventListener('contextmenu', (e) => {
   if (!(e.target instanceof Element && e.target.closest('input, textarea'))) e.preventDefault();
 });
 
-boot().catch((e) => toast(`Ошибка запуска: ${errorMessage(e)}`, 'error', 15000));
+boot().catch((e) => toast(T('Ошибка запуска: {0}', errorMessage(e)), 'error', 15000));

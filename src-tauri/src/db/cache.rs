@@ -89,6 +89,13 @@ CREATE TABLE IF NOT EXISTS playlist_plays (
 );
 CREATE INDEX IF NOT EXISTS playlist_plays_at ON playlist_plays(at);
 
+CREATE TABLE IF NOT EXISTS wave_signals (
+    track_id INTEGER PRIMARY KEY,
+    signal   INTEGER NOT NULL,
+    at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS wave_signals_at ON wave_signals(at);
+
 CREATE TABLE IF NOT EXISTS stream_log (at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS stream_log_at ON stream_log(at);
 
@@ -130,6 +137,13 @@ impl Db {
         conn.execute_batch(SCHEMA)?;
         // "lyrics not found" is retried once per launch: sources and matching improve
         conn.execute("DELETE FROM lyrics2 WHERE found = 0", [])?;
+        // rows without a key (a damaged file salvaged row by row) break the readers
+        conn.execute_batch(
+            "DELETE FROM covers WHERE key IS NULL;
+             DELETE FROM kv WHERE key IS NULL OR json IS NULL;
+             DELETE FROM tracks WHERE json IS NULL OR title IS NULL;
+             DELETE FROM plays WHERE track_id IS NULL;",
+        )?;
         Ok(Self { conn: Arc::new(Mutex::new(conn)) })
     }
 
@@ -322,6 +336,65 @@ impl Db {
             })
             .await?;
         Ok(jsons.iter().filter_map(|j| serde_json::from_str(j).ok()).collect())
+    }
+
+    // ------------------------------------------------------ wave signals
+
+    /// How a wave track went: +1 listened to the end, -1 skipped early. The
+    /// latest signal per track wins; the table keeps the newest 3000.
+    pub async fn wave_signal_put(&self, track_id: u64, signal: i8) -> AppResult<()> {
+        self.run(move |c| {
+            c.execute(
+                "INSERT OR REPLACE INTO wave_signals (track_id, signal, at) VALUES (?1, ?2, ?3)",
+                params![track_id as i64, signal as i64, now()],
+            )?;
+            c.execute(
+                "DELETE FROM wave_signals WHERE track_id NOT IN (SELECT track_id FROM wave_signals ORDER BY at DESC LIMIT 3000)",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Liked / played / disliked tracks whose metadata is missing (a damaged
+    /// cache restored without them): fetched again in the background.
+    pub async fn orphan_track_ids(&self) -> AppResult<Vec<u64>> {
+        let ids = self
+            .ids(
+                "SELECT track_id FROM likes WHERE track_id NOT IN (SELECT id FROM tracks)
+                 UNION SELECT track_id FROM plays WHERE track_id NOT IN (SELECT id FROM tracks)
+                 UNION SELECT track_id FROM disliked_tracks WHERE track_id NOT IN (SELECT id FROM tracks)",
+            )
+            .await?;
+        Ok(ids.into_iter().collect())
+    }
+
+    /// How many liked tracks this uploader has.
+    pub async fn liked_by_artist(&self, user_id: u64) -> AppResult<u64> {
+        self.run(move |c| {
+            c.query_row(
+                "SELECT COUNT(*) FROM likes l JOIN tracks t ON t.id = l.track_id WHERE t.user_id = ?1",
+                [user_id as i64],
+                |r| r.get::<_, i64>(0),
+            )
+        })
+        .await
+        .map(|n| n as u64)
+    }
+
+    /// Wave signals with full track metadata, newest first.
+    pub async fn wave_signals(&self, limit: u32) -> AppResult<Vec<(ScTrack, i8)>> {
+        let rows = self
+            .run(move |c| {
+                let mut st = c.prepare_cached(
+                    "SELECT t.json, w.signal FROM wave_signals w JOIN tracks t ON t.id = w.track_id ORDER BY w.at DESC LIMIT ?1",
+                )?;
+                let rows = st.query_map([limit as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .await?;
+        Ok(rows.into_iter().filter_map(|(j, s)| serde_json::from_str(&j).ok().map(|t| (t, s.signum() as i8))).collect())
     }
 
     // ----------------------------------------------------------- related

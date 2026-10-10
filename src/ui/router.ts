@@ -2,7 +2,7 @@
 // (track / artist / playlist) push onto it so "Назад" works.
 
 export type LibTab = 'tracks' | 'playlists' | 'albums' | 'artists';
-export type ProfileTab = 'downloads' | 'queue';
+export type ProfileTab = 'mine' | 'downloads' | 'queue';
 export type HomeTab = 'home' | 'categories' | 'feed';
 
 export type Route =

@@ -5,13 +5,15 @@ import { icon, iconButton, I } from '../icons';
 import { openTrack, openTrackArtist } from '../router';
 import { store } from '../store';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
+import { T } from '../i18n';
+import { tr } from '../i18n';
 
 const MOODS: [Mood, string][] = [
-  ['normal', 'Как обычно'],
-  ['fresh', 'Больше нового'],
-  ['familiar', 'Только знакомое'],
-  ['calm', 'Спокойнее'],
-  ['energetic', 'Энергичнее'],
+  ['normal', T('Как обычно')],
+  ['fresh', T('Больше нового')],
+  ['familiar', T('Только знакомое')],
+  ['calm', T('Спокойнее')],
+  ['energetic', T('Энергичнее')],
 ];
 
 export class WaveView implements View {
@@ -21,9 +23,9 @@ export class WaveView implements View {
   private label = h('div', { class: 'muted small' });
   private title = h('button', { type: 'button', class: 'wave-title link', dir: 'auto' });
   private sub = h('div', { class: 'muted small', dir: 'auto' });
-  private startBtn = btn('Запустить волну', I.wave, true);
-  private dislikeBtn = btn('Не нравится', I.dislike);
-  private banBtn = btn('Не ставить артиста', I.banArtist);
+  private startBtn = btn(T('Запустить волну'), I.wave, true);
+  private dislikeBtn = btn(T('Не нравится'), I.dislike);
+  private banBtn = btn(T('Не ставить артиста'), I.banArtist);
   private moods = h('div', { class: 'chips' });
   private next = h('div');
   private bans = h('div', { class: 'chips' });
@@ -37,8 +39,8 @@ export class WaveView implements View {
     h(
       'div',
       { class: 'set-label' },
-      h('div', { text: 'Без лайкнутых' }),
-      h('div', { class: 'muted small', text: 'не предлагать то, что уже в лайках, и их копии с другим названием. Другие версии (speed up, slowed, hardtekk) остаются' }),
+      h('div', { text: T('Без лайкнутых') }),
+      h('div', { class: 'muted small', text: T('не предлагать то, что уже в лайках, и их копии с другим названием. Другие версии (speed up, slowed, hardtekk) остаются') }),
     ),
     this.noLikedBtn,
   );
@@ -64,13 +66,13 @@ export class WaveView implements View {
         toast(errorMessage(e), 'error');
       }
     });
-    const reset = h('button', { type: 'button', class: 'btn btn-quiet', text: 'Сбросить всё' });
+    const reset = h('button', { type: 'button', class: 'btn btn-quiet', text: T('Сбросить всё') });
     reset.addEventListener('click', () => void this.resetBans());
 
     this.el = h(
       'section',
       { class: 'view' },
-      viewHead('Моя волна'),
+      viewHead(T('Моя волна')),
       h(
         'div',
         { class: 'view-scroll pad' },
@@ -81,14 +83,14 @@ export class WaveView implements View {
           h('div', { class: 'wave-meta' }, this.label, this.title, this.sub),
           h('div', { class: 'wave-actions' }, this.startBtn, this.dislikeBtn, this.banBtn),
         ),
-        sectionTitle('Настроение волны'),
+        sectionTitle(T('Настроение волны')),
         this.moods,
         this.noLikedRow,
-        sectionTitle('Далее в волне'),
+        sectionTitle(T('Далее в волне')),
         this.next,
-        sectionTitle('Исключённые артисты', reset),
+        sectionTitle(T('Исключённые артисты'), reset),
         this.bans,
-        sectionTitle('Не рекомендовать (треки)'),
+        sectionTitle(T('Не рекомендовать (треки)')),
         this.bansNote,
       ),
     );
@@ -125,15 +127,16 @@ export class WaveView implements View {
     const s = store.snapshot;
     const t = s?.track ?? null;
     const inWave = s?.source === 'wave';
-    this.label.textContent = inWave ? 'Сейчас в волне' : t ? 'Сейчас играет (не из волны)' : 'Волна не запущена';
-    this.title.textContent = t?.title ?? 'Нажмите «Запустить волну»';
+    const ctx = this.info?.context ? tr(this.info.context) : null;
+    this.label.textContent = inWave ? (ctx ? T('Сейчас в волне {0}', ctx) : T('Сейчас в волне')) : t ? T('Сейчас играет (не из волны)') : T('Волна не запущена');
+    this.title.textContent = t?.title ?? T('Нажмите «Запустить волну»');
     this.title.disabled = !t;
     this.sub.replaceChildren();
     if (t) {
       const artist = h('button', { type: 'button', class: 'link', text: t.artist });
       artist.addEventListener('click', () => void openTrackArtist(t));
       this.sub.append(artist);
-      if (inWave && this.info?.reason) this.sub.append(` · ${this.info.reason}`);
+      if (inWave && this.info?.reason) this.sub.append(` · ${tr(this.info.reason)}`);
     }
     // the cover cell always stays (empty placeholder without a track) so the
     // text keeps its own column and isn't squeezed into the 96px cover slot
@@ -143,7 +146,7 @@ export class WaveView implements View {
     } else this.cover.removeAttribute('src');
     this.coverBox.classList.toggle('is-empty', !src);
     // always available: after «Волна по треку» you can go back to the normal wave
-    this.startBtn.replaceChildren(icon(I.wave), h('span', { text: inWave ? 'Обычная волна' : 'Запустить волну' }));
+    this.startBtn.replaceChildren(icon(I.wave), h('span', { text: inWave ? T('Обычная волна') : T('Запустить волну') }));
     this.dislikeBtn.disabled = this.banBtn.disabled = !t;
   }
 
@@ -173,18 +176,18 @@ export class WaveView implements View {
 
   private async renderNext(): Promise<void> {
     if (store.snapshot?.source !== 'wave') {
-      this.next.replaceChildren(emptyState('Запустите волну, и здесь появятся следующие треки.'));
+      this.next.replaceChildren(emptyState(T('Запустите волну, и здесь появятся следующие треки.')));
       return;
     }
     const tracks = await api.upcoming(20);
-    this.next.replaceChildren(tracks.length ? staticTrackList(tracks) : emptyState('Подбираем следующие треки…'));
+    this.next.replaceChildren(tracks.length ? staticTrackList(tracks) : emptyState(T('Подбираем следующие треки…')));
   }
 
   private renderBans(): void {
     const list = this.info?.disliked_artists ?? [];
     this.bans.replaceChildren(
       ...list.map((a) => {
-        const rm = iconButton(I.close, `Вернуть ${a.name}`);
+        const rm = iconButton(I.close, T('Вернуть {0}', a.name));
         rm.addEventListener('click', async () => {
           await api.waveUndislikeArtist(a.user_id).catch((e) => toast(errorMessage(e), 'error'));
           void this.refresh();
@@ -192,7 +195,7 @@ export class WaveView implements View {
         return h('div', { class: 'chip' }, h('span', { dir: 'auto', text: a.name }), rm);
       }),
     );
-    if (!list.length) this.bans.append(h('span', { class: 'muted small', text: 'Артистов в исключениях нет.' }));
+    if (!list.length) this.bans.append(h('span', { class: 'muted small', text: T('Артистов в исключениях нет.') }));
     void this.renderDislikedTracks();
   }
 
@@ -200,12 +203,12 @@ export class WaveView implements View {
   private async renderDislikedTracks(): Promise<void> {
     const tracks = await api.dislikedTracks().catch(() => []);
     if (!tracks.length) {
-      this.bansNote.replaceChildren(h('span', { class: 'muted small', text: 'Дизлайкнутых треков нет.' }));
+      this.bansNote.replaceChildren(h('span', { class: 'muted small', text: T('Дизлайкнутых треков нет.') }));
       return;
     }
     this.bansNote.replaceChildren(
       ...tracks.map((t) => {
-        const back = h('button', { type: 'button', class: 'btn btn-quiet', text: 'Вернуть' });
+        const back = h('button', { type: 'button', class: 'btn btn-quiet', text: T('Вернуть') });
         back.addEventListener('click', async () => {
           await store.setDisliked(t, false);
           void this.renderDislikedTracks();
@@ -228,7 +231,7 @@ export class WaveView implements View {
     this.startBtn.disabled = true;
     try {
       const n = await api.waveStart();
-      toast(`Волна: ${n} треков, дальше подгружается сама`);
+      toast(T('Волна: {0} треков, дальше подгружается сама', n));
       await this.refresh();
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -242,7 +245,7 @@ export class WaveView implements View {
     if (!t) return;
     try {
       await api.waveDislikeArtist(t.user_id, t.artist);
-      toast(`${t.artist} исключён из волны`);
+      toast(T('{0} исключён из волны', t.artist));
       await this.refresh();
     } catch (e) {
       toast(errorMessage(e), 'error');

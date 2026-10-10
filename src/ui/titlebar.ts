@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, Minus, Square, X, type IconNode } from 'lucide';
 import { h } from './dom';
 import { icon, scLogo, setIcon } from './icons';
+import { T } from './i18n';
 
 export class TitleBar {
   private maxBtn: HTMLButtonElement;
@@ -13,9 +14,9 @@ export class TitleBar {
     const win = getCurrentWindow();
     const winBtn = (node: IconNode, label: string, cls = '') =>
       h('button', { type: 'button', class: `tb-btn ${cls}`, title: label, 'aria-label': label }, icon(node));
-    const min = winBtn(Minus, 'Свернуть');
-    this.maxBtn = winBtn(Square, 'Развернуть');
-    const close = winBtn(X, 'Закрыть (в трей)', 'tb-close');
+    const min = winBtn(Minus, T('Свернуть'));
+    this.maxBtn = winBtn(Square, T('Развернуть'));
+    const close = winBtn(X, T('Закрыть (в трей)'), 'tb-close');
     min.addEventListener('click', () => void win.minimize());
     this.maxBtn.addEventListener('click', () => void win.toggleMaximize());
     close.addEventListener('click', () => void win.close());
@@ -29,7 +30,7 @@ export class TitleBar {
     const syncMax = async () => {
       const max = await win.isMaximized();
       setIcon(this.maxBtn, max ? Copy : Square);
-      this.maxBtn.title = max ? 'Восстановить' : 'Развернуть';
+      this.maxBtn.title = max ? T('Восстановить') : T('Развернуть');
     };
     void win.onResized(() => void syncMax());
     void syncMax();

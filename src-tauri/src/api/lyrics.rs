@@ -40,6 +40,9 @@ pub struct Lyrics {
     pub word_level: bool,
     pub lines: Vec<Line>,
     pub url: Option<String>,
+    /// the original song's text shown for a changed version (slowed, sped up …)
+    #[serde(default)]
+    pub original: bool,
 }
 
 impl Lyrics {
@@ -50,14 +53,154 @@ impl Lyrics {
         }
         let synced = lines.iter().any(|l| l.start_ms.is_some());
         let word_level = lines.iter().any(|l| !l.words.is_empty());
-        Some(Self { source: source.into(), synced, word_level, lines, url })
+        Some(Self { source: source.into(), synced, word_level, lines, url, original: false })
     }
+
+    /// Timings dropped: the text of the original over a changed version.
+    fn as_original(mut self) -> Self {
+        for l in &mut self.lines {
+            l.start_ms = None;
+            l.end_ms = None;
+            l.words.clear();
+        }
+        self.synced = false;
+        self.word_level = false;
+        self.original = true;
+        self
+    }
+}
+
+/// Marks of a changed version of a song: tempo / effect edits keep the words.
+const VERSION_MARKS: &[&str] = &[
+    "ultra slowed", "super slowed", "perfectly slowed", "slowed down", "slowed", "slow version",
+    "sped up", "speed up", "speedup", "spedup", "sped-up", "speed-up", "nightcore", "daycore",
+    "reverb", "8d audio", "8d", "bass boosted", "bassboosted", "tiktok version", "tik tok version",
+    "замедленная", "замедлено", "замедлен", "ускоренная", "ускорено", "ускорен",
+];
+
+fn has_mark(s: &str) -> bool {
+    let s = s.to_lowercase();
+    VERSION_MARKS.iter().any(|m| {
+        s.match_indices(m).any(|(i, _)| {
+            let before = s[..i].chars().last().is_none_or(|c| !c.is_alphanumeric());
+            let after = s[i + m.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+            before && after
+        })
+    })
+}
+
+/// "love nwantiti slowed" / "Song (Slowed + Reverb)" → Some("love nwantiti" / "Song");
+/// None when the title has no such mark.
+pub fn version_base(title: &str) -> Option<String> {
+    if !has_mark(title) {
+        return None;
+    }
+    // bracketed parts with a mark go whole: "(slowed + reverb)", "[sped up]"
+    let mut out = String::new();
+    let mut depth = 0usize;
+    let mut part = String::new();
+    for c in title.chars() {
+        match c {
+            '(' | '[' | '{' => {
+                if depth == 0 {
+                    out.push_str(&part);
+                    part.clear();
+                }
+                depth += 1;
+                part.push(c);
+            }
+            ')' | ']' | '}' if depth > 0 => {
+                depth -= 1;
+                part.push(c);
+                if depth == 0 {
+                    if !has_mark(&part) {
+                        out.push_str(&part);
+                    }
+                    part.clear();
+                }
+            }
+            _ => part.push(c),
+        }
+    }
+    out.push_str(&part);
+    // loose marks: "song slowed", "song - sped up + reverb"
+    let mut words: Vec<&str> = out.split_whitespace().collect();
+    for m in VERSION_MARKS {
+        let mw: Vec<&str> = m.split_whitespace().collect();
+        let mut i = 0;
+        while i + mw.len() <= words.len() {
+            let hit = words[i..i + mw.len()]
+                .iter()
+                .zip(&mw)
+                .all(|(a, b)| a.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase() == *b);
+            if hit {
+                words.drain(i..i + mw.len());
+            } else {
+                i += 1;
+            }
+        }
+    }
+    let joiner = |w: &&str| matches!(w.to_lowercase().as_str(), "+" | "&" | "-" | "–" | "—" | "x" | "and" | "/" | "|" | "," | "и");
+    while words.last().is_some_and(joiner) {
+        words.pop();
+    }
+    while words.first().is_some_and(joiner) {
+        words.remove(0);
+    }
+    let base = words.join(" ").trim_matches(|c: char| c == '-' || c == ',' || c == '+' || c.is_whitespace()).to_owned();
+    (!base.is_empty()).then_some(base)
 }
 
 pub struct Query {
     pub artist: String,
     pub title: String,
     pub duration_ms: u64,
+    /// a changed version (slowed …): the original song's title
+    pub version_of: Option<String>,
+}
+
+/// Text of the original song for a changed version. Its length differs, so
+/// any length goes; the uploader is often not the artist ("ceeri" for CKay),
+/// so a title-only search picks the artist the title is most often filed under.
+async fn original_text(http: &HttpClient, state: &LyricsState, artist: &str, title: &str) -> AppResult<Option<Lyrics>> {
+    let (artist, title) = match title.split_once(" - ") {
+        Some((a, t)) => (a.trim().to_owned(), t.trim().to_owned()),
+        None => (artist.to_owned(), title.to_owned()),
+    };
+    let q = Query { artist, title, duration_ms: 0, version_of: None };
+    if let Ok(Some(l)) = lrclib(http, &q).await {
+        return Ok(Some(l));
+    }
+    if let Ok(Some(l)) = musixmatch(http, state, &q).await {
+        return Ok(Some(l));
+    }
+    lrclib_most_common(http, &q.title).await
+}
+
+async fn lrclib_most_common(http: &HttpClient, title: &str) -> AppResult<Option<Lyrics>> {
+    let want = normalize(title);
+    if want.chars().count() < 4 {
+        return Ok(None);
+    }
+    let mut url = Url::parse("https://lrclib.net/api/search")?;
+    url.query_pairs_mut().append_pair("q", title);
+    let hits: Value = http.get_json_with(url.as_str(), &[("lrclib-client", "SC Desk")]).await?;
+    let hits: Vec<&Value> =
+        hits.as_array().into_iter().flatten().filter(|h| normalize(h["trackName"].as_str().unwrap_or("")) == want).collect();
+    let mut by_artist: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for h in &hits {
+        *by_artist.entry(normalize(h["artistName"].as_str().unwrap_or(""))).or_default() += 1;
+    }
+    let Some((top, _)) = by_artist.into_iter().max_by_key(|(_, n)| *n) else { return Ok(None) };
+    for h in hits.into_iter().filter(|h| normalize(h["artistName"].as_str().unwrap_or("")) == top) {
+        let text = h["plainLyrics"].as_str().filter(|s| !s.trim().is_empty()).map(str::to_owned).or_else(|| {
+            h["syncedLyrics"].as_str().map(|s| parse_lrc(s).into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n"))
+        });
+        if let Some(l) = text.and_then(|t| Lyrics::new("lrclib", plain_lines(&t), None)) {
+            return Ok(Some(l));
+        }
+    }
+    Ok(None)
 }
 
 /// Musixmatch desktop token, reused between lookups.
@@ -111,6 +254,16 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
     if plain.is_none() {
         // last: may need the Genius browser window
         consider!(genius_plain(http, q).await, "genius");
+    }
+    if plain.is_none() {
+        // slowed / sped up / nightcore …: the original's words, without timings
+        if let Some(base) = q.version_of.as_deref() {
+            match original_text(http, state, &q.artist, base).await {
+                Ok(Some(l)) => return Ok(Some(l.as_original())),
+                Ok(None) => {}
+                Err(e) => tracing::debug!(error = %e, "original lyrics failed"),
+            }
+        }
     }
     if plain.is_none() && errors >= 4 {
         return Err(AppError::Network("ни один источник текстов не ответил".into()));
@@ -498,7 +651,19 @@ fn fill_ends(mut lines: Vec<Line>) -> Vec<Line> {
 
 #[cfg(test)]
 mod tests {
-    use super::distinctive_title;
+    use super::{distinctive_title, version_base};
+
+    #[test]
+    fn changed_versions_lose_their_marks() {
+        assert_eq!(version_base("love nwantiti slowed").as_deref(), Some("love nwantiti"));
+        assert_eq!(version_base("Song (Slowed + Reverb)").as_deref(), Some("Song"));
+        assert_eq!(version_base("Song - sped up").as_deref(), Some("Song"));
+        assert_eq!(version_base("Artist - Song [Nightcore]").as_deref(), Some("Artist - Song"));
+        assert_eq!(version_base("Кукла колдуна замедленная").as_deref(), Some("Кукла колдуна"));
+        assert_eq!(version_base("Song (Remix)"), None);
+        assert_eq!(version_base("Slowdive"), None);
+        assert_eq!(version_base("Reverberation"), None);
+    }
 
     #[test]
     fn only_long_titles_match_by_title_alone() {

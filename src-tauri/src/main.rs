@@ -25,6 +25,9 @@ mod secrets;
 mod state;
 mod tray;
 mod updater;
+mod lang;
+mod news;
+mod upload;
 mod wave;
 
 use tauri::{Manager, WindowEvent};
@@ -39,6 +42,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![MINIMIZED_FLAG])))
         .plugin(hotkeys::plugin())
@@ -58,6 +62,7 @@ fn main() {
             updater::start(&handle);
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
+            news::start(&handle);
             geniusweb::init(&handle);
             {
                 let app = handle.clone();
@@ -127,6 +132,8 @@ fn main() {
             commands::chart_years,
             #[cfg(debug_assertions)]
             commands::debug_fp_compare,
+            #[cfg(debug_assertions)]
+            commands::debug_news_check,
             commands::feed_page,
             commands::player_play_likes,
             commands::player_play_tracks,
@@ -143,6 +150,26 @@ fn main() {
             commands::player_upcoming,
             commands::wave_start,
             commands::wave_start_from,
+            commands::wave_start_playlist,
+            commands::playlist_add_track,
+            commands::playlist_remove_track,
+            commands::playlist_create,
+            commands::captcha_waiting,
+            commands::fx_set,
+            commands::sleep_set,
+            commands::sleep_get,
+            commands::queue_get,
+            commands::news_set,
+            commands::queue_move,
+            commands::queue_remove,
+            commands::queue_clear,
+            commands::queue_play,
+            commands::playlist_set_tracks,
+            commands::upload_pick,
+            commands::upload_track,
+            commands::upload_delete,
+            commands::my_tracks,
+            commands::player_set_smart_shuffle,
             commands::wave_set_mood,
             commands::wave_info,
             commands::wave_set_no_liked,

@@ -1,7 +1,8 @@
 // Left navigation — a slim icon rail that smoothly slides out with labels on
 // hover (over the content, layout doesn't jump) — plus the center outlet
 // driven by the router.
-import { coverUrl } from './api';
+import { listen } from '@tauri-apps/api/event';
+import { api, coverUrl } from './api';
 import { h } from './dom';
 import { icon, I } from './icons';
 import { router, type Route, type Section } from './router';
@@ -15,14 +16,15 @@ import { ArtistPageView, CategoryPageView, ChartPageView, MixPageView, PlaylistP
 import { SearchView } from './views/search';
 import { SettingsView } from './views/settings';
 import { WaveView } from './views/wave';
+import { T } from './i18n';
 
 const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
-  ['home', 'Главная', I.home],
-  ['likes', 'Лайки', I.heart],
-  ['wave', 'Моя волна', I.wave],
-  ['history', 'История', I.history],
-  ['search', 'Поиск', I.search],
-  ['settings', 'Настройки', I.settings],
+  ['home', T('Главная'), I.home],
+  ['likes', T('Лайки'), I.heart],
+  ['wave', T('Моя волна'), I.wave],
+  ['history', T('История'), I.history],
+  ['search', T('Поиск'), I.search],
+  ['settings', T('Настройки'), I.settings],
 ];
 
 export class MainWindow {
@@ -34,7 +36,7 @@ export class MainWindow {
   private settings = new SettingsView();
   private profile = new ProfileView();
   private tabs = new Map<Section, HTMLButtonElement>();
-  private user = h('button', { type: 'button', class: 'nav-user', title: 'Профиль: скачанные и очередь лайков' });
+  private user = h('button', { type: 'button', class: 'nav-user', title: T('Профиль: скачанные и очередь лайков') });
 
   constructor(nav: HTMLElement, private center: HTMLElement) {
     const list = h('div', { class: 'nav-list', role: 'tablist' });
@@ -48,9 +50,16 @@ export class MainWindow {
       list.append(b);
     }
     this.user.addEventListener('click', () => {
-      router.go({ name: 'profile' });
+      // a pending check: straight to the queue, where it is passed
+      router.go({ name: 'profile', tab: this.user.classList.contains('has-alert') ? 'queue' : undefined });
       this.user.blur();
     });
+    const alert = (on: boolean) => {
+      this.user.classList.toggle('has-alert', on);
+      this.user.title = on ? T('SoundCloud просит пройти проверку: лайки ждут в очереди') : T('Профиль: мои треки, скачанные и очередь лайков');
+    };
+    void api.captchaWaiting().then(alert, () => {});
+    void listen<boolean>('bridge:captcha', (e) => alert(e.payload));
     nav.append(h('div', { class: 'nav-panel' }, list, this.user));
 
     store.on('auth', () => this.renderUser());
@@ -69,7 +78,7 @@ export class MainWindow {
     if (src) img.src = src;
     this.user.replaceChildren(
       a.has_credentials ? img : icon(I.login),
-      h('span', { class: 'nav-label', text: a.username ?? (a.has_credentials ? '' : 'Не выполнен вход') }),
+      h('span', { class: 'nav-label', text: a.username ?? (a.has_credentials ? '' : T('Не выполнен вход')) }),
     );
   }
 

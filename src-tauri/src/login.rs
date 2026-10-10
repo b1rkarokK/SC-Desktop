@@ -29,7 +29,7 @@ pub fn open(app: &AppHandle) -> AppResult<()> {
     }
     let url = Url::parse("https://soundcloud.com/signin")?;
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
-        .title("Вход в SoundCloud")
+        .title(crate::lang::pick("Вход в SoundCloud", "Sign in to SoundCloud"))
         // SoundCloud's desktop layout needs ~860px, narrower windows scroll sideways
         .inner_size(900.0, 780.0)
         .min_inner_size(860.0, 600.0)
