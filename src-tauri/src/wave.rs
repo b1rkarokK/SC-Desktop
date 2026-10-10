@@ -394,7 +394,7 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         }
         for t in state.db.sample_unliked(400).await? {
             if !liked_ids.contains(&t.id) {
-                samples.push(Sample { track: t, positive: false, weight: 0.25, ctx: None });
+                samples.push(Sample { track: t, positive: false, weight: 0.5, ctx: None });
             }
         }
         let (hour, weekday) = state.db.local_now().await.unwrap_or((12, 3));

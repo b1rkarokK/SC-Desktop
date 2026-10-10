@@ -27,9 +27,6 @@ use crate::api::soundcloud::ScTrack;
 const DIM: usize = 1 << 14;
 /// latent size of the interaction vectors
 const K: usize = 6;
-const EPOCHS: usize = 16;
-const LEARNING_RATE: f32 = 0.12;
-const L2: f32 = 2e-4;
 const MIN_POSITIVE: usize = 40;
 const MIN_NEGATIVE: usize = 15;
 
@@ -42,6 +39,22 @@ const TITLE_WORDS: &[&str] = &[
 /// Time of day (4 parts) x weekday/weekend = 8 listening contexts.
 pub fn context(hour: u32, weekday: u32) -> u8 {
     (hour.min(23) / 6) as u8 + if weekday == 0 || weekday == 6 { 4 } else { 0 }
+}
+
+/// Training knobs (tuned offline on real history, see `eval_on_real_history`).
+#[derive(Clone, Copy)]
+pub struct Params {
+    pub epochs: usize,
+    pub lr: f32,
+    pub l2: f32,
+    /// 0 = plain logistic regression, 1 = with feature interactions
+    pub pair: f32,
+}
+
+impl Default for Params {
+    fn default() -> Self {
+        Params { epochs: 30, lr: 0.3, l2: 2e-4, pair: 1.0 }
+    }
 }
 
 pub struct Sample {
@@ -59,6 +72,7 @@ pub struct Model {
     /// how many training samples had each feature
     seen: Vec<u16>,
     ctx: Option<u8>,
+    pair: f32,
 }
 
 fn bucket(s: &str) -> usize {
@@ -71,13 +85,27 @@ fn bucket(s: &str) -> usize {
     (h % DIM as u64) as usize
 }
 
+/// Optional feature groups (bit set); all on in the app, switched in the offline eval.
+pub static FEATURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(F_ARTIST_NAME);
+// measured on real history (AUC, newest likes vs never-liked): base 0.826, + artist name 0.828,
+// + title words 0.802, + age 0.762, + likes count 0.823, + 25 tags 0.823; only artist name stays on
+const F_TITLE: u32 = 1;
+const F_ARTIST_NAME: u32 = 2;
+const F_AGE: u32 = 4;
+const F_LIKES: u32 = 8;
+const F_TAGS_ALL: u32 = 16;
+
+fn on(bit: u32) -> bool {
+    FEATURES.load(std::sync::atomic::Ordering::Relaxed) & bit != 0
+}
+
 fn features(t: &ScTrack, ctx: Option<u8>) -> Vec<usize> {
     let mut f = Vec::with_capacity(32);
     let genre = t.genre.as_deref().map(|g| g.trim().to_lowercase()).filter(|g| !g.is_empty());
     if let Some(g) = &genre {
         f.push(bucket(&format!("g:{g}")));
     }
-    for tag in crate::wave::parse_tags(t.tag_list.as_deref().unwrap_or("")).into_iter().take(10) {
+    for tag in crate::wave::parse_tags(t.tag_list.as_deref().unwrap_or("")).into_iter().take(if on(F_TAGS_ALL) { 25 } else { 10 }) {
         f.push(bucket(&format!("t:{tag}")));
     }
     f.push(bucket(&format!("a:{}", t.artist_id())));
@@ -85,6 +113,23 @@ fn features(t: &ScTrack, ctx: Option<u8>) -> Vec<usize> {
     for word in title.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
         if TITLE_WORDS.contains(&word) {
             f.push(bucket(&format!("w:{word}")));
+        }
+    }
+    if on(F_TITLE) {
+        // every word of the title: names, themes, the slang of a scene
+        for word in title.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() >= 3).take(12) {
+            f.push(bucket(&format!("tw:{word}")));
+        }
+    }
+    if on(F_ARTIST_NAME) {
+        for word in t.artist_name().to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() >= 3).take(4) {
+            f.push(bucket(&format!("an:{word}")));
+        }
+    }
+    if on(F_AGE) {
+        // when it came out: a scene has its years
+        if let Some(y) = t.release_date.as_deref().or(t.created_at.as_deref()).and_then(|d| d.get(..4)) {
+            f.push(bucket(&format!("y:{y}")));
         }
     }
     // script of the title: the language of the scene one listens to
@@ -108,6 +153,11 @@ fn features(t: &ScTrack, ctx: Option<u8>) -> Vec<usize> {
             f.push(bucket(&format!("r:{}", ratio.min(12))));
         }
     }
+    if on(F_LIKES) {
+        if let Some(l) = t.likes_count {
+            f.push(bucket(&format!("lk:{}", ((l as f64 + 1.0).ln() / 1.2) as u32)));
+        }
+    }
     // the same genre / language at this time of day
     if let Some(c) = ctx {
         if let Some(g) = &genre {
@@ -128,6 +178,10 @@ impl Model {
     /// `None` while there is too little history to say anything.
     /// `now`: the context the wave is built in.
     pub fn train(samples: &[Sample], now: Option<u8>) -> Option<Model> {
+        Self::train_with(samples, now, Params::default())
+    }
+
+    pub fn train_with(samples: &[Sample], now: Option<u8>, par: Params) -> Option<Model> {
         let pos = samples.iter().filter(|s| s.positive).count();
         if pos < MIN_POSITIVE || samples.len() - pos < MIN_NEGATIVE {
             return None;
@@ -146,6 +200,7 @@ impl Model {
             bias: 0.0,
             seen: vec![0; DIM],
             ctx: now,
+            pair: par.pair,
         };
         for x in &feats {
             for &j in x {
@@ -153,9 +208,9 @@ impl Model {
             }
         }
         let mut order: Vec<usize> = (0..samples.len()).collect();
-        for epoch in 0..EPOCHS {
+        for epoch in 0..par.epochs {
             order.shuffle(&mut rng);
-            let lr = LEARNING_RATE / (1.0 + epoch as f32 * 0.25);
+            let lr = par.lr / (1.0 + epoch as f32 * 0.25);
             for &i in &order {
                 let s = &samples[i];
                 let x = &feats[i];
@@ -166,11 +221,11 @@ impl Model {
                 let n = x.len().max(1) as f32;
                 let (lin_norm, pair_norm) = (1.0 / n.sqrt(), 1.0 / n);
                 for &j in x {
-                    m.w[j] -= lr * (err * lin_norm + L2 * m.w[j]);
+                    m.w[j] -= lr * (err * lin_norm + par.l2 * m.w[j]);
                     for f in 0..K {
                         let vjf = m.v[j * K + f];
-                        let grad = err * pair_norm * (sums[f] - vjf);
-                        m.v[j * K + f] -= lr * (grad + L2 * vjf);
+                        let grad = err * pair_norm * par.pair * (sums[f] - vjf);
+                        m.v[j * K + f] -= lr * (grad + par.l2 * vjf);
                     }
                 }
                 m.bias -= lr * err;
@@ -198,7 +253,7 @@ impl Model {
             }
         }
         let pair = 0.5 * (sums.iter().map(|s| s * s).sum::<f32>() - squares) / n;
-        (linear + pair + self.bias, sums)
+        (linear + self.pair * pair + self.bias, sums)
     }
 
     /// 0 … 1: how much this track looks like what the user keeps (now).
@@ -312,5 +367,71 @@ mod tests {
     fn stays_silent_without_history() {
         let few = vec![sample(track(1, 1, "a", "b"), true, None)];
         assert!(Model::train(&few, None).is_none());
+    }
+
+    /// Offline check on a copy of the real cache: train on older likes, ask
+    /// the model to tell the newest likes from tracks that were never liked.
+    /// `SCDB=<copy of cache.sqlite3> cargo test eval_on_real_history -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn eval_on_real_history() {
+        let Ok(path) = std::env::var("SCDB") else { return };
+        let c = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let load = |sql: &str| -> Vec<(ScTrack, i64)> {
+            let mut st = c.prepare(sql).unwrap();
+            let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).unwrap();
+            rows.filter_map(|r| r.ok()).filter_map(|(j, n)| serde_json::from_str::<ScTrack>(&j).ok().map(|t| (t, n))).collect()
+        };
+        // newest first
+        let likes = load("SELECT t.json, l.position FROM likes l JOIN tracks t ON t.id = l.track_id ORDER BY l.position ASC");
+        let unliked = load("SELECT json, id FROM tracks WHERE id NOT IN (SELECT track_id FROM likes)");
+        let skips = load("SELECT t.json, w.signal FROM wave_signals w JOIN tracks t ON t.id = w.track_id WHERE w.signal < 0");
+        let listened = load("SELECT t.json, w.signal FROM wave_signals w JOIN tracks t ON t.id = w.track_id WHERE w.signal > 0");
+        println!("likes {} unliked {} skips {} listened {}", likes.len(), unliked.len(), skips.len(), listened.len());
+        let hold = likes.len() / 6;
+        let (test_pos, train_likes) = likes.split_at(hold);
+        let (mut test_neg, mut train_neg) = (Vec::new(), Vec::new());
+        for (i, (t, _)) in unliked.iter().enumerate() {
+            if i % 5 == 0 { test_neg.push(t.clone()) } else { train_neg.push(t.clone()) }
+        }
+        let auc = |m: &dyn Fn(&ScTrack) -> f32| -> f32 {
+            let ps: Vec<f32> = test_pos.iter().map(|(t, _)| m(t)).collect();
+            let ns: Vec<f32> = test_neg.iter().map(m).collect();
+            let mut wins = 0.0;
+            for p in &ps { for n in &ns { wins += if p > n { 1.0 } else if p == n { 0.5 } else { 0.0 }; } }
+            wins / (ps.len() * ns.len()) as f32
+        };
+        let build = |neg_w: f32, skip_w: f32| -> Vec<Sample> {
+            let mut v = Vec::new();
+            for (i, (t, _)) in train_likes.iter().enumerate() {
+                v.push(Sample { track: t.clone(), positive: true, weight: 1.0 / (1.0 + i as f32 / 200.0), ctx: None });
+            }
+            for (t, _) in &listened { v.push(Sample { track: t.clone(), positive: true, weight: 0.6, ctx: None }); }
+            for (t, _) in &skips { v.push(Sample { track: t.clone(), positive: false, weight: skip_w, ctx: None }); }
+            for t in train_neg.iter().take(400) { v.push(Sample { track: t.clone(), positive: false, weight: neg_w, ctx: None }); }
+            v
+        };
+        let started = std::time::Instant::now();
+        let d = Params::default();
+        for (name, mask) in [
+            ("base only", 0u32),
+            ("+title words", F_TITLE),
+            ("+artist name", F_ARTIST_NAME),
+            ("+age", F_AGE),
+            ("+likes count", F_LIKES),
+            ("+25 tags", F_TAGS_ALL),
+            ("all", 0b11111),
+            ("title+age+tags", F_TITLE | F_AGE | F_TAGS_ALL),
+        ] {
+            FEATURES.store(mask, std::sync::atomic::Ordering::Relaxed);
+            let mut samples = build(0.5, 1.0);
+            samples.truncate(samples.len() - train_neg.len().min(400));
+            for t in train_neg.iter().take(400) { samples.push(Sample { track: t.clone(), positive: false, weight: 0.5, ctx: None }); }
+            let m = Model::train_with(&samples, None, d).expect("data");
+            println!("{name:20} AUC {:.4}", auc(&|t| m.score(t)));
+        }
+        FEATURES.store(F_ARTIST_NAME, std::sync::atomic::Ordering::Relaxed);
+        println!("popularity only      AUC {:.4}", auc(&|t| (t.playback_count.unwrap_or(0) as f32 + 1.0).ln()));
+        println!("total {} ms", started.elapsed().as_millis());
     }
 }
