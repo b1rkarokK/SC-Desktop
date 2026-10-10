@@ -81,6 +81,9 @@ pub struct Snapshot {
     pub smart: bool,
     /// the current track is such a recommendation
     pub recommended: bool,
+    /// playback rate (slowed / sped up): track time runs this fast; 1 for
+    /// tracks in SoundCloud's widget, which effects don't touch
+    pub speed: f32,
 }
 
 struct State {
@@ -218,6 +221,8 @@ pub struct Player {
     /// sleep timer: (deadline, after this track, id)
     sleep: Mutex<SleepTimer>,
     discord: Discord,
+    /// Windows media panel ("now playing" of the volume flyout, lock screen)
+    smtc: crate::smtc::Smtc,
     st: Mutex<State>,
     /// Incremented on every load; stale downloads/events are dropped.
     generation: AtomicU64,
@@ -234,6 +239,7 @@ impl Player {
         audio.send(AudioCmd::Volume(volume));
 
         let widget = widget::Widget::new(app.clone(), audio.events(), volume);
+        let smtc = crate::smtc::Smtc::start(app.clone());
         let player = Arc::new(Self {
             app,
             audio,
@@ -249,6 +255,7 @@ impl Player {
             crossfade: Mutex::new(cfg.fx.crossfade.clamp(0.0, 12.0)),
             sleep: Mutex::new(SleepTimer::default()),
             discord: Discord::start(cfg.discord.clone()),
+            smtc,
             st: Mutex::new(State {
                 queue: Vec::new(),
                 order: Vec::new(),
@@ -311,6 +318,7 @@ impl Player {
             queue_pos: s.pos,
             smart: s.smart,
             recommended: s.current().is_some_and(|t| s.smart_ids.contains(&t.id)),
+            speed: self.speed(),
         }
     }
 
@@ -465,18 +473,41 @@ impl Player {
         }
     }
 
+    fn speed(&self) -> f32 {
+        if self.external.load(Ordering::SeqCst) {
+            1.0
+        } else {
+            self.fx.speed()
+        }
+    }
+
     fn push_presence(&self, snap: &Snapshot, position_ms: Option<u64>) {
+        // Discord's progress runs in real time: at another speed the track is
+        // longer or shorter by that much
+        let rate = f64::from(snap.speed.max(0.1));
+        let real = |ms: u64| (ms as f64 / rate) as u64;
         let presence = snap.track.as_ref().filter(|_| !snap.loading).map(|t| Presence {
             track_id: t.id,
             title: t.title.clone(),
             artist: t.artist.clone(),
             artwork: t.artwork_url.as_deref().map(|a| a.replace("-large.", "-t500x500.")),
             url: t.permalink_url.clone(),
-            position_ms: position_ms.unwrap_or(snap.position_ms),
-            duration_ms: t.duration_ms,
+            position_ms: real(position_ms.unwrap_or(snap.position_ms)),
+            duration_ms: real(t.duration_ms),
             playing: snap.playing,
         });
         self.discord.update(presence);
+        self.smtc.send(crate::smtc::Update::Track(snap.track.as_ref().map(|t| crate::smtc::NowPlaying {
+            id: t.id,
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            artwork: t.artwork_url.as_deref().map(|a| a.replace("-large.", "-t500x500.")),
+            duration_ms: t.duration_ms,
+        })));
+        self.smtc.send(crate::smtc::Update::State {
+            playing: snap.playing && !snap.loading,
+            position_ms: position_ms.unwrap_or(snap.position_ms),
+        });
     }
 
     pub fn set_eq(&self, cfg: EqConfig) {
@@ -488,6 +519,8 @@ impl Player {
         let cross = cfg.crossfade.clamp(0.0, 12.0);
         *self.crossfade.lock().unwrap_or_else(|e| e.into_inner()) = cross;
         self.audio.send(AudioCmd::Crossfade(Duration::from_secs_f32(cross)));
+        // the UI clock and Discord follow the new speed
+        self.emit();
     }
 
     /// Loudness gain of a track: measured once (a few tens of ms), then cached.

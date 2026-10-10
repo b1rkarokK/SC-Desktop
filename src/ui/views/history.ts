@@ -6,6 +6,7 @@ import { I } from '../icons';
 import { store } from '../store';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
 import { T } from '../i18n';
+import { confirmDialog } from '../confirm';
 
 const PAGE = 200;
 
@@ -30,6 +31,12 @@ export class HistoryView implements View {
     const clear = btn(T('Очистить'), null);
     clear.classList.add('btn-quiet');
     clear.addEventListener('click', async () => {
+      const ok = await confirmDialog(
+        T('Очистить историю?'),
+        T('Пропадут все прослушанные треки, альбомы и плейлисты, а с ними и «Итоги». Вернуть их будет нельзя.'),
+        T('Очистить'),
+      );
+      if (!ok) return;
       try {
         await api.historyClear();
         this.items = [];

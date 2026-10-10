@@ -10,6 +10,8 @@ export type Highlight = 'word' | 'line' | 'none';
 export interface UiPrefs {
   /** mirrored for the core (tray, Discord); the UI reads it from localStorage */
   lang?: Lang;
+  /** mini player opacity at rest, 0.1 … 1 */
+  miniOpacity?: number;
   theme: Theme;
   themeSystem: boolean;
   navCollapsed: boolean;

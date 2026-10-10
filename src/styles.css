@@ -3013,3 +3013,25 @@ html.mini body {
 .mini-text * {
   pointer-events: none;
 }
+
+/* mini player opacity at rest (10 % … 100 %); solid while the pointer is on it */
+.mini-box,
+body.mini .q-pop.mini-queue {
+  opacity: var(--mini-opacity, 1);
+  transition: opacity 0.2s;
+}
+
+body.mini:hover .mini-box,
+body.mini:hover .q-pop.mini-queue {
+  opacity: 1;
+}
+
+.mini-opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mini-opacity .slider {
+  flex: 1;
+}

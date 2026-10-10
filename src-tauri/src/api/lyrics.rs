@@ -1,4 +1,7 @@
-//! Synced lyrics: LRCLIB → NetEase → Musixmatch, plain Genius as last resort.
+//! Synced lyrics: LRCLIB → Deezer → NetEase → Musixmatch, plain Genius as last resort.
+//! (Musixmatch hands out an all-zero token since 2026-10; Deezer, with an
+//! anonymous session, took over: line timings for most songs, Russian too,
+//! and word timings for some.)
 //!
 //! Word-level timings beat line-level: if the first synced hit is line-only,
 //! the remaining providers are still asked for a word-level version.
@@ -171,6 +174,9 @@ async fn original_text(http: &HttpClient, state: &LyricsState, artist: &str, tit
     if let Ok(Some(l)) = lrclib(http, &q).await {
         return Ok(Some(l));
     }
+    if let Ok(Some(l)) = deezer(http, state, &q).await {
+        return Ok(Some(l));
+    }
     if let Ok(Some(l)) = musixmatch(http, state, &q).await {
         return Ok(Some(l));
     }
@@ -206,7 +212,13 @@ async fn lrclib_most_common(http: &HttpClient, title: &str) -> AppResult<Option<
 /// Musixmatch desktop token, reused between lookups.
 #[derive(Default)]
 pub struct LyricsState {
+    /// "base|app_id|token": the token belongs to the endpoint that gave it
     mxm_token: Mutex<Option<String>>,
+    /// Musixmatch hands out an all-zero token (2026-10: for this IP or for
+    /// everyone): don't ask again before this
+    mxm_off_until: Mutex<Option<std::time::Instant>>,
+    /// Deezer anonymous session (JWT), reused until refused
+    dz_jwt: Mutex<Option<String>>,
 }
 
 #[allow(unused_assignments)] // the macro also assigns `best` after the last read
@@ -239,6 +251,7 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
     }
 
     consider!(lrclib(http, q).await, "lrclib");
+    consider!(deezer(http, state, q).await, "deezer");
     consider!(netease(http, q).await, "netease");
     consider!(musixmatch(http, state, q).await, "musixmatch");
     if let Some(l) = best {
@@ -356,6 +369,104 @@ async fn lrclib_by_title(http: &HttpClient, q: &Query) -> AppResult<Option<Lyric
     Ok(None)
 }
 
+// ------------------------------------------------------------------ Deezer
+
+const DZ_PIPE: &str = "https://pipe.deezer.com/api";
+const DZ_LYRICS: &str = "query L($id: String!) { track(trackId: $id) { lyrics { text \
+    synchronizedLines { line milliseconds duration } \
+    synchronizedWordByWordLines { start end words { start end word } } } } }";
+
+async fn dz_jwt(http: &HttpClient, state: &LyricsState, fresh: bool) -> AppResult<String> {
+    if !fresh {
+        if let Some(t) = state.dz_jwt.lock().unwrap_or_else(|p| p.into_inner()).clone() {
+            return Ok(t);
+        }
+    }
+    let v: Value = http.get_json_with("https://auth.deezer.com/login/anonymous?jo=p&rto=c", &[]).await?;
+    let jwt = v["jwt"].as_str().filter(|j| !j.is_empty()).ok_or_else(|| AppError::Network("deezer: no session".into()))?.to_owned();
+    *state.dz_jwt.lock().unwrap_or_else(|p| p.into_inner()) = Some(jwt.clone());
+    Ok(jwt)
+}
+
+async fn deezer(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResult<Option<Lyrics>> {
+    // the track: strict search first, then a free one
+    let mut found = None;
+    for query in [format!("artist:\"{}\" track:\"{}\"", q.artist, q.title), format!("{} {}", q.artist, q.title)] {
+        let mut url = Url::parse("https://api.deezer.com/search")?;
+        url.query_pairs_mut().append_pair("q", &query).append_pair("limit", "10");
+        let res: Value = http.get_json_with(url.as_str(), &[]).await?;
+        found = res["data"].as_array().into_iter().flatten().find(|t| {
+            duration_ok(q.duration_ms, t["duration"].as_u64().unwrap_or(0) * 1000)
+                && names_match(q, t["artist"]["name"].as_str().unwrap_or(""), t["title"].as_str().unwrap_or(""))
+        }).and_then(|t| t["id"].as_u64());
+        if found.is_some() {
+            break;
+        }
+    }
+    let Some(id) = found else { return Ok(None) };
+    let body = serde_json::json!({ "operationName": "L", "variables": { "id": id.to_string() }, "query": DZ_LYRICS });
+    let mut res = Value::Null;
+    for fresh in [false, true] {
+        let jwt = dz_jwt(http, state, fresh).await?;
+        let auth = format!("Bearer {jwt}");
+        match http.post_json(DZ_PIPE, &[("authorization", auth.as_str())], &body).await {
+            Ok(v) if v["errors"].as_array().is_some_and(|e| e.iter().any(|e| e["type"].as_str().unwrap_or("").contains("Auth"))) && !fresh => continue,
+            Ok(v) => {
+                res = v;
+                break;
+            }
+            Err(AppError::AuthExpired | AppError::Forbidden) if !fresh => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    let lyr = &res["data"]["track"]["lyrics"];
+    // word by word when Deezer has it
+    let words: Vec<Line> = lyr["synchronizedWordByWordLines"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|l| {
+            let words: Vec<Word> = l["words"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|w| Word {
+                    start_ms: w["start"].as_u64().unwrap_or(0),
+                    end_ms: w["end"].as_u64().unwrap_or(0),
+                    text: format!("{} ", w["word"].as_str().unwrap_or("").trim_end()),
+                })
+                .collect();
+            Line {
+                start_ms: l["start"].as_u64(),
+                end_ms: l["end"].as_u64(),
+                text: words.iter().map(|w| w.text.as_str()).collect::<String>().trim_end().to_owned(),
+                words,
+            }
+        })
+        .collect();
+    if let Some(l) = Lyrics::new("deezer", words, None).filter(|l| l.word_level) {
+        return Ok(Some(l));
+    }
+    let lines: Vec<Line> = lyr["synchronizedLines"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|l| {
+            let start = l["milliseconds"].as_u64();
+            Line {
+                start_ms: start,
+                end_ms: start.zip(l["duration"].as_u64()).map(|(s, d)| s + d),
+                text: l["line"].as_str().unwrap_or("").to_owned(),
+                words: Vec::new(),
+            }
+        })
+        .collect();
+    if let Some(l) = Lyrics::new("deezer", lines, None).filter(|l| l.synced) {
+        return Ok(Some(l));
+    }
+    Ok(lyr["text"].as_str().and_then(|t| Lyrics::new("deezer", plain_lines(t), None)))
+}
+
 // ----------------------------------------------------------------- NetEase
 
 const NETEASE_REFERER: &str = "https://music.163.com/";
@@ -396,32 +507,77 @@ async fn netease(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
 
 // -------------------------------------------------------------- Musixmatch
 
-const MXM_BASE: &str = "https://apic-desktop.musixmatch.com/ws/1.1/";
-const MXM_APP: &str = "web-desktop-app-v1.0";
 const MXM_COOKIE: &str = "AWSELBCORS=0; AWSELB=0";
+/// Where a user token can come from, tried in order. Musixmatch limits token
+/// requests per address: over the limit the desktop endpoint answers with an
+/// all-zero token and the mobile one with "captcha". A token, once given, is
+/// kept (also across launches, see `session` / `restore`) instead of asking
+/// for a new one on every start.
+const MXM_ENDPOINTS: &[(&str, &str)] = &[
+    ("https://apic-desktop.musixmatch.com/ws/1.1/", "web-desktop-app-v1.0"),
+    ("https://apic-appmobile.musixmatch.com/ws/1.1/", "android-player-v1.0"),
+];
 
-async fn mxm_token(http: &HttpClient, state: &LyricsState) -> AppResult<String> {
-    if let Some(t) = state.mxm_token.lock().unwrap_or_else(|p| p.into_inner()).clone() {
-        return Ok(t);
+#[derive(Clone)]
+struct MxmSession {
+    base: String,
+    app: String,
+    token: String,
+}
+
+impl LyricsState {
+    /// The Musixmatch session to keep between launches.
+    pub fn mxm_session(&self) -> Option<String> {
+        self.mxm_token.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
-    let url = format!("{MXM_BASE}token.get?app_id={MXM_APP}&user_language=en&t={}", rand::random::<u32>());
-    let res: Value = http.get_json_with(&url, &[("cookie", MXM_COOKIE)]).await?;
-    let token = res["message"]["body"]["user_token"].as_str().unwrap_or("").to_owned();
-    if token.is_empty() || token.starts_with("UpgradeOnly") {
-        return Err(AppError::Network("musixmatch: токен не выдан".into()));
+
+    pub fn mxm_restore(&self, saved: &str) {
+        if saved.split('|').count() == 3 {
+            *self.mxm_token.lock().unwrap_or_else(|p| p.into_inner()) = Some(saved.to_owned());
+        }
     }
-    *state.mxm_token.lock().unwrap_or_else(|p| p.into_inner()) = Some(token.clone());
-    Ok(token)
+}
+
+fn mxm_parse(s: &str) -> Option<MxmSession> {
+    let mut it = s.split('|');
+    Some(MxmSession { base: it.next()?.into(), app: it.next()?.into(), token: it.next()?.into() })
+}
+
+async fn mxm_token(http: &HttpClient, state: &LyricsState) -> AppResult<MxmSession> {
+    if let Some(s) = state.mxm_token.lock().unwrap_or_else(|p| p.into_inner()).as_deref().and_then(mxm_parse) {
+        return Ok(s);
+    }
+    if state.mxm_off_until.lock().unwrap_or_else(|p| p.into_inner()).is_some_and(|u| std::time::Instant::now() < u) {
+        return Err(AppError::Network("musixmatch: недоступен, повтор позже".into()));
+    }
+    for (base, app) in MXM_ENDPOINTS {
+        let url = format!("{base}token.get?app_id={app}&user_language=en&format=json&t={}", rand::random::<u32>());
+        let Ok(res) = http.get_json_with::<Value>(&url, &[("cookie", MXM_COOKIE)]).await else { continue };
+        let token = res["message"]["body"]["user_token"].as_str().unwrap_or("").to_owned();
+        // an all-zero token looks valid but every lookup with it finds nothing
+        if token.is_empty() || token.starts_with("UpgradeOnly") || token.chars().all(|c| c == '0') {
+            tracing::debug!(endpoint = base, hint = res["message"]["header"]["hint"].as_str().unwrap_or(""), "musixmatch: no token here");
+            continue;
+        }
+        tracing::info!(endpoint = base, "musixmatch: token received");
+        let s = MxmSession { base: (*base).into(), app: (*app).into(), token };
+        *state.mxm_token.lock().unwrap_or_else(|p| p.into_inner()) = Some(format!("{}|{}|{}", s.base, s.app, s.token));
+        return Ok(s);
+    }
+    tracing::info!("musixmatch: no working token, trying again in 30 min");
+    *state.mxm_off_until.lock().unwrap_or_else(|p| p.into_inner()) =
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(30 * 60));
+    Err(AppError::Network("musixmatch: токен не выдан".into()))
 }
 
 async fn musixmatch(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResult<Option<Lyrics>> {
-    let token = mxm_token(http, state).await?;
-    let mut url = Url::parse(&format!("{MXM_BASE}macro.subtitles.get"))?;
+    let MxmSession { base, app, token } = mxm_token(http, state).await?;
+    let mut url = Url::parse(&format!("{base}macro.subtitles.get"))?;
     url.query_pairs_mut()
         .append_pair("format", "json")
         .append_pair("namespace", "lyrics_richsynched")
         .append_pair("subtitle_format", "mxm")
-        .append_pair("app_id", MXM_APP)
+        .append_pair("app_id", &app)
         .append_pair("q_artist", &q.artist)
         .append_pair("q_track", &q.title)
         .append_pair("q_duration", &(q.duration_ms / 1000).to_string())
@@ -443,7 +599,7 @@ async fn musixmatch(http: &HttpClient, state: &LyricsState, q: &Query) -> AppRes
     if track["has_richsync"].as_u64() == Some(1) {
         if let Some(id) = track["commontrack_id"].as_u64() {
             let url = format!(
-                "{MXM_BASE}track.richsync.get?format=json&subtitle_format=mxm&app_id={MXM_APP}&commontrack_id={id}&usertoken={token}"
+                "{base}track.richsync.get?format=json&subtitle_format=mxm&app_id={app}&commontrack_id={id}&usertoken={token}"
             );
             if let Ok(rs) = http.get_json_with::<Value>(&url, &[("cookie", MXM_COOKIE)]).await {
                 if let Some(body) = rs["message"]["body"]["richsync"]["richsync_body"].as_str() {

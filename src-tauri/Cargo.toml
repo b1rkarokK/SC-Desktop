@@ -1,6 +1,6 @@
 [package]
 name = "sc-desk"
-version = "0.6.0"
+version = "0.6.1"
 description = "Lightweight native SoundCloud desktop client"
 edition = "2021"
 rust-version = "1.80"
@@ -61,6 +61,8 @@ tauri-plugin-notification = "2"
 [target.'cfg(windows)'.dependencies]
 # mini player: is a full-screen app (game, video) in front?
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
+# Windows media panel (System Media Transport Controls); the version Tauri already uses
+windows = { version = "0.62", features = ["Foundation", "Media", "Media_Playback", "Storage_Streams", "Win32_UI_Shell"] }
 rustfft = "6"
 
 [profile.release]

@@ -85,6 +85,8 @@ export interface PlayerSnapshot {
   smart: boolean;
   /** the current track is such a recommendation */
   recommended: boolean;
+  /** playback rate (slowed / sped up) */
+  speed?: number;
 }
 
 export interface AuthStatus {

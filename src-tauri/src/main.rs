@@ -28,6 +28,7 @@ mod updater;
 mod import;
 mod lang;
 mod mini;
+mod smtc;
 mod news;
 mod upload;
 mod wave;
@@ -39,6 +40,13 @@ use tauri_plugin_autostart::MacosLauncher;
 const MINIMIZED_FLAG: &str = "--minimized";
 
 fn main() {
+    // the installer's shortcuts carry this id: with it Windows names the app
+    // "SC Desk" (with its icon) in the media panel and in notifications
+    #[cfg(windows)]
+    // SAFETY: a static wide string, called once before any window exists
+    unsafe {
+        let _ = windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(windows::core::w!("dev.scdesk.app"));
+    }
     let app = tauri::Builder::default()
         // second launch (e.g. from the Start menu while running in the tray) → show the window
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))

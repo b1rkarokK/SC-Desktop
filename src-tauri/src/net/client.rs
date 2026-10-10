@@ -234,6 +234,26 @@ impl HttpClient {
         }
     }
 
+    /// POST of a JSON body, JSON answer (GraphQL of a lyrics provider).
+    pub async fn post_json(&self, url: &str, extra: &[(&'static str, &str)], body: &serde_json::Value) -> AppResult<serde_json::Value> {
+        let mut req = self
+            .client
+            .post(url)
+            .timeout(Duration::from_secs(20))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(serde_json::to_vec(body)?);
+        for (k, v) in extra {
+            req = req.header(*k, *v);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(AppError::from_status(status));
+        }
+        let bytes = resp.bytes().await?;
+        serde_json::from_slice(&bytes).map_err(|e| AppError::Parse(format!("{} ({})", e, host_of(url))))
+    }
+
     /// Uploads a local file with a plain PUT (a pre-signed storage URL: no
     /// cookies, no auth of ours). `progress(sent, total)` is called as it goes.
     pub async fn put_file(

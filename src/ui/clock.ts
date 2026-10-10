@@ -7,6 +7,8 @@ class Clock {
   private base = 0;
   private at = 0;
   playing = false;
+  /** playback rate: slowed / sped up tracks run the track time this fast */
+  private rate = 1;
   private listeners = new Set<Listener>();
 
   set(ms: number, playing: boolean): void {
@@ -30,7 +32,17 @@ class Clock {
   }
 
   now(): number {
-    return this.playing ? this.base + (performance.now() - this.at) : this.base;
+    return this.playing ? this.base + (performance.now() - this.at) * this.rate : this.base;
+  }
+
+  /** New speed from the player: keep the current position, change the pace. */
+  setRate(rate: number): void {
+    const r = rate > 0 ? rate : 1;
+    if (Math.abs(r - this.rate) < 0.001) return;
+    this.base = this.now();
+    this.at = performance.now();
+    this.rate = r;
+    this.listeners.forEach((cb) => cb());
   }
 
   on(cb: Listener): void {

@@ -11,7 +11,7 @@ import { h, toast } from './dom';
 import { T } from './i18n';
 import { I, icon, iconButton, setIcon } from './icons';
 import { lyricsData } from './lyrics_data';
-import { loadPrefs } from './prefs';
+import { loadPrefs, prefs, updatePrefs } from './prefs';
 import { QueuePopover } from './queue_popover';
 import { Slider } from './slider';
 import { store } from './store';
@@ -41,6 +41,11 @@ class MiniPlayer {
   private shuffleBtn = iconButton(I.shuffle, T('Перемешать'));
   private repeatBtn = iconButton(I.repeat, T('Повтор'));
   private queueBtn = iconButton(I.queue, T('Очередь'));
+  private likeBtn = iconButton(I.heart, T('Лайкнуть'));
+  private opacityBtn = iconButton(I.opacity, T('Прозрачность'));
+  private opacityRow = h('div', { class: 'mini-opacity', hidden: true });
+  private opacityValue = h('span', { class: 'mini-time' });
+  private opacity: Slider;
   private queue = new QueuePopover();
   private expanded = false;
   private collapseTimer = 0;
@@ -70,6 +75,22 @@ class MiniPlayer {
       void api.setRepeat(m === 'off' ? 'all' : m === 'all' ? 'one' : 'off');
     });
     this.queueBtn.addEventListener('click', () => this.queue.toggle());
+    this.likeBtn.addEventListener('click', () => {
+      const t = store.snapshot?.track;
+      if (t) void store.setLiked(t, !store.liked.has(t.id)).then(() => this.render());
+    });
+    // opacity at rest: 10 % … 100 %, remembered; hovering shows it solid
+    this.opacity = new Slider(
+      T('Прозрачность'),
+      (v) => this.setOpacity(v, false),
+      (v) => this.setOpacity(v, true),
+    );
+    this.opacityRow.append(h('span', { class: 'mini-time', text: T('Прозрачность') }), this.opacity.el, this.opacityValue);
+    this.opacityBtn.addEventListener('click', () => {
+      this.opacityRow.hidden = !this.opacityRow.hidden;
+      this.opacityBtn.classList.toggle('is-on', !this.opacityRow.hidden);
+      this.fit();
+    });
     this.queue.init((open) => {
       this.queueBtn.classList.toggle('is-on', open);
       this.fit();
@@ -111,8 +132,11 @@ class MiniPlayer {
         next,
         this.repeatBtn,
         this.queueBtn,
+        this.likeBtn,
+        this.opacityBtn,
         h('div', { class: 'mini-vol' }, icon(I.vol), this.volume.el),
       ),
+      this.opacityRow,
     );
     // the panel's own ▶ (the clone above only keeps the layout): wire it too
     const panelPlay = this.panel.querySelector('.mini-play') as HTMLButtonElement;
@@ -156,12 +180,23 @@ class MiniPlayer {
       this.renderLine();
     });
     lyricsData.setWanted(true);
+    void store.reloadSets().then(() => this.render());
+    this.setOpacity(prefs().miniOpacity ?? 1, false);
     void api.snapshot().then((s) => {
       store.setSnapshot(s);
       lyricsData.setTrack(s.track);
       this.render();
     });
     this.setExpanded(false);
+  }
+
+  /** 0 … 1 slider → 10 % … 100 % */
+  private setOpacity(v: number, persist: boolean): void {
+    const o = Math.round((0.1 + Math.min(1, Math.max(0, (v - 0.1) / 0.9)) * 0.9) * 100) / 100;
+    document.documentElement.style.setProperty('--mini-opacity', String(o));
+    this.opacityValue.textContent = `${Math.round(o * 100)}%`;
+    if (!this.opacity.isDragging) this.opacity.set(o);
+    if (persist) updatePrefs((p) => (p.miniOpacity = o));
   }
 
   private setExpanded(on: boolean): void {
@@ -198,8 +233,12 @@ class MiniPlayer {
     setIcon(this.shuffleBtn, s?.smart ? I.smartShuffle : I.shuffle);
     setIcon(this.repeatBtn, s?.repeat === 'one' ? I.repeatOne : I.repeat);
     this.repeatBtn.classList.toggle('is-on', !!s && s.repeat !== 'off');
+    const liked = !!t && store.liked.has(t.id);
+    this.likeBtn.classList.toggle('is-on', liked);
+    this.likeBtn.title = liked ? T('Убрать из лайков') : T('Лайкнуть');
     this.duration.textContent = fmtTime(t?.duration_ms ?? 0);
     if (!this.volume.isDragging) this.volume.set(s?.volume ?? 0.8);
+    clock.setRate(s?.speed ?? 1);
     clock.set(s?.position_ms ?? 0, !!s?.playing && !s.loading);
     this.renderLine();
     this.updateTimers();

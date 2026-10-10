@@ -185,6 +185,7 @@ export class PlayerBar {
       this.renderMute(s.volume);
     }
     this.renderFlags();
+    clock.setRate(s.speed ?? 1);
     clock.set(s.position_ms, s.playing && !s.loading);
     this.renderPosition(s.position_ms);
     this.updateTimer();

@@ -1226,7 +1226,20 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
     let title = version_of.clone().unwrap_or(title);
     let q = Query { artist, title, duration_ms: track.duration_ms, version_of };
     let http = state.http();
+    // the Musixmatch token is kept between launches: asking for a new one on
+    // every start gets the address rate-limited
+    const MXM_KEY: &str = "mxm:session";
+    if state.lyrics.mxm_session().is_none() {
+        if let Some((saved, _)) = state.db.kv_get::<String>(MXM_KEY).await? {
+            state.lyrics.mxm_restore(&saved);
+        }
+    }
+    let before = state.lyrics.mxm_session();
     let found = lyrics::find(&http, &state.lyrics, &q).await?;
+    let after = state.lyrics.mxm_session();
+    if after != before {
+        state.db.kv_put(MXM_KEY, &after.unwrap_or_default()).await?;
+    }
     let dto = match found {
         Some(l) => LyricsDto {
             track_id: track.id,
