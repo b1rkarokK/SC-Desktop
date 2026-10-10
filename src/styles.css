@@ -264,7 +264,8 @@ select {
   grid-area: player;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) minmax(220px, 1fr);
+  /* the right column fits its buttons + volume (it shrank the slider to nothing) */
+  grid-template-columns: minmax(200px, 1fr) minmax(300px, 2fr) minmax(max-content, 1fr);
   align-items: center;
   gap: 16px;
   padding: 0 16px;
@@ -1493,7 +1494,8 @@ select {
 }
 
 .pb-volume {
-  width: 96px;
+  flex: 0 1 96px;
+  min-width: 64px;
 }
 
 /* ------------------------------------------------------------ sliders */
