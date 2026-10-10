@@ -6,7 +6,8 @@ export type Theme = 'dark' | 'oled' | 'light';
 export type FsLayout = 'side' | 'text' | 'cover';
 export type FsBackground = 'theme' | 'cover' | 'oled';
 export type Highlight = 'word' | 'line' | 'none';
-export type VizMode = 'off' | 'bars' | 'wave';
+export type VizMode = 'off' | 'bars' | 'mirror' | 'line' | 'wave' | 'ring';
+export type VizColor = 'accent' | 'cover' | 'white';
 
 export interface UiPrefs {
   /** mirrored for the core (tray, Discord); the UI reads it from localStorage */
@@ -29,6 +30,7 @@ export interface UiPrefs {
     offset: number;
     /** music visualizer: bars above the controls or waves behind the text */
     viz: VizMode;
+    vizColor: VizColor;
   };
 }
 
@@ -39,7 +41,7 @@ export const defaultPrefs: UiPrefs = {
   lyricsOpen: true,
   syncedLyrics: true,
   wordHighlight: true,
-  fs: { layout: 'side', background: 'theme', highlight: 'word', align: 'left', size: 24, offset: 0, viz: 'bars' },
+  fs: { layout: 'side', background: 'theme', highlight: 'word', align: 'left', size: 24, offset: 0, viz: 'bars', vizColor: 'accent' },
 };
 
 let current: UiPrefs = structuredClone(defaultPrefs);

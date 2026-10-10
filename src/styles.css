@@ -3175,3 +3175,10 @@ kbd {
 .fs-viz[hidden] {
   display: none;
 }
+
+/* lyrics stop above the bars so the text and the visualizer never overlap */
+.fs[data-viz='bars'] .fs-main,
+.fs[data-viz='mirror'] .fs-main,
+.fs[data-viz='line'] .fs-main {
+  padding-bottom: 128px;
+}

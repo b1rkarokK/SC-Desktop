@@ -677,4 +677,10 @@ export const EN: Record<string, string> = {
   'У этого трека нет ссылки': 'This track has no link',
   'Эта комбинация уже занята другим действием': 'This combination is already used by another action',
   'в лайках': 'in likes',
+  'Зеркало': 'Mirror',
+  'Линия': 'Line',
+  'Кольцо': 'Ring',
+  'Цвет визуализатора': 'Visualizer color',
+  'Акцент': 'Accent',
+  'Белый': 'White',
 };
