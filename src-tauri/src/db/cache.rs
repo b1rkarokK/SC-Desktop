@@ -370,6 +370,76 @@ impl Db {
         Ok(ids.into_iter().collect())
     }
 
+    /// «Итоги»: listening since `since` (unix seconds), all from local history.
+    pub async fn stats(&self, since: i64) -> AppResult<Stats> {
+        self.run(move |c| {
+            let (plays, ms, tracks, artists): (i64, i64, i64, i64) = c.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(t.duration_ms), 0), COUNT(DISTINCT p.track_id), COUNT(DISTINCT t.user_id)
+                 FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.at >= ?1",
+                [since],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+            let mut st = c.prepare_cached(&format!(
+                "SELECT {TRACK_COLS}, COUNT(*) AS n FROM plays p JOIN tracks t ON t.id = p.track_id
+                 WHERE p.at >= ?1 GROUP BY p.track_id ORDER BY n DESC, MAX(p.at) DESC LIMIT 10"
+            ))?;
+            let top_tracks = st
+                .query_map([since], |r| Ok(StatTrack { track: row_to_dto(r)?, plays: r.get::<_, i64>(8)? as u64 }))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            // the artist's most played track gives the picture
+            let mut st = c.prepare_cached(
+                "SELECT t.user_id, MAX(t.artist), COUNT(*) AS n, SUM(t.duration_ms),
+                        (SELECT t2.artwork_url FROM plays p2 JOIN tracks t2 ON t2.id = p2.track_id
+                          WHERE t2.user_id = t.user_id AND p2.at >= ?1 GROUP BY p2.track_id ORDER BY COUNT(*) DESC LIMIT 1)
+                 FROM plays p JOIN tracks t ON t.id = p.track_id
+                 WHERE p.at >= ?1 GROUP BY t.user_id ORDER BY n DESC LIMIT 10",
+            )?;
+            let top_artists = st
+                .query_map([since], |r| {
+                    Ok(StatArtist {
+                        user_id: r.get::<_, i64>(0)? as u64,
+                        name: r.get(1)?,
+                        plays: r.get::<_, i64>(2)? as u64,
+                        ms: r.get::<_, i64>(3)? as u64,
+                        artwork_url: r.get(4)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut hours = [0u32; 24];
+            let mut st = c.prepare_cached(
+                "SELECT CAST(strftime('%H', at, 'unixepoch', 'localtime') AS INTEGER), COUNT(*) FROM plays WHERE at >= ?1 GROUP BY 1",
+            )?;
+            for row in st.query_map([since], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+                let (h, n) = row?;
+                if let Some(slot) = hours.get_mut(h as usize) {
+                    *slot = n as u32;
+                }
+            }
+            let mut st = c.prepare_cached(
+                "SELECT LOWER(TRIM(t.genre)) AS g, COUNT(*) AS n FROM plays p JOIN tracks t ON t.id = p.track_id
+                 WHERE p.at >= ?1 AND t.genre IS NOT NULL AND TRIM(t.genre) != '' GROUP BY g ORDER BY n DESC LIMIT 6",
+            )?;
+            let genres = st
+                .query_map([since], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            // days with music, newest first, for the streak
+            let mut st = c.prepare_cached("SELECT DISTINCT date(at, 'unixepoch', 'localtime') FROM plays ORDER BY 1 DESC LIMIT 400")?;
+            let days = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(Stats {
+                plays: plays as u64,
+                ms: ms as u64,
+                tracks: tracks as u64,
+                artists: artists as u64,
+                top_tracks,
+                top_artists,
+                hours,
+                genres,
+                streak: streak(&days),
+            })
+        })
+        .await
+    }
+
     /// How many liked tracks this uploader has.
     pub async fn liked_by_artist(&self, user_id: u64) -> AppResult<u64> {
         self.run(move |c| {
@@ -559,7 +629,8 @@ impl Db {
         self.run(move |c| {
             c.execute("INSERT INTO plays (track_id, at) VALUES (?1, ?2)", params![track_id as i64, now()])?;
             // keep history bounded
-            c.execute("DELETE FROM plays WHERE id <= (SELECT MAX(id) FROM plays) - 5000", [])?;
+            // a year and more of listening for «Итоги» (a few MB)
+            c.execute("DELETE FROM plays WHERE id <= (SELECT MAX(id) FROM plays) - 50000", [])?;
             Ok(())
         })
         .await
@@ -693,5 +764,94 @@ impl Db {
                 .map(|_| ())
         })
         .await
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StatTrack {
+    pub track: TrackDto,
+    pub plays: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StatArtist {
+    pub user_id: u64,
+    pub name: String,
+    pub plays: u64,
+    pub ms: u64,
+    pub artwork_url: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Stats {
+    pub plays: u64,
+    /// listening time, from the tracks' lengths
+    pub ms: u64,
+    pub tracks: u64,
+    pub artists: u64,
+    pub top_tracks: Vec<StatTrack>,
+    pub top_artists: Vec<StatArtist>,
+    /// plays per hour of the day, local time
+    pub hours: [u32; 24],
+    /// lower-case genre, plays
+    pub genres: Vec<(String, u64)>,
+    /// days in a row with music, ending today or yesterday
+    pub streak: u32,
+}
+
+/// `days`: distinct "YYYY-MM-DD", newest first.
+fn streak(days: &[String]) -> u32 {
+    let parse = |s: &str| chrono_days(s);
+    let Some(today) = chrono_days(&today_local()) else { return 0 };
+    let mut n = 0u32;
+    let mut expect = None;
+    for d in days.iter().filter_map(|d| parse(d)) {
+        match expect {
+            None if d == today || d + 1 == today => {
+                n = 1;
+                expect = Some(d - 1);
+            }
+            None => return 0,
+            Some(e) if d == e => {
+                n += 1;
+                expect = Some(d - 1);
+            }
+            Some(_) => break,
+        }
+    }
+    n
+}
+
+/// Days since 1970-01-01 for "YYYY-MM-DD" (civil calendar).
+fn chrono_days(s: &str) -> Option<i64> {
+    let mut it = s.split('-').map(|x| x.parse::<i64>());
+    let (y, m, d) = (it.next()?.ok()?, it.next()?.ok()?, it.next()?.ok()?);
+    // Howard Hinnant's days_from_civil
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146_097 + doe - 719_468)
+}
+
+fn today_local() -> String {
+    // SQLite already knows the local date; avoid a time-zone crate for one value
+    let c = Connection::open_in_memory();
+    c.ok()
+        .and_then(|c| c.query_row("SELECT date('now', 'localtime')", [], |r| r.get::<_, String>(0)).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+
+    #[test]
+    fn civil_days() {
+        assert_eq!(chrono_days("1970-01-01"), Some(0));
+        assert_eq!(chrono_days("2026-10-10").unwrap() - chrono_days("2026-10-09").unwrap(), 1);
+        assert_eq!(chrono_days("2024-03-01").unwrap() - chrono_days("2024-02-28").unwrap(), 2);
     }
 }

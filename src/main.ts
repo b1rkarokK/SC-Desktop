@@ -103,4 +103,9 @@ document.addEventListener('contextmenu', (e) => {
   if (!(e.target instanceof Element && e.target.closest('input, textarea'))) e.preventDefault();
 });
 
-boot().catch((e) => toast(T('Ошибка запуска: {0}', errorMessage(e)), 'error', 15000));
+// the mini player is the same page in its own small window
+if (new URLSearchParams(location.search).has('mini')) {
+  void import('./ui/mini').then((m) => m.bootMini()).catch((e) => toast(errorMessage(e), 'error'));
+} else {
+  boot().catch((e) => toast(T('Ошибка запуска: {0}', errorMessage(e)), 'error', 15000));
+}

@@ -1,5 +1,6 @@
 // Bottom player bar. Position is polled at 4 Hz only while playing AND the
 // window is visible; in the tray there are zero timers on the JS side.
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, coverUrl, errorMessage, fmtTime, type RepeatMode, type SleepState } from './api';
 import { openMenu, type MenuItem } from './context_menu';
@@ -35,6 +36,7 @@ export class PlayerBar {
   private eqBtn = iconButton(I.eq, T('Эквалайзер'));
   private sleepBtn = iconButton(I.sleep, T('Таймер сна'));
   private queueBtn = iconButton(I.queue, T('Очередь'));
+  private miniBtn = iconButton(I.mini, T('Мини-плеер'));
   private sleepTimer = 0;
   private fsBtn = iconButton(I.fullscreen, T('Полный экран'));
   private lyricsBtn = iconButton(I.lyrics, T('Текст песни'));
@@ -95,6 +97,7 @@ export class PlayerBar {
       queue.toggle();
     });
     queue.init((open) => this.queueBtn.classList.toggle('is-on', open));
+    this.miniBtn.addEventListener('click', () => void invoke('mini_open').catch((e) => toast(errorMessage(e), 'error')));
     this.sleepBtn.addEventListener('click', () => this.sleepMenu());
     void listen<SleepState>('player:sleep', (e) => this.renderSleep(e.payload));
     void api.sleepGet().then((s) => this.renderSleep(s), () => {});
@@ -111,7 +114,7 @@ export class PlayerBar {
         h('div', { class: 'pb-controls' }, this.shuffleBtn, prev, this.playBtn, next, this.repeatBtn),
         h('div', { class: 'pb-seek' }, this.time, this.seek.el, this.duration),
       ),
-      h('div', { class: 'pb-right' }, this.queueBtn, this.sleepBtn, this.eqBtn, this.muteBtn, h('div', { class: 'pb-volume' }, this.volume.el), this.fsBtn, this.lyricsBtn),
+      h('div', { class: 'pb-right' }, this.miniBtn, this.queueBtn, this.sleepBtn, this.eqBtn, this.muteBtn, h('div', { class: 'pb-volume' }, this.volume.el), this.fsBtn, this.lyricsBtn),
     );
 
     host.querySelector('.pb-now')!.addEventListener('contextmenu', (e) => {

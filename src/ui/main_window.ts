@@ -9,6 +9,7 @@ import { router, type Route, type Section } from './router';
 import { store } from './store';
 import type { View } from './views/common';
 import { HistoryView } from './views/history';
+import { StatsView } from './views/stats';
 import { HomeView } from './views/home';
 import { ProfileView } from './views/profile';
 import { LibraryView } from './views/library';
@@ -23,6 +24,7 @@ const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
   ['likes', T('Лайки'), I.heart],
   ['wave', T('Моя волна'), I.wave],
   ['history', T('История'), I.history],
+  ['stats', T('Итоги'), I.stats],
   ['search', T('Поиск'), I.search],
   ['settings', T('Настройки'), I.settings],
 ];
@@ -32,6 +34,7 @@ export class MainWindow {
   private home = new HomeView();
   private wave = new WaveView();
   private history = new HistoryView();
+  private stats = new StatsView();
   private search = new SearchView();
   private settings = new SettingsView();
   private profile = new ProfileView();
@@ -105,6 +108,9 @@ export class MainWindow {
         break;
       case 'history':
         view = this.history;
+        break;
+      case 'stats':
+        view = this.stats;
         break;
       case 'search':
         view = this.search;

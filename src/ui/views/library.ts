@@ -9,6 +9,7 @@ import { store } from '../store';
 import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
 import { ArraySource, PagedSource, VirtualList } from '../virtual_list';
 import { btn, emptyState, viewHead, type View } from './common';
+import { importDialog } from '../import_dialog';
 import { T } from '../i18n';
 
 export class LibraryView implements View {
@@ -16,6 +17,7 @@ export class LibraryView implements View {
   private tabs: SegTabs<LibTab>;
   private body = h('div', { class: 'view-body' });
   private syncBtn: HTMLButtonElement;
+  private importBtn = btn(T('Импорт'), I.download);
   private list: VirtualList<Track>;
   private trackTotal = 0;
   private playlists: Playlist[] | null = null;
@@ -25,6 +27,8 @@ export class LibraryView implements View {
   constructor() {
     this.syncBtn = btn(T('Синхронизировать'), I.refresh);
     this.syncBtn.addEventListener('click', () => void this.sync());
+    this.importBtn.title = T('Импорт плейлиста из Яндекс Музыки или Spotify');
+    this.importBtn.addEventListener('click', () => importDialog(() => void this.loadPlaylists(true)));
     this.tabs = new SegTabs<LibTab>(
       [
         { key: 'tracks', label: T('Треки') },
@@ -37,7 +41,7 @@ export class LibraryView implements View {
     );
     this.list = new VirtualList<Track>(new ArraySource(), trackRowRenderer(), ROW_HEIGHT);
     this.list.onRowActivate((i) => api.playLikes(i).catch((e) => toast(errorMessage(e), 'error')));
-    this.el = h('section', { class: 'view' }, viewHead(T('Лайки'), this.syncBtn), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
+    this.el = h('section', { class: 'view' }, viewHead(T('Лайки'), h('div', { class: 'row-actions' }, this.importBtn, this.syncBtn)), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
     const refresh = () => this.list.refresh();
     store.on('player', refresh);
     store.on('likes', refresh);
@@ -56,6 +60,8 @@ export class LibraryView implements View {
   private renderTab(): void {
     const tab = this.tabs.value;
     this.syncBtn.hidden = false;
+    // import makes playlists: shown where the playlists are
+    this.importBtn.hidden = tab !== 'playlists';
     if (tab === 'tracks') {
       this.body.replaceChildren(this.trackTotal || !this.loadedTracks ? this.list.el : this.emptyTracks());
       this.list.refresh();

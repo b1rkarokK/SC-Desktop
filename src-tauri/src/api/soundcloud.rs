@@ -391,9 +391,10 @@ impl SoundCloud {
     }
 
     /// A new private playlist with these tracks.
-    pub fn playlist_create_request(&self, title: &str, tracks: &[u64]) -> AppResult<(&'static str, Url, String)> {
+    pub fn playlist_create_request(&self, title: &str, tracks: &[u64], private: bool) -> AppResult<(&'static str, Url, String)> {
         let url = self.api_url("/playlists", &[])?;
-        let body = serde_json::json!({ "playlist": { "title": title, "sharing": "private", "tracks": tracks } }).to_string();
+        let sharing = if private { "private" } else { "public" };
+        let body = serde_json::json!({ "playlist": { "title": title, "sharing": sharing, "tracks": tracks } }).to_string();
         Ok(("POST", url, body))
     }
 

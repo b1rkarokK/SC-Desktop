@@ -25,7 +25,9 @@ mod secrets;
 mod state;
 mod tray;
 mod updater;
+mod import;
 mod lang;
+mod mini;
 mod news;
 mod upload;
 mod wave;
@@ -160,6 +162,12 @@ fn main() {
             commands::sleep_get,
             commands::queue_get,
             commands::news_set,
+            commands::stats_get,
+            commands::mini_open,
+            commands::mini_close,
+            commands::mini_resize,
+            commands::import_preview,
+            commands::import_run,
             commands::queue_move,
             commands::queue_remove,
             commands::queue_clear,

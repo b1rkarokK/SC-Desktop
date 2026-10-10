@@ -2,6 +2,7 @@
 import {
   AudioWaveform,
   Check,
+  ChartColumn,
   ChevronDown,
   ChevronLeft,
   CircleHelp,
@@ -17,6 +18,7 @@ import {
   ListOrdered,
   ImagePlus,
   Pencil,
+  PictureInPicture2,
   Trash2,
   Upload,
   Link,
@@ -158,6 +160,8 @@ export const I = {
   close: X,
   sleep: Moon,
   grip: GripVertical,
+  mini: PictureInPicture2,
+  stats: ChartColumn,
   edit: Pencil,
   queue: ListOrdered,
 } satisfies Record<string, IconNode>;

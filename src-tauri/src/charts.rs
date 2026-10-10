@@ -91,7 +91,7 @@ pub fn ya_years() -> Vec<u16> {
     YA_YEARS.iter().map(|(y, _)| *y).collect()
 }
 
-fn ya_song(t: &Value) -> Option<ChartSong> {
+pub(crate) fn ya_song(t: &Value) -> Option<ChartSong> {
     let title = t["title"].as_str()?.to_owned();
     let version = t["version"].as_str().filter(|v| !v.is_empty());
     let artist = t["artists"].as_array()?.iter().filter_map(|a| a["name"].as_str()).collect::<Vec<_>>().join(", ");
@@ -356,6 +356,49 @@ async fn find_on_soundcloud(sc: &SoundCloud, song: &ChartSong) -> Option<ScTrack
         .filter(|(s, _)| *s >= 6)
         .max_by_key(|(s, t)| (*s, t.playback_count.unwrap_or(0)))
         .map(|(_, t)| t)
+}
+
+/// Import: SoundCloud tracks for songs (cached like the charts' lookups),
+/// `progress(done)` as they are looked up; also returns the songs not found.
+pub(crate) async fn find_all(state: &AppState, songs: &[ChartSong], progress: impl Fn(usize)) -> AppResult<(Vec<TrackDto>, Vec<ChartSong>)> {
+    let sc = state.sc()?;
+    let mut ids: HashMap<String, u64> = HashMap::new();
+    let mut todo = Vec::new();
+    for s in songs {
+        match state.db.kv_get::<u64>(&format!("match6:{}", s.key)).await? {
+            Some((id, _)) if id > 0 => {
+                ids.insert(s.key.clone(), id);
+            }
+            _ => todo.push(s.clone()),
+        }
+    }
+    let mut done = songs.len() - todo.len();
+    progress(done);
+    let mut lookups = stream::iter(todo)
+        .map(|s| {
+            let sc = &sc;
+            async move { (s.key.clone(), find_on_soundcloud(sc, &s).await) }
+        })
+        .buffer_unordered(4);
+    let mut fresh = Vec::new();
+    while let Some((key, t)) = lookups.next().await {
+        let id = t.as_ref().map_or(0, |t| t.id);
+        state.db.kv_put(&format!("match6:{key}"), &id).await?;
+        if let Some(t) = t {
+            ids.insert(key, t.id);
+            fresh.push(t);
+        }
+        done += 1;
+        progress(done);
+    }
+    state.db.upsert_tracks(fresh).await?;
+    let order: Vec<u64> = songs.iter().filter_map(|s| ids.get(&s.key).copied()).collect();
+    let cached = state.db.tracks_by_ids(order.clone()).await?;
+    let by_id: HashMap<u64, TrackDto> = cached.iter().map(|t| (t.id, TrackDto::from(t))).collect();
+    let mut seen = std::collections::HashSet::new();
+    let tracks = order.iter().filter(|id| seen.insert(**id)).filter_map(|id| by_id.get(id).cloned()).collect();
+    let missing = songs.iter().filter(|s| !ids.contains_key(&s.key)).cloned().collect();
+    Ok((tracks, missing))
 }
 
 /// SoundCloud tracks for chart songs, in chart order. Lookups are remembered

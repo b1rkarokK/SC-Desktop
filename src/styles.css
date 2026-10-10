@@ -1750,7 +1750,8 @@ select {
   --fs-size: 24px;
   position: fixed;
   inset: 0;
-  z-index: 20;
+  /* above the navigation rail (25), below toasts, dialogs and menus */
+  z-index: 28;
   display: grid;
   grid-template-rows: 56px minmax(0, 1fr) auto;
   background: var(--fs-bg);
@@ -2693,4 +2694,322 @@ body.is-sorting * {
 
 .pl-edit-row .btn-icon {
   visibility: visible;
+}
+
+/* ---------------------------------------------------------------- stats */
+
+.st-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.st-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.st-tile b {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.st-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 24px;
+}
+
+.st-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 44px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.st-row:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.st-n {
+  width: 18px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.st-cover {
+  width: 32px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--border);
+  object-fit: cover;
+  flex: none;
+}
+
+.st-cover.is-round {
+  border-radius: 50%;
+}
+
+.st-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.st-genre {
+  display: grid;
+  grid-template-columns: 140px 1fr 40px;
+  align-items: center;
+  gap: 12px;
+  height: 26px;
+}
+
+.st-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.st-bar-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.st-hours {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 80px;
+}
+
+.st-hours i {
+  flex: 1;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.st-hours-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+/* window buttons in the full-screen top bar: flush with the top-right corner */
+.fs-top .tb-controls {
+  align-self: flex-start;
+  margin: 0 -20px 0 8px;
+}
+
+.fs-top .tb-btn {
+  height: 36px;
+}
+
+/* --------------------------------------------------------------- import */
+
+.imp-input {
+  height: auto;
+  min-height: 64px;
+  padding: 6px 8px;
+  resize: vertical;
+  font: inherit;
+}
+
+.imp-missing {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 6px;
+  user-select: text;
+}
+
+/* ---------------------------------------------------------- mini player */
+
+body.mini {
+  background: transparent;
+  overflow: hidden;
+  padding: 4px;
+}
+
+body.mini #app {
+  display: none;
+}
+
+.mini-box {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  overflow: hidden;
+  transition: border-radius 0.15s;
+}
+
+.mini-box.is-open {
+  border-radius: 18px;
+}
+
+.mini-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 4px 8px 4px 5px;
+}
+
+.mini-cover {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--border);
+  object-fit: cover;
+  flex: none;
+}
+
+.mini-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* a long lyric line wraps to a second line instead of being cut */
+.mini-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.mini-line .w {
+  color: var(--muted);
+}
+
+.mini-line .w.is-sung {
+  color: var(--text);
+}
+
+.mini-line .w.is-now {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mini-title {
+  font-weight: 600;
+}
+
+.mini-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.mini-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  flex: none;
+}
+
+.mini-corner {
+  display: none;
+}
+
+.mini-box.is-open .mini-corner {
+  display: flex;
+}
+
+.mini-box.is-open .mini-top > .mini-play {
+  display: none;
+}
+
+.mini-panel {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 14px 10px;
+}
+
+.mini-box.is-open .mini-panel {
+  display: flex;
+}
+
+.mini-seek {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mini-seek .slider {
+  flex: 1;
+}
+
+.mini-time {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mini-vol {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.mini-vol .slider {
+  width: 60px;
+}
+
+body.mini .q-pop.mini-queue {
+  position: static;
+  width: auto;
+  max-height: 300px;
+  margin-top: 6px;
+  border-radius: 14px;
+}
+
+/* the mini player's window is transparent: only the capsule is drawn */
+html.mini,
+html.mini body {
+  background: transparent !important;
+}
+
+/* the capsule is dragged by its text too: the words let the press through
+   to the drag region under them */
+.mini-text,
+.mini-text * {
+  pointer-events: none;
 }

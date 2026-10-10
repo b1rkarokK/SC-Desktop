@@ -17,10 +17,11 @@ fn build_menu(app: &AppHandle, update: Option<&MenuItem<tauri::Wry>>) -> tauri::
     let prev = MenuItem::with_id(app, "prev", pick("Предыдущий", "Previous"), true, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", pick("Следующий", "Next"), true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", pick("Открыть окно", "Open window"), true, None::<&str>)?;
+    let mini = MenuItem::with_id(app, "mini", pick("Мини-плеер", "Mini player"), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", pick("Выход", "Quit"), true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep1, &show, &sep2, &quit])?;
+    let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep1, &show, &mini, &sep2, &quit])?;
     if let Some(item) = update {
         menu.insert(item, 0)?;
         menu.insert(&PredefinedMenuItem::separator(app)?, 1)?;
@@ -41,6 +42,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 ("prev", Some(p)) => p.prev(),
                 ("next", Some(p)) => p.next(),
                 ("show" | "update", _) => show_main(app),
+                ("mini", _) => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = crate::mini::open(&app).await {
+                            tracing::warn!(error = %e, "mini player not opened");
+                        }
+                    });
+                }
                 ("quit", _) => app.exit(0),
                 _ => {}
             }

@@ -4306,7 +4306,7 @@ dependencies = [
 
 [[package]]
 name = "sc-desk"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "discord-rich-presence",
  "futures",
@@ -4337,6 +4337,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

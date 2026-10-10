@@ -11,6 +11,7 @@ import { openTrack, openTrackArtist } from './router';
 import { Slider } from './slider';
 import { store } from './store';
 import { T } from './i18n';
+import { windowControls } from './titlebar';
 
 export class Fullscreen {
   readonly el: HTMLDivElement;
@@ -83,7 +84,7 @@ export class Fullscreen {
     this.el = h(
       'div',
       { class: 'fs', role: 'dialog', 'aria-label': T('Сейчас играет') },
-      h('div', { class: 'fs-top', 'data-tauri-drag-region': true }, exit, h('span', { class: 'muted small', text: T('Сейчас играет') }), this.context, h('div', { class: 'spacer' }), paletteBtn),
+      h('div', { class: 'fs-top', 'data-tauri-drag-region': true }, exit, h('span', { class: 'muted small', text: T('Сейчас играет') }), this.context, h('div', { class: 'spacer' }), paletteBtn, windowControls()),
       h(
         'div',
         { class: 'fs-main' },

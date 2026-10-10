@@ -119,6 +119,18 @@ export interface QueueView {
   source: QueueSource;
 }
 
+export interface Stats {
+  plays: number;
+  ms: number;
+  tracks: number;
+  artists: number;
+  top_tracks: { track: Track; plays: number }[];
+  top_artists: { user_id: number; name: string; plays: number; ms: number; artwork_url: string | null }[];
+  hours: number[];
+  genres: [string, number][];
+  streak: number;
+}
+
 export interface SleepState {
   remaining_s: number | null;
   end_of_track: boolean;
@@ -406,6 +418,10 @@ export const api = {
   fxSet: (fx: FxConfig, persist: boolean) => invoke<void>('fx_set', { fx, persist }),
   sleepSet: (minutes: number | null, endOfTrack: boolean) => invoke<SleepState>('sleep_set', { minutes, endOfTrack }),
   sleepGet: () => invoke<SleepState>('sleep_get'),
+  importPreview: (input: string) => invoke<[string, number]>('import_preview', { input }),
+  importRun: (input: string, title: string, isPrivate: boolean) =>
+    invoke<{ title: string; found: number; total: number; missing: string[] }>('import_run', { input, title, private: isPrivate }),
+  statsGet: (period: 'week' | 'month' | 'year' | 'all') => invoke<Stats>('stats_get', { period }),
   queueGet: (limit: number) => invoke<QueueView>('queue_get', { limit }),
   queueMove: (from: number, to: number) => invoke<void>('queue_move', { from, to }),
   queueRemove: (at: number) => invoke<void>('queue_remove', { at }),

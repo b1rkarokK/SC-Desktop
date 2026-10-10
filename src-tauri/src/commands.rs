@@ -455,6 +455,10 @@ where
 /// Liked playlists AND albums; the UI splits them by `is_album`.
 #[tauri::command]
 pub async fn library_playlists(state: State<'_, AppState>, force: bool) -> Cmd<Vec<PlaylistDto>> {
+    library_playlists_fresh(&state, force).await
+}
+
+async fn library_playlists_fresh(state: &AppState, force: bool) -> AppResult<Vec<PlaylistDto>> {
     let me = state.current_user().await?;
     let sc = state.sc()?;
     cached_list(&state, "lib:playlists2", force, || async move {
@@ -553,10 +557,25 @@ pub async fn playlist_create(app: AppHandle, state: State<'_, AppState>, title: 
         return Err(AppError::Other("Введите название плейлиста".into()));
     }
     let tracks: Vec<u64> = track_id.into_iter().collect();
-    let (method, url, body) = state.sc()?.playlist_create_request(title, &tracks)?;
-    sc_write_body(&app, &state, (method, url), Some(body), false).await?;
-    // the new playlist shows up in the library at once
-    library_playlists(state, true).await.map(|_| ())
+    create_playlist(&app, &state, title, &tracks, true).await
+}
+
+/// New playlist with these tracks; the library list is refreshed so it shows up at once.
+pub(crate) async fn create_playlist(app: &AppHandle, state: &AppState, title: &str, tracks: &[u64], private: bool) -> AppResult<()> {
+    let (method, url, body) = state.sc()?.playlist_create_request(title, tracks, private)?;
+    sc_write_body(app, state, (method, url), Some(body), false).await?;
+    library_playlists_fresh(state, true).await.map(|_| ())
+}
+
+/// «Импорт»: what the link points to (name, number of songs).
+#[tauri::command]
+pub async fn import_preview(state: State<'_, AppState>, input: String) -> Cmd<(String, usize)> {
+    crate::import::preview(&state, &input).await
+}
+
+#[tauri::command]
+pub async fn import_run(app: AppHandle, state: State<'_, AppState>, input: String, title: String, private: bool) -> Cmd<crate::import::ImportResult> {
+    Box::pin(crate::import::run(&app, &state, &input, &title, private)).await
 }
 
 async fn set_cached_track_count(state: &AppState, playlist_id: u64, n: u64) -> AppResult<()> {
@@ -1375,6 +1394,38 @@ pub async fn playlist_set_tracks(app: AppHandle, state: State<'_, AppState>, pla
     let (method, url, body) = sc.playlist_tracks_request(playlist_id, &track_ids)?;
     sc_write_body(&app, &state, (method, url), Some(body), false).await?;
     set_cached_track_count(&state, playlist_id, track_ids.len() as u64).await
+}
+
+/// Mini player: open (the big window goes to the tray).
+#[tauri::command]
+pub async fn mini_open(app: AppHandle) -> Cmd<()> {
+    crate::mini::open(&app).await.map_err(AppError::from)
+}
+
+/// `restore`: back to the big window. Async: on Windows a window created from
+/// a sync command hangs (blank) — the sign-in window had the same problem.
+#[tauri::command]
+pub async fn mini_close(app: AppHandle, restore: bool) -> Cmd<()> {
+    crate::mini::close(&app, restore);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn mini_resize(app: AppHandle, height: f64) {
+    crate::mini::resize(&app, height);
+}
+
+/// «Итоги»: "week" | "month" | "year" | "all".
+#[tauri::command]
+pub async fn stats_get(state: State<'_, AppState>, period: String) -> Cmd<crate::db::cache::Stats> {
+    let day = 86_400;
+    let since = match period.as_str() {
+        "week" => now() - 7 * day,
+        "month" => now() - 30 * day,
+        "year" => now() - 365 * day,
+        _ => 0,
+    };
+    state.db.stats(since).await
 }
 
 #[tauri::command]
