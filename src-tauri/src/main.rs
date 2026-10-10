@@ -15,6 +15,7 @@ mod fingerprint;
 mod geniusweb;
 mod home;
 mod hotkeys;
+mod viz;
 mod logging;
 mod login;
 mod models;
@@ -202,6 +203,8 @@ fn main() {
             commands::config_set_network,
             commands::net_check,
             commands::config_set_ui,
+            commands::hotkeys_apply,
+            commands::viz_set,
             commands::eq_set,
             commands::discord_set,
             commands::system_get,

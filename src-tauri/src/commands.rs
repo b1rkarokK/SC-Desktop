@@ -1514,3 +1514,15 @@ pub fn system_set(
     }
     Ok(())
 }
+
+/// Own hotkeys changed in Настройки: re-register the global ones.
+#[tauri::command]
+pub fn hotkeys_apply(app: AppHandle, hotkeys: serde_json::Value) {
+    crate::hotkeys::apply(&app, &hotkeys);
+}
+
+/// Full-screen visualizer on / off (the spectrum is computed only while on).
+#[tauri::command]
+pub fn viz_set(app: AppHandle, on: bool) {
+    crate::viz::set(&app, on);
+}

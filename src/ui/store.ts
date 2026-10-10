@@ -3,7 +3,7 @@ import { api, errorMessage, type AuthStatus, type PlayerSnapshot, type Track, ty
 import { toast } from './dom';
 import { T } from './i18n';
 
-type Topic = 'player' | 'likes' | 'dislikes' | 'auth' | 'follows';
+export type Topic = 'player' | 'likes' | 'dislikes' | 'auth' | 'follows';
 type Listener = () => void;
 
 class Store {

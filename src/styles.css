@@ -3035,3 +3035,143 @@ body.mini:hover .q-pop.mini-queue {
 .mini-opacity .slider {
   flex: 1;
 }
+
+/* ----------------------------------------------------------- hotkeys */
+.keycaps {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.keycaps:hover {
+  border-color: var(--border);
+}
+
+.keycaps.is-recording {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+kbd {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* ----------------------------------------------------------- Ctrl+K */
+.pal-backdrop {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.pal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, 92vw);
+  max-height: 70vh;
+  padding: 12px;
+}
+
+.pal-input {
+  width: 100%;
+}
+
+.pal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pal-chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pal-chip:hover {
+  color: var(--text);
+}
+
+.pal-chip.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.pal-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.pal-row.is-sel {
+  background: var(--tint);
+}
+
+.pal-art {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: var(--border);
+  object-fit: cover;
+}
+
+.pal-art.is-round {
+  border-radius: 50%;
+}
+
+.pal-text {
+  min-width: 0;
+}
+
+.pal-title,
+.pal-text .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pal-empty {
+  padding: 16px;
+  text-align: center;
+}
+
+/* ------------------------------------------------------- visualizer */
+.fs-viz {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.fs-viz[hidden] {
+  display: none;
+}

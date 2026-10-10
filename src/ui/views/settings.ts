@@ -9,6 +9,7 @@ import { lyricsData } from '../lyrics_data';
 import { updates } from '../update_dialog';
 import { btn, viewHead, type View } from './common';
 import { currentLang, setLang, T, type Lang } from '../i18n';
+import { HOTKEY_ACTIONS, hotkeys, recorder, resetCombos, setInGames } from '../hotkeys';
 
 function toggle(on: boolean, onChange: (v: boolean) => void): HTMLButtonElement {
   const b = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
@@ -54,6 +55,7 @@ export class SettingsView implements View {
   private systemBox = h('div');
   private themeBox = h('div');
   private langBox = h('div');
+  private hotkeysBox = h('div');
 
   constructor() {
     this.el = h(
@@ -63,7 +65,7 @@ export class SettingsView implements View {
       h(
         'div',
         { class: 'view-scroll pad' },
-        h('div', { class: 'settings' }, this.account, this.themeBox, this.langBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox),
+        h('div', { class: 'settings' }, this.account, this.themeBox, this.langBox, this.hotkeysBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox),
       ),
     );
     store.on('auth', () => this.renderAccount());
@@ -74,6 +76,7 @@ export class SettingsView implements View {
     this.renderAccount();
     this.renderTheme();
     this.renderLyrics();
+    this.renderHotkeys();
     void this.load();
   }
 
@@ -90,6 +93,24 @@ export class SettingsView implements View {
   }
 
   // ---------------------------------------------------------- account
+
+  private renderHotkeys(): void {
+    const games = toggle(hotkeys().inGames, (v) => setInGames(v));
+    const reset = btn(T('Сбросить'), null);
+    reset.addEventListener('click', () => {
+      resetCombos();
+      this.renderHotkeys();
+    });
+    this.hotkeysBox.replaceChildren(
+      group(
+        T('Горячие клавиши'),
+        row(T('Работают в играх'), games, T('Клавиши ловятся везде, даже поверх полноэкранной игры. Выключено - только когда окно SC Desk активно.')),
+        ...HOTKEY_ACTIONS.map((a) => row(a.label, recorder(a.id))),
+        row(T('Быстрый поиск'), h('span', { class: 'keycaps' }, h('kbd', { text: 'Ctrl' }), h('kbd', { text: 'K' })), T('Работает, когда окно открыто.')),
+        row(T('Вернуть клавиши по умолчанию'), reset),
+      ),
+    );
+  }
 
   private renderAccount(): void {
     const a = store.auth;

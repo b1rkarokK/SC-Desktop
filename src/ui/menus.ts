@@ -8,6 +8,7 @@ import { I } from './icons';
 import { openArtist, openPlaylist, openTrack, openTrackArtist } from './router';
 import { store } from './store';
 import { T } from './i18n';
+import { shareDialog } from './share_dialog';
 
 async function copy(text: string, done: string): Promise<void> {
   try {
@@ -51,6 +52,7 @@ export function trackMenu(e: MouseEvent, t: Track, play?: () => void): void {
   ];
   if (t.permalink_url) {
     const url = t.permalink_url;
+    items.push({ label: T('Поделиться…'), icon: I.link, action: () => shareDialog(t) });
     items.push({ label: T('Скопировать ссылку'), icon: I.link, action: () => void copy(url, T('Ссылка скопирована')) });
     if (isCurrent) {
       items.push({

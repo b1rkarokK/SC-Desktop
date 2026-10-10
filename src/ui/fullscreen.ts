@@ -6,21 +6,26 @@ import { iconButton, I, setIcon } from './icons';
 import { LyricsView } from './lyrics_view';
 import { lyricsMenu, trackMenu } from './menus';
 import { lyricsData, SOURCE_NAMES, type LyricsState } from './lyrics_data';
-import { onPrefs, prefs, updatePrefs, type FsBackground, type FsLayout, type Highlight } from './prefs';
+import { onPrefs, prefs, updatePrefs, type FsBackground, type FsLayout, type Highlight, type VizMode } from './prefs';
 import { openTrack, openTrackArtist } from './router';
 import { Slider } from './slider';
 import { store } from './store';
 import { T } from './i18n';
 import { windowControls } from './titlebar';
+import { Visualizer } from './visualizer';
+import { shareDialog } from './share_dialog';
 
 export class Fullscreen {
   readonly el: HTMLDivElement;
   private view = new LyricsView('ly-fs');
+  private viz = new Visualizer(() => this.bottom.offsetHeight);
+  private bottom!: HTMLElement;
   private cover = h('img', { class: 'fs-cover', alt: '', crossorigin: 'anonymous' });
   private title = h('button', { type: 'button', class: 'fs-title link', dir: 'auto' });
   private artist = h('button', { type: 'button', class: 'fs-artist link', dir: 'auto' });
   private like = iconButton(I.heart, T('Лайкнуть'));
   private dislike = iconButton(I.dislike, T('Не рекомендовать'));
+  private share = iconButton(I.link, T('Поделиться'));
   private context = h('span', { class: 'muted small' });
   private playBtn = iconButton(I.play, T('Воспроизвести'), 'btn-play btn-play-lg');
   private shuffleBtn = iconButton(I.shuffle, T('Перемешать'));
@@ -49,6 +54,7 @@ export class Fullscreen {
     this.title.addEventListener('click', () => t() && (this.setOpen(false), openTrack(t()!.id)));
     this.artist.addEventListener('click', () => t() && (this.setOpen(false), void openTrackArtist(t()!)));
     this.like.addEventListener('click', () => t() && void store.setLiked(t()!, !store.liked.has(t()!.id)));
+    this.share.addEventListener('click', () => t() && shareDialog(t()!));
     this.dislike.addEventListener('click', () => t() && void store.setDisliked(t()!, !store.disliked.has(t()!.id)));
     this.seek = new Slider(
       T('Позиция'),
@@ -81,9 +87,22 @@ export class Fullscreen {
     this.drawer = this.buildDrawer();
     this.drawer.hidden = true;
 
+    this.bottom = h(
+      'div',
+      { class: 'fs-bottom' },
+      h('div', { class: 'pb-seek' }, this.time, this.seek.el, this.dur),
+      h(
+        'div',
+        { class: 'fs-controls' },
+        h('div', { class: 'fs-side' }),
+        h('div', { class: 'pb-controls' }, this.shuffleBtn, prev, this.playBtn, next, this.repeatBtn),
+        h('div', { class: 'fs-side fs-vol' }, this.muteBtn, this.volume.el),
+      ),
+    );
     this.el = h(
       'div',
       { class: 'fs', role: 'dialog', 'aria-label': T('Сейчас играет') },
+      this.viz.el,
       h('div', { class: 'fs-top', 'data-tauri-drag-region': true }, exit, h('span', { class: 'muted small', text: T('Сейчас играет') }), this.context, h('div', { class: 'spacer' }), paletteBtn, windowControls()),
       h(
         'div',
@@ -92,22 +111,11 @@ export class Fullscreen {
           'div',
           { class: 'fs-art' },
           this.cover,
-          h('div', { class: 'fs-meta' }, h('div', { class: 'fs-meta-text' }, this.title, this.artist), this.dislike, this.like),
+          h('div', { class: 'fs-meta' }, h('div', { class: 'fs-meta-text' }, this.title, this.artist), this.share, this.dislike, this.like),
         ),
         this.view.el,
       ),
-      h(
-        'div',
-        { class: 'fs-bottom' },
-        h('div', { class: 'pb-seek' }, this.time, this.seek.el, this.dur),
-        h(
-          'div',
-          { class: 'fs-controls' },
-          h('div', { class: 'fs-side' }),
-          h('div', { class: 'pb-controls' }, this.shuffleBtn, prev, this.playBtn, next, this.repeatBtn),
-          h('div', { class: 'fs-side fs-vol' }, this.muteBtn, this.volume.el),
-        ),
-      ),
+      this.bottom,
       this.drawer,
     );
     this.el.hidden = true;
@@ -163,6 +171,7 @@ export class Fullscreen {
       this.view.rerender();
     }
     this.applyBackground();
+    this.viz.setMode(f.viz);
     this.renderDrawer();
   }
 
@@ -214,6 +223,7 @@ export class Fullscreen {
   }
 
   private updateTimer(): void {
+    this.viz.setActive(this.open && !!store.snapshot?.playing && isVisible());
     const should = this.open && !!store.snapshot?.playing && isVisible();
     if (should && !this.timer) this.timer = window.setInterval(() => this.renderPos(clock.now()), 250);
     else if (!should && this.timer) {
@@ -298,6 +308,7 @@ export class Fullscreen {
       seg<FsLayout>('layout', T('Раскладка'), [['side', T('Рядом')], ['text', T('Текст')], ['cover', T('Обложка')]], (v) => (prefs().fs.layout = v)),
       seg<FsBackground>('background', T('Фон'), [['theme', T('Тема')], ['cover', T('По обложке')], ['oled', 'OLED']], (v) => (prefs().fs.background = v)),
       seg<Highlight>('highlight', T('Подсветка'), [['word', T('Слово')], ['line', T('Строка')], ['none', T('Нет')]], (v) => (prefs().fs.highlight = v)),
+      seg<VizMode>('viz', T('Визуализатор'), [['bars', T('Столбики')], ['wave', T('Волна')], ['off', T('Нет')]], (v) => (prefs().fs.viz = v)),
       seg<'left' | 'center'>('align', T('Выравнивание'), [['left', T('Слева')], ['center', T('По центру')]], (v) => (prefs().fs.align = v)),
       h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: T('Размер текста') }), h('div', { class: 'dr-inline' }, this.sizeSlider.el, this.sizeVal)),
       h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: T('Сдвиг текста (если отстаёт или спешит)') }), h('div', { class: 'dr-inline' }, minus, this.offsetVal, plus)),
@@ -307,7 +318,7 @@ export class Fullscreen {
   private renderDrawer(): void {
     if (!this.sizeSlider) return;
     const f = prefs().fs;
-    const cur: Record<string, string> = { layout: f.layout, background: f.background, highlight: f.highlight, align: f.align };
+    const cur: Record<string, string> = { layout: f.layout, background: f.background, highlight: f.highlight, align: f.align, viz: f.viz };
     for (const [key, btns] of this.segEls) btns.forEach((b) => b.classList.toggle('is-active', b.dataset.v === cur[key]));
     this.sizeSlider.set((f.size - 16) / 32);
     this.sizeVal.textContent = String(f.size);

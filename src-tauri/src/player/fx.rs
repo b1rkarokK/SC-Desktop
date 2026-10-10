@@ -225,7 +225,11 @@ impl<S: Source<Item = f32>> Iterator for Effects<S> {
                 y = y * (1.0 - 0.35 * self.wet) + r * self.wet * 3.0;
             }
         }
-        Some(if self.norm || self.wet > 0.0 { limit(y) } else { y })
+        let y = if self.norm || self.wet > 0.0 { limit(y) } else { y };
+        if ch == 0 && crate::viz::TAP.on.load(Ordering::Relaxed) {
+            crate::viz::TAP.push(y);
+        }
+        Some(y)
     }
 }
 

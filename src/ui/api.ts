@@ -417,6 +417,8 @@ export const api = {
     invoke<AppConfig>('config_set_network', { netMode, proxy, chromeVersion }),
   netCheck: (netMode: NetMode, proxy: string | null) => invoke<NetCheck>('net_check', { netMode, proxy }),
   configSetUi: (ui: Record<string, unknown>) => invoke<void>('config_set_ui', { ui }),
+  miniOpen: () => invoke<void>('mini_open'),
+  hotkeysApply: (hotkeys: unknown) => invoke<void>('hotkeys_apply', { hotkeys }),
   fxSet: (fx: FxConfig, persist: boolean) => invoke<void>('fx_set', { fx, persist }),
   sleepSet: (minutes: number | null, endOfTrack: boolean) => invoke<SleepState>('sleep_set', { minutes, endOfTrack }),
   sleepGet: () => invoke<SleepState>('sleep_get'),

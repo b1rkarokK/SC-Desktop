@@ -1,24 +1,77 @@
-//! Global hotkeys: hardware media keys + Ctrl+Alt+P / Ctrl+Alt+→ / Ctrl+Alt+←.
-//! Registration failures (key taken by another app) are logged, not fatal.
+//! Global hotkeys: hardware media keys (always) + the user's own combinations
+//! (Настройки → Горячие клавиши). The combinations are global, i.e. work over
+//! games, only while «Работают в играх» is on; otherwise the window itself
+//! listens (src/ui/hotkeys.ts). Registration failures (key taken by another
+//! app) are logged, not fatal.
 
-use std::sync::Arc;
+use std::{collections::HashMap, str::FromStr, sync::{Arc, Mutex, OnceLock}};
 
+use serde_json::Value;
 use tauri::{plugin::TauriPlugin, AppHandle, Manager, Wry};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-use crate::player::Player;
+use crate::{commands, player::Player, state::AppState};
 
-fn shortcuts() -> Vec<Shortcut> {
-    let ca = Some(Modifiers::CONTROL | Modifiers::ALT);
-    vec![
-        Shortcut::new(None, Code::MediaPlayPause),
-        Shortcut::new(None, Code::MediaTrackNext),
-        Shortcut::new(None, Code::MediaTrackPrevious),
-        Shortcut::new(None, Code::MediaStop),
-        Shortcut::new(ca, Code::KeyP),
-        Shortcut::new(ca, Code::ArrowRight),
-        Shortcut::new(ca, Code::ArrowLeft),
-    ]
+/// (action, default combination)
+pub const DEFAULTS: [(&str, &str); 7] = [
+    ("toggle", "Ctrl+Alt+KeyP"),
+    ("next", "Ctrl+Alt+ArrowRight"),
+    ("prev", "Ctrl+Alt+ArrowLeft"),
+    ("like", "Ctrl+Alt+KeyL"),
+    ("volUp", "Ctrl+Alt+ArrowUp"),
+    ("volDown", "Ctrl+Alt+ArrowDown"),
+    ("mini", "Ctrl+Alt+KeyM"),
+];
+
+fn bound() -> &'static Mutex<HashMap<Shortcut, String>> {
+    static M: OnceLock<Mutex<HashMap<Shortcut, String>>> = OnceLock::new();
+    M.get_or_init(Default::default)
+}
+
+/// "Ctrl+Alt+KeyP" (modifiers + `KeyboardEvent.code`) → shortcut.
+fn parse(combo: &str) -> Option<Shortcut> {
+    let mut mods = Modifiers::empty();
+    let mut key = None;
+    for part in combo.split('+') {
+        match part {
+            "Ctrl" => mods |= Modifiers::CONTROL,
+            "Alt" => mods |= Modifiers::ALT,
+            "Shift" => mods |= Modifiers::SHIFT,
+            "Meta" => mods |= Modifiers::SUPER,
+            code => key = Code::from_str(code).ok(),
+        }
+    }
+    Some(Shortcut::new(if mods.is_empty() { None } else { Some(mods) }, key?))
+}
+
+fn run(app: &AppHandle, player: &Arc<Player>, action: &str) {
+    match action {
+        "toggle" => player.toggle(),
+        "next" => player.next(),
+        "prev" => player.prev(),
+        "stop" => player.pause(),
+        "volUp" | "volDown" => {
+            let d = if action == "volUp" { 0.05 } else { -0.05 };
+            let v = (player.snapshot().volume + d).clamp(0.0, 1.0);
+            player.set_volume(v);
+            let _ = tauri::Emitter::emit(app, "player:state", &player.snapshot());
+        }
+        "mini" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move { let _ = crate::mini::open(&app).await; });
+        }
+        "like" => {
+            let app = app.clone();
+            let Some(track) = player.current() else { return };
+            tauri::async_runtime::spawn(async move {
+                let state = app.state::<AppState>();
+                let liked = state.db.likes_ids().await.map(|s| s.contains(&track.id)).unwrap_or(false);
+                let _ = commands::like_set(app.clone(), app.state::<AppState>(), track, !liked).await;
+                let _ = tauri::Emitter::emit(&app, "likes:changed", ());
+            });
+        }
+        _ => {}
+    }
 }
 
 pub fn plugin() -> TauriPlugin<Wry> {
@@ -29,22 +82,51 @@ pub fn plugin() -> TauriPlugin<Wry> {
             }
             let Some(player) = app.try_state::<Arc<Player>>() else { return };
             let player = player.inner().clone();
-            match shortcut.key {
-                Code::MediaPlayPause | Code::KeyP => player.toggle(),
-                Code::MediaTrackNext | Code::ArrowRight => player.next(),
-                Code::MediaTrackPrevious | Code::ArrowLeft => player.prev(),
-                Code::MediaStop => player.pause(),
-                _ => {}
+            let action = match shortcut.key {
+                Code::MediaPlayPause => Some("toggle".to_owned()),
+                Code::MediaTrackNext => Some("next".to_owned()),
+                Code::MediaTrackPrevious => Some("prev".to_owned()),
+                Code::MediaStop => Some("stop".to_owned()),
+                _ => bound().lock().ok().and_then(|m| m.get(shortcut).cloned()),
+            };
+            if let Some(a) = action {
+                run(app, &player, &a);
             }
         })
         .build()
 }
 
-pub fn register(app: &AppHandle) {
+/// `hk`: `{inGames: bool, keys: {action: combo}}` (missing = defaults).
+pub fn apply(app: &AppHandle, hk: &Value) {
     let gs = app.global_shortcut();
-    for sc in shortcuts() {
+    let _ = gs.unregister_all();
+    let reg = |sc: Shortcut| {
         if let Err(e) = gs.register(sc) {
             tracing::warn!(shortcut = %sc, error = %e, "global shortcut not registered");
         }
+    };
+    for code in [Code::MediaPlayPause, Code::MediaTrackNext, Code::MediaTrackPrevious, Code::MediaStop] {
+        reg(Shortcut::new(None, code));
     }
+    let mut map = HashMap::new();
+    if hk["inGames"].as_bool().unwrap_or(true) {
+        for (action, default) in DEFAULTS {
+            let combo = hk["keys"][action].as_str().unwrap_or(default);
+            if combo.is_empty() {
+                continue; // cleared by the user
+            }
+            if let Some(sc) = parse(combo) {
+                reg(sc);
+                map.insert(sc, action.to_owned());
+            }
+        }
+    }
+    if let Ok(mut m) = bound().lock() {
+        *m = map;
+    }
+}
+
+pub fn register(app: &AppHandle) {
+    let hk = app.state::<AppState>().config.get().ui["hotkeys"].clone();
+    apply(app, &hk);
 }
