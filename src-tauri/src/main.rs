@@ -59,6 +59,13 @@ fn main() {
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
             geniusweb::init(&handle);
+            {
+                let app = handle.clone();
+                api::soundcloud::set_token_source(Box::new(move || {
+                    let app = app.clone();
+                    Box::pin(async move { bridge::session_token(&app).await })
+                }));
+            }
             charts::start_daily(&handle);
             // the window is created hidden (tauri.conf.json) to avoid a flash on autostart
             if !start_hidden {

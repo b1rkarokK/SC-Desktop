@@ -4246,7 +4246,7 @@ dependencies = [
 
 [[package]]
 name = "sc-desk"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "discord-rich-presence",
  "futures",

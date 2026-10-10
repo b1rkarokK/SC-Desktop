@@ -278,6 +278,14 @@ fn script(id: u64, method: &str, url: &Url, auth: &str) -> AppResult<String> {
 }
 
 /// Sends `method url` with the OAuth header from soundcloud.com; returns the HTTP status.
+/// The login token of the SoundCloud session in the app's browser profile
+/// (the sign-in window put it there and the site keeps renewing it).
+pub async fn session_token(app: &AppHandle) -> Option<String> {
+    let w = window(app).await.ok()?;
+    let url = Url::parse("https://soundcloud.com/").ok()?;
+    w.cookies_for_url(url).ok()?.into_iter().find(|c| c.name() == "oauth_token" && !c.value().is_empty()).map(|c| c.value().to_owned())
+}
+
 pub async fn send(app: &AppHandle, method: &str, url: &Url, auth: &str) -> AppResult<u16> {
     let status = send_once(app, method, url, auth).await?;
     if status != BLOCKED {

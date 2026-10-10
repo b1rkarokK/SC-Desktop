@@ -9,7 +9,7 @@ pub type AppResult<T> = Result<T, AppError>;
 pub enum AppError {
     #[error("Не заданы client_id и oauth_token. Откройте Настройки.")]
     NotAuthorized,
-    #[error("SoundCloud отклонил токен (401). Скопируйте свежий oauth_token из браузера.")]
+    #[error("Вход в SoundCloud устарел. Откройте Настройки и нажмите «Войти через SoundCloud».")]
     AuthExpired,
     #[error("Доступ запрещён (403). Если включён VPN или прокси — отключите: SoundCloud блокирует датацентровые IP.")]
     Forbidden,

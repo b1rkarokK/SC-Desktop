@@ -9,10 +9,13 @@ export type MenuItem =
   | 'separator';
 
 let current: HTMLDivElement | null = null;
+/** what was right-clicked: scrolling the list it's in closes the menu */
+let anchor: Node | null = null;
 
 export function closeMenu(): void {
   current?.remove();
   current = null;
+  anchor = null;
 }
 
 export function openMenu(e: MouseEvent, items: MenuItem[]): void {
@@ -40,6 +43,7 @@ export function openMenu(e: MouseEvent, items: MenuItem[]): void {
   }
   document.body.append(menu);
   current = menu;
+  anchor = e.target instanceof Node ? e.target : null;
 
   // position at the cursor, flipped to stay on screen
   const r = menu.getBoundingClientRect();
@@ -65,4 +69,13 @@ document.addEventListener('pointerdown', (e) => {
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeMenu());
 window.addEventListener('blur', closeMenu);
 window.addEventListener('resize', closeMenu);
-document.addEventListener('scroll', closeMenu, true);
+// only a scroll of what the menu belongs to closes it: the lyrics panel scrolls
+// by itself during karaoke and must not take the menu away
+document.addEventListener(
+  'scroll',
+  (e) => {
+    const t = e.target;
+    if (current && (t === document || (t instanceof Node && anchor !== null && t.contains(anchor)))) closeMenu();
+  },
+  true,
+);

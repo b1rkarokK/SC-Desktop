@@ -262,8 +262,46 @@ impl SoundCloud {
         Ok(url)
     }
 
+    /// GET with one retry on 401: SoundCloud rotates the public web client_id
+    /// every so often, and requests with the old one are refused as if the
+    /// login had expired. A fresh id is read from soundcloud.com, used for the
+    /// retry and kept for every later request (see `rotated_client_id`).
     async fn get<T: DeserializeOwned>(&self, url: Url) -> AppResult<T> {
-        self.http.get_json(url.as_str(), Profile::ScApi, Some(&self.auth)).await
+        match self.get_with_client_retry::<T>(&url, &self.auth).await {
+            Err(AppError::AuthExpired) => {
+                // the login token itself expired: the site session in the app's
+                // browser profile still has a fresh one (SoundCloud renews it)
+                let Some(token) = fresh_token().await.filter(|t| format!("OAuth {t}") != self.auth) else {
+                    return Err(AppError::AuthExpired);
+                };
+                tracing::info!("login token renewed from the SoundCloud session");
+                self.get_with_client_retry::<T>(&url, &format!("OAuth {token}")).await
+            }
+            other => other,
+        }
+    }
+
+    async fn get_with_client_retry<T: DeserializeOwned>(&self, url: &Url, auth: &str) -> AppResult<T> {
+        match self.http.get_json(url.as_str(), Profile::ScApi, Some(auth)).await {
+            Err(AppError::AuthExpired) => {
+                let fresh = fresh_client_id(&self.http).await?;
+                if fresh == self.client_id && !url.query_pairs().any(|(k, v)| k == "client_id" && v != fresh) {
+                    return Err(AppError::AuthExpired);
+                }
+                let mut retry = url.clone();
+                let pairs: Vec<(String, String)> = url
+                    .query_pairs()
+                    .map(|(k, v)| {
+                        let v = if k == "client_id" { fresh.clone() } else { v.into_owned() };
+                        (k.into_owned(), v)
+                    })
+                    .collect();
+                retry.query_pairs_mut().clear().extend_pairs(pairs);
+                tracing::info!("client_id rotated by SoundCloud, retrying with a fresh one");
+                self.http.get_json(retry.as_str(), Profile::ScApi, Some(auth)).await
+            }
+            other => other,
+        }
     }
 
     pub async fn me(&self) -> AppResult<ScUser> {
@@ -541,6 +579,52 @@ impl SoundCloud {
 
 /// The public web client_id is embedded in soundcloud.com's JS bundles;
 /// read it from there so the user never has to dig in DevTools.
+/// The latest client_id read from soundcloud.com after a 401 (shared by every
+/// SoundCloud client in the app; AppState saves it with the credentials).
+static ROTATED: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+
+/// Reads a fresh login token from the SoundCloud session (set up in main.rs:
+/// it needs the app's browser profile).
+pub type TokenSource = Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>> + Send + Sync>;
+static TOKEN_SOURCE: std::sync::OnceLock<TokenSource> = std::sync::OnceLock::new();
+static ROTATED_TOKEN: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+
+pub fn set_token_source(source: TokenSource) {
+    let _ = TOKEN_SOURCE.set(source);
+}
+
+pub fn rotated_token() -> Option<String> {
+    ROTATED_TOKEN.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|(t, _)| t.clone())
+}
+
+/// A fresh login token from the site session, asked at most once a minute.
+async fn fresh_token() -> Option<String> {
+    if let Some((t, at)) = ROTATED_TOKEN.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if at.elapsed() < std::time::Duration::from_secs(60) {
+            return Some(t);
+        }
+    }
+    let token = TOKEN_SOURCE.get()?().await?;
+    *ROTATED_TOKEN.lock().unwrap_or_else(|e| e.into_inner()) = Some((token.clone(), std::time::Instant::now()));
+    Some(token)
+}
+
+pub fn rotated_client_id() -> Option<String> {
+    ROTATED.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|(id, _)| id.clone())
+}
+
+/// A fresh public client_id, read again at most once a minute.
+async fn fresh_client_id(http: &HttpClient) -> AppResult<String> {
+    if let Some((id, at)) = ROTATED.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if at.elapsed() < std::time::Duration::from_secs(60) {
+            return Ok(id);
+        }
+    }
+    let id = discover_client_id(http).await?;
+    *ROTATED.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.clone(), std::time::Instant::now()));
+    Ok(id)
+}
+
 pub async fn discover_client_id(http: &HttpClient) -> AppResult<String> {
     let html = http.get_text("https://soundcloud.com/", Profile::Document, None).await?;
     let mut scripts = Vec::new();

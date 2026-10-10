@@ -110,8 +110,32 @@ impl AppState {
     }
 
     pub fn sc(&self) -> AppResult<SoundCloud> {
-        let creds = self.credentials().ok_or(AppError::NotAuthorized)?;
+        let mut creds = self.credentials().ok_or(AppError::NotAuthorized)?;
+        // SoundCloud rotated the public client_id or renewed the login token:
+        // use and keep the fresh ones, the user never has to sign in again
+        let fresh_id = crate::api::soundcloud::rotated_client_id().filter(|id| *id != creds.client_id);
+        let fresh_token = crate::api::soundcloud::rotated_token().filter(|t| *t != creds.oauth_token);
+        if fresh_id.is_some() || fresh_token.is_some() {
+            if let Some(id) = fresh_id {
+                creds.client_id = id;
+            }
+            if let Some(t) = fresh_token {
+                creds.oauth_token = t;
+            }
+            self.set_credentials_keep_me(creds.clone());
+            let to_save = creds.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = crate::secrets::save(&to_save) {
+                    tracing::warn!(error = %e, "saving the fresh client_id failed");
+                }
+            });
+        }
         Ok(SoundCloud::new(self.http(), &creds))
+    }
+
+    /// Same account, new client_id: the cached `/me` stays valid.
+    fn set_credentials_keep_me(&self, creds: Credentials) {
+        write(&self.creds, Some(creds));
     }
 
     /// Cached `/me`, fetched once per session.
