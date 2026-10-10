@@ -108,7 +108,14 @@ export function openPalette(): void {
         toast(T('Добавлено в очередь'));
         return;
       }
-      void api.playTracks(filter === 'likes' ? hits.filter((y) => y.track).map((y) => y.track!) : [x.track], filter === 'likes' ? Math.max(0, hits.filter((y) => y.track).indexOf(x)) : 0);
+      if (filter === 'likes') {
+        const list = hits.filter((y) => y.track);
+        void api.playTracks(list.map((y) => y.track!), Math.max(0, list.indexOf(x)));
+      } else {
+        // a lone track would end the music: carry on with a wave from it
+        const t = x.track;
+        void api.waveStartFrom(t.id, null).catch(() => api.playTracks([t], 0).catch((e) => toast(errorMessage(e), 'error')));
+      }
     } else if (x.kind === 'artist') router.go({ name: 'artist', id: x.id });
     else router.go({ name: 'playlist', id: x.id });
     close();
