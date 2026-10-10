@@ -453,6 +453,48 @@ impl Db {
         .map(|n| n as u64)
     }
 
+    /// Random cached tracks that are not liked: weak negatives for the wave's taste model.
+    pub async fn sample_unliked(&self, limit: u32) -> AppResult<Vec<ScTrack>> {
+        let rows = self
+            .run(move |c| {
+                let mut st = c.prepare_cached(
+                    "SELECT json FROM tracks WHERE id NOT IN (SELECT track_id FROM likes) ORDER BY RANDOM() LIMIT ?1",
+                )?;
+                let rows = st.query_map([limit as i64], |r| r.get::<_, String>(0))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .await?;
+        Ok(rows.into_iter().filter_map(|j| serde_json::from_str(&j).ok()).collect())
+    }
+
+    /// Played tracks with the local hour and weekday (0 = Sunday) of each play, newest first.
+    pub async fn plays_timed(&self, limit: u32) -> AppResult<Vec<(ScTrack, u32, u32)>> {
+        let rows = self
+            .run(move |c| {
+                let mut st = c.prepare_cached(
+                    "SELECT t.json, CAST(strftime('%H', p.at, 'unixepoch', 'localtime') AS INTEGER),
+                            CAST(strftime('%w', p.at, 'unixepoch', 'localtime') AS INTEGER)
+                     FROM plays p JOIN tracks t ON t.id = p.track_id ORDER BY p.id DESC LIMIT ?1",
+                )?;
+                let rows = st.query_map([limit as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .await?;
+        Ok(rows.into_iter().filter_map(|(j, h, w)| serde_json::from_str(&j).ok().map(|t| (t, h as u32, w as u32))).collect())
+    }
+
+    /// Local hour and weekday right now (0 = Sunday).
+    pub async fn local_now(&self) -> AppResult<(u32, u32)> {
+        self.run(|c| {
+            c.query_row(
+                "SELECT CAST(strftime('%H', 'now', 'localtime') AS INTEGER), CAST(strftime('%w', 'now', 'localtime') AS INTEGER)",
+                [],
+                |r| Ok((r.get::<_, i64>(0)? as u32, r.get::<_, i64>(1)? as u32)),
+            )
+        })
+        .await
+    }
+
     /// Wave signals with full track metadata, newest first.
     pub async fn wave_signals(&self, limit: u32) -> AppResult<Vec<(ScTrack, i8)>> {
         let rows = self

@@ -1,4 +1,4 @@
-//! "Моя волна": local, explainable recommendations — no ML.
+//! "Моя волна": local, explainable recommendations; a small taste model (wave_model.rs) nudges the score.
 //!
 //! 1. Taste profile from likes (recency-weighted genres, tags, artists).
 //! 2. Seeds: a few liked tracks picked by recency-weighted random, rotating.
@@ -367,6 +367,40 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         weighted.extend(liked.iter().enumerate().map(|(i, t)| (t, like_w * recency_weight(i))));
         Profile::build(&weighted, &signals)
     };
+    // the taste model: what is kept vs. what is skipped (a few ms, see wave_model.rs)
+    let trained_at = std::time::Instant::now();
+    let model = {
+        use crate::wave_model::{Model, Sample};
+        let mut samples: Vec<Sample> = Vec::new();
+        // likes are the strongest, but carry no time of day
+        for (i, t) in liked.iter().enumerate() {
+            samples.push(Sample { track: t.clone(), positive: true, weight: recency_weight(i) as f32, ctx: None });
+        }
+        // plain plays: a weak yes, with the hour and weekday they happened at
+        for (i, (t, hour, weekday)) in state.db.plays_timed(1500).await?.into_iter().enumerate() {
+            if !liked_ids.contains(&t.id) {
+                let ctx = Some(crate::wave_model::context(hour, weekday));
+                samples.push(Sample { track: t, positive: true, weight: 0.4 * recency_weight(i) as f32, ctx });
+            }
+        }
+        // wave feedback: listened to the end > plain play; an early skip is a no
+        for (i, (t, s)) in signals.iter().enumerate() {
+            let w = recency_weight(i) as f32;
+            samples.push(Sample { track: t.clone(), positive: *s == LISTENED, weight: if *s == LISTENED { 0.6 * w } else { w }, ctx: None });
+        }
+        let disliked: Vec<u64> = disliked_tracks.iter().copied().take(500).collect();
+        for t in state.db.tracks_by_ids(disliked).await? {
+            samples.push(Sample { track: t, positive: false, weight: 1.0, ctx: None });
+        }
+        for t in state.db.sample_unliked(400).await? {
+            if !liked_ids.contains(&t.id) {
+                samples.push(Sample { track: t, positive: false, weight: 0.25, ctx: None });
+            }
+        }
+        let (hour, weekday) = state.db.local_now().await.unwrap_or((12, 3));
+        Model::train(&samples, Some(crate::wave_model::context(hour, weekday)))
+    };
+    let model_ms = trained_at.elapsed().as_millis() as u64;
     let mut rng = StdRng::from_entropy();
 
     let allowed = |t: &ScTrack| {
@@ -463,6 +497,12 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     let results = futures::future::join_all(fetches).await;
 
     let mood = gen.mood.map(String::from).unwrap_or_else(|| state.wave.mood());
+    // how much a track the model has hardly seen is worth
+    let explore = match mood.as_str() {
+        "fresh" => 1.0,
+        "familiar" => 0.2,
+        _ => 0.6,
+    };
     let mut hits: HashMap<u64, (ScTrack, u32)> = HashMap::new();
     let mut via: HashMap<u64, Vec<u64>> = HashMap::new();
     let mut failures = 0;
@@ -518,6 +558,7 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
                 * novelty
                 * mood_factor(&mood, &t)
                 * profile.feedback_factor(&t)
+                * model.as_ref().map_or(1.0, |m| m.factor(&t, explore))
                 * session;
             (w, t)
         })
@@ -631,7 +672,7 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     }
     spread_artists(&mut mixed);
 
-    tracing::info!(seeds = seeds.len(), out = mixed.len(), context = ctx.is_some(), "wave batch generated");
+    tracing::info!(seeds = seeds.len(), out = mixed.len(), context = ctx.is_some(), model = model.is_some(), model_ms, "wave batch generated");
     if mixed.is_empty() && ctx.is_some() && gen.familiar {
         // the context ran dry: carry on from the likes rather than stop
         tracing::info!("context wave exhausted, falling back to the likes");

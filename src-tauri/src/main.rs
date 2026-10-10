@@ -33,6 +33,7 @@ mod smtc;
 mod news;
 mod upload;
 mod wave;
+mod wave_model;
 
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
