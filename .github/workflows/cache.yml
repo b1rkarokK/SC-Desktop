@@ -1,0 +1,38 @@
+# Warms the Rust build cache on main.
+# GitHub lets a tag build read caches of its own tag and of the default
+# branch only, so release builds (v* tags) never saw each other's cache and
+# compiled everything from scratch (10-15 min). Built here on main, the cache
+# is shared with every release build (same shared-key), which then only
+# recompiles what changed.
+name: cache
+
+on:
+  push:
+    branches: [main]
+    paths: ['src-tauri/**', 'package-lock.json', '.github/workflows/**']
+  workflow_dispatch:
+
+jobs:
+  warm:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release
+
+      # tauri-build wants the built frontend to exist
+      - run: npm ci
+      - run: npm run build
+
+      - name: Build the core like a release does
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml

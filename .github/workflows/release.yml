@@ -29,6 +29,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # same key as cache.yml on main: release builds reuse its cache
+          shared-key: release
 
       - run: npm ci
 
