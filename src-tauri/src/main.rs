@@ -16,6 +16,8 @@ mod geniusweb;
 mod home;
 mod hotkeys;
 mod viz;
+mod rooms;
+mod shared_playlist;
 mod logging;
 mod login;
 mod models;
