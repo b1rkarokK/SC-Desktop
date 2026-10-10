@@ -1,0 +1,111 @@
+# Changes
+
+English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
+The release notes carry both; the "Update available" window shows the app's language.
+
+## [0.6.1] - 2026-10-11
+
+- Windows media panel: the track, its cover and the buttons in the volume flyout, on the lock screen and in quick settings.
+- Lyrics are found with word-by-word highlighting again, plus one more lyrics source (Deezer).
+- With slowed and sped up, the lyrics and the progress bar keep up with the sound.
+- The mini player has a like button and an opacity setting from 10% to 100%.
+- Clearing the history now asks first.
+
+## [0.6.0] - 2026-10-10
+
+- Mini player: a small capsule on top of other windows with the current lyric line. Hover it for the seek bar, every button, volume and the queue. Opens from a button in the player or from the tray, double click brings the big window back. While it is open the big window uses no memory.
+- In full-screen games and videos the mini player stays visible but out of the mouse's way: clicks go through it.
+- Stats: hours of music over a week, a month, a year and all time, favorite tracks and artists, genres and when you listen.
+- Import playlists from Yandex Music and Spotify: Likes - Playlists - "Import". Songs are matched on SoundCloud strictly, without remixes or covers, and the ones not found are listed.
+- Full screen now covers the whole window in the gray and light themes too, with minimize, maximize and close at the top right.
+
+## [0.5.2] - 2026-10-10
+
+- The volume slider works again: it no longer shrinks while dragged.
+
+## [0.5.1] - 2026-10-10
+
+- Fixed the volume slider shrinking to a dot next to the new player buttons.
+
+## [0.5.0] - 2026-10-10
+
+- "My Wave" learns from you: a track played to the end brings more like it, one skipped in the first seconds makes that artist rarer. Skipping a liked song doesn't count.
+- Wave from a playlist or album, and a wave from a track or artist no longer drifts into the regular one or stops.
+- Smart Shuffle like in Spotify: press "shuffle" once more and similar recommendations play between the list's tracks.
+- Queue: a new button in the player, tracks can be dragged, removed and played with a click.
+- Playlists: "Add to playlist" in the track menu, a new playlist in two clicks, reorder and remove tracks in your own playlists.
+- Upload your tracks to SoundCloud: Profile - "My tracks" - "Upload", with artwork, genre and private access.
+- Effects in the equalizer window: slowed and sped up, reverb, crossfade between tracks and loudness leveling.
+- Sleep timer: 15-60 minutes, a custom time or "after this track", the sound fades out gently.
+- Windows notifications about new tracks from artists you follow (can be turned off in Settings).
+- English interface: Settings - "Язык / Language".
+- The captcha on likes shows up less and never in the middle of things: the like waits in the queue and a dot on the avatar says "verify".
+- Slowed, sped up and other versions show the original song's lyrics when they have none of their own.
+- Small fixes.
+
+## [0.4.1] - 2026-10-10
+
+- Fixed "SoundCloud rejected the token (401)": the app renews the sign-in and client_id by itself, no need to sign in again.
+- The right-click menu no longer closes by itself while a song plays.
+
+## [0.4.0] - 2026-10-10
+
+- New "Home" section: your mixes, "Made for you", stations, trends and SoundCloud playlists, plus a feed of new tracks and reposts from the people you follow.
+- "Categories": picks found only in SC Desk (underground radar, forgotten likes, a year ago, on repeat), charts by genre, eras, Russian music and AI music. Tiles with the covers of the top tracks.
+- Real charts: today in Russia and worldwide by Yandex Music, hits of the week, month and year, every year since 2001 (Russia and worldwide). Songs are matched strictly, without remixes, covers or other people's versions.
+- 30-second Go+ previews now play in full: the app finds a full upload of the same recording and checks it by sound. The lyrics shift if that upload has a longer intro.
+- The next track is prepared in advance and starts at once. Protected tracks start fast too ("Instant start of protected tracks").
+- Lyrics are found more often: for covers, re-uploads and titles in Latin letters. Genius works again; for its Cloudflare check a window with a checkbox shows up.
+- No more repeats of the same song in charts and mixes.
+
+## [0.3.1] - 2026-10-09
+
+- Lyrics are found for many more tracks: covers and re-uploads (searched by title), titles in Latin and Cyrillic (Monokini = Монокини), titles with "+".
+- Genius works again. If it asks you to confirm you're human, a small window with a checkbox shows up and closes by itself.
+- No extra heading line in lyrics from Genius.
+
+## [0.3.0] - 2026-10-09
+
+- Likes and follows work again. If SoundCloud wants a captcha, a small window shows up and closes right after. If SoundCloud refuses for now, the like shows in the app at once and reaches the site later, even after a restart.
+- Tracks that played on the site but gave 404 in the app now play: SoundCloud's own player plays those, the rest as before.
+- Track downloads: right-click a track, "Download". The folder can be chosen, downloaded tracks play offline.
+- New "Profile" section (click the avatar): downloaded tracks and likes waiting to be sent.
+- Likes made on the site show up in the app by themselves, without the sync button.
+- Full-screen mode: volume, repeat, shuffle, the window can be moved.
+- "My Wave": the regular wave can be started any time, dislikes are listed and undone one by one.
+- Lyrics are found for titles with emoji and tags, karaoke keeps up with long sung words.
+- "Go to artist" opens the right artist, no repeated line in Discord.
+- A clear message when a track is deleted or blocked in your country.
+
+## [0.2.1] - 2026-10-09
+
+- A desktop shortcut is created on install.
+- Settings in one column without frames, the proxy help folds away.
+- On the first start ▶ plays your likes from the top.
+- Start with the system works reliably: turned on at install, always points to the installed app and is removed completely when turned off.
+- Fewer lines: no separators between tracks, above the avatar, at the sliding menu, under the tabs or the window's top bar.
+
+## [0.2.0] - 2026-10-09
+
+- New app icon: the SoundCloud cloud.
+- A track plays with one click on its row or cover (▶ on hover).
+- Right-click menu: play next, add to queue, like, wave, go to artist, link at the current second.
+- New "History" section: tracks, albums and playlists by day.
+- The "Playlists" tab now has your own playlists too (marked "Mine").
+- "My Wave": "Without liked" doesn't suggest what's already liked or its copies under other names; other versions (speed up, slowed, hardtekk…) stay.
+- The left panel is a narrow icon rail that slides out with names on hover.
+- Reworked OLED theme: true black and brighter text.
+- Switching audio devices (headphones, wireless, speakers) is picked up on the fly, the track keeps playing.
+- Fixed the empty likes list; sign in with Google, Facebook and Apple.
+- The app keeps no browser running in the tray, updates are checked by themselves.
+
+## [0.1.0] - 2026-10-09
+
+- First version of SC Desk.
+- Likes: tracks, playlists, albums and favorite artists.
+- "My Wave" with moods and dislikes remembered for good.
+- Synced lyrics with word highlighting (LRCLIB, NetEase, Musixmatch, Genius).
+- "Now playing" full-screen mode with its own look settings.
+- 10-band equalizer, OLED / dark / light themes.
+- "Listening to SC Desk" status in Discord.
+- Start with the system and updates right in the app.

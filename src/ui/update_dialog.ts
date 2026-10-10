@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { errorMessage } from './api';
 import { h } from './dom';
-import { T } from './i18n';
+import { T, currentLang } from './i18n';
 
 interface UpdateInfo {
   version: string;
@@ -135,6 +135,9 @@ function renderNotes(notes: string | null): HTMLElement {
     box.append(h('p', { class: 'muted', text: T('Исправления и улучшения.') }));
     return box;
   }
+  // release notes carry both languages: Russian, then "---" and "**English**"
+  const [ru, en] = notes.split(/\r?\n---\r?\n\*\*English\*\*\r?\n/);
+  notes = currentLang() === 'en' && en ? en : (ru ?? notes);
   let list: HTMLUListElement | null = null;
   for (const raw of notes.split(/\r?\n/)) {
     const line = raw.trim().replace(/^#+\s*/, '').replace(/\*\*/g, '');

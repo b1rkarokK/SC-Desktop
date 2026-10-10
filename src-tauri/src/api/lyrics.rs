@@ -631,7 +631,14 @@ async fn musixmatch(http: &HttpClient, state: &LyricsState, q: &Query) -> AppRes
 
 async fn genius_plain(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
     // through a browser page if Genius blocks plain requests (Cloudflare check)
-    let Some(hit) = crate::geniusweb::search(http, &q.artist, &q.title).await? else {
+    let hit = match crate::geniusweb::search(http, &q.artist, &q.title).await? {
+        Some(hit) => Some(hit),
+        // the uploader is often not the artist: a long, distinctive title alone
+        // is the same song ("А девочке твоей всего 15 лет"), a short one is not
+        None if distinctive_title(&q.title) => crate::geniusweb::search_by_title(http, &q.title).await?,
+        None => None,
+    };
+    let Some(hit) = hit else {
         return Ok(None);
     };
     let text = crate::geniusweb::lyrics(http, &hit.url).await?;

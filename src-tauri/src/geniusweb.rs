@@ -72,6 +72,21 @@ pub async fn search(http: &crate::net::HttpClient, artist: &str, title: &str) ->
     Ok(genius::pick(&resp, artist, title))
 }
 
+/// By the title alone (the uploader is not the artist Genius files it under).
+pub async fn search_by_title(http: &crate::net::HttpClient, title: &str) -> AppResult<Option<GeniusHit>> {
+    let url = genius::search_url("", title)?;
+    if !BLOCKED.load(Ordering::Relaxed) {
+        match http.get_json_with::<Value>(url.as_str(), &[]).await {
+            Ok(resp) => return Ok(genius::pick_by_title(&resp, title)),
+            Err(AppError::Forbidden) => BLOCKED.store(true, Ordering::Relaxed),
+            Err(e) => return Err(e),
+        }
+    }
+    let body = fetch(url.as_str(), "search").await?;
+    let resp: Value = serde_json::from_str(&body).map_err(|e| AppError::Parse(e.to_string()))?;
+    Ok(genius::pick_by_title(&resp, title))
+}
+
 pub async fn lyrics(http: &crate::net::HttpClient, page_url: &str) -> AppResult<String> {
     if !BLOCKED.load(Ordering::Relaxed) {
         match genius::lyrics(http, page_url).await {

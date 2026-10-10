@@ -32,6 +32,27 @@ pub fn search_url(artist: &str, title: &str) -> AppResult<Url> {
     Ok(url)
 }
 
+/// Title-only search (covers, re-uploads under another name): the most
+/// popular hit whose title is exactly the one wanted.
+pub fn pick_by_title(resp: &Value, title: &str) -> Option<GeniusHit> {
+    let want = normalize(title);
+    resp["response"]["sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|s| s["hits"].as_array().into_iter().flatten())
+        .filter(|h| h["type"] == "song")
+        .map(|h| &h["result"])
+        .find(|r| normalize(r["title"].as_str().unwrap_or("")) == want)
+        .and_then(|r| {
+            Some(GeniusHit {
+                url: r["url"].as_str()?.to_owned(),
+                title: r["title"].as_str().unwrap_or_default().to_owned(),
+                artist: r["primary_artist"]["name"].as_str().unwrap_or_default().to_owned(),
+            })
+        })
+}
+
 /// Best song hit of a `/api/search/multi` response, if it plausibly matches.
 pub fn pick(resp: &Value, artist: &str, title: &str) -> Option<GeniusHit> {
     let want_title = normalize(title);
