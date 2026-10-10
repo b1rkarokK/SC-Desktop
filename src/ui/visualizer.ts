@@ -131,14 +131,16 @@ export class Visualizer {
     } else if (this.mode === 'ring') {
       const r = this.coverRect();
       const cv = this.el.getBoundingClientRect();
-      if (r) {
-        const cx = (r.left + r.width / 2 - cv.left) * k;
-        const cy = (r.top + r.height / 2 - cv.top) * k;
-        const rad = (Math.max(r.width, r.height) / 2 + 14) * k;
+      {
+        // no cover on screen (text-only layout): the ring sits in the middle, behind the lyrics
+        const shown = !!r && r.width > 0 && r.height > 0;
+        const cx = shown ? (r.left + r.width / 2 - cv.left) * k : w / 2;
+        const cy = shown ? (r.top + r.height / 2 - cv.top) * k : h * 0.46;
+        const rad = shown ? (Math.max(r.width, r.height) / 2 + 14) * k : Math.min(w, h) * 0.3;
         const n = 64;
         ctx.lineWidth = 3 * k;
         ctx.lineCap = 'round';
-        ctx.globalAlpha = 0.85;
+        ctx.globalAlpha = shown ? 0.85 : 0.45;
         for (let i = 0; i < n; i++) {
           // symmetric: the low end at the top, mirrored left and right
           const f = i < n / 2 ? i / (n / 2) : (n - i) / (n / 2);
