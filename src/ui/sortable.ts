@@ -38,7 +38,7 @@ function drag(list: HTMLElement, row: HTMLElement, start: PointerEvent, opts: So
   gap.style.height = `${height}px`;
   const r0 = row.getBoundingClientRect();
   const dy0 = start.clientY - r0.top;
-  row.classList.add('is-dragging');
+  row.classList.add('is-row-dragging');
   row.style.width = `${r0.width}px`;
   row.style.left = `${r0.left}px`;
   row.style.top = `${r0.top}px`;
@@ -85,7 +85,7 @@ function drag(list: HTMLElement, row: HTMLElement, start: PointerEvent, opts: So
     window.removeEventListener('pointerup', end);
     window.removeEventListener('pointercancel', end);
     document.body.classList.remove('is-sorting');
-    row.classList.remove('is-dragging');
+    row.classList.remove('is-row-dragging');
     row.style.width = row.style.left = row.style.top = '';
     gap.replaceWith(row);
     const to = rows(list, opts.rowSelector).indexOf(row);

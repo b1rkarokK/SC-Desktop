@@ -2660,7 +2660,7 @@ select {
   border-radius: var(--radius);
 }
 
-.is-dragging {
+.is-row-dragging {
   position: fixed;
   z-index: 50;
   pointer-events: none;
