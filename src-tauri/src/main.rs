@@ -66,6 +66,7 @@ fn main() {
         .register_asynchronous_uri_scheme_protocol("cover", db::covers::protocol_handler)
         .setup(|app| {
             let handle = app.handle().clone();
+            app.manage(sync::service::Rooms::default());
             let guard = logging::init(&app.path().app_log_dir()?)?;
             app.manage(logging::LogGuard(guard));
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
@@ -223,6 +224,14 @@ fn main() {
             commands::net_check,
             commands::config_set_ui,
             commands::hotkeys_apply,
+            commands::sync_url_get,
+            commands::sync_url_set,
+            commands::room_create,
+            commands::room_join,
+            commands::room_leave,
+            commands::room_view,
+            commands::room_cmd,
+            commands::rooms_live,
             commands::autopause_get,
             commands::autopause_set,
             commands::backup_export,

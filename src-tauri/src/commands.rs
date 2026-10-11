@@ -1610,6 +1610,102 @@ pub fn system_set(
     Ok(())
 }
 
+#[tauri::command]
+pub fn sync_url_get(state: State<'_, AppState>) -> String {
+    state.config.get().sync_url
+}
+
+#[tauri::command]
+pub fn sync_url_set(state: State<'_, AppState>, url: String) -> Cmd<()> {
+    let url = url.trim().trim_end_matches('/').to_owned();
+    if !url.is_empty() && !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(AppError::Config("Адрес сервера должен начинаться с https://".into()));
+    }
+    state.config.update(|c| c.sync_url = url)?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+pub struct NewRoom {
+    name: String,
+    password: String,
+    /// "link" | "friends"
+    access: String,
+    queue_everyone: bool,
+}
+
+/// A room of our own: this device is its host.
+#[tauri::command]
+pub async fn room_create(app: AppHandle, state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>, room: NewRoom) -> Cmd<crate::sync::service::Created> {
+    use crate::{rooms::{Access, Who}, sync::{crypto, service}};
+    let channel = crypto::new_channel_id();
+    let name = if room.name.trim().is_empty() { state.me().map(|u| u.username).unwrap_or_else(|| "Комната".into()) } else { room.name.trim().to_owned() };
+    let settings = service::default_settings(
+        name,
+        !room.password.is_empty(),
+        if room.access == "friends" { Access::Friends } else { Access::Link },
+        if room.queue_everyone { Who::Everyone } else { Who::HostOnly },
+    );
+    rooms.open(&app, &state, channel.clone(), room.password, true, settings).await?;
+    Ok(service::Created { link: format!("{}{channel}", service::LINK_PREFIX), channel })
+}
+
+/// Join a room by link, code or the entry of a friend's live room.
+#[tauri::command]
+pub async fn room_join(app: AppHandle, state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>, link: String, password: String) -> Cmd<()> {
+    use crate::sync::service;
+    let channel = service::channel_of(&link).ok_or_else(|| AppError::Other(crate::lang::pick("Это не ссылка и не код комнаты", "This is not a room link or code").into()))?;
+    rooms.open(&app, &state, channel, password, false, crate::rooms::Settings::default()).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn room_leave(state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>) -> Cmd<()> {
+    rooms.leave(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn room_view(rooms: State<'_, crate::sync::service::Rooms>) -> crate::sync::engine::RoomView {
+    rooms.view()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "cmd", rename_all = "snake_case")]
+pub enum RoomCmd {
+    Enqueue { track: TrackDto },
+    Next,
+    Play { playing: bool },
+    Seek { ms: i64 },
+    Kick { id: String },
+    QueueEveryone { on: bool },
+}
+
+#[tauri::command]
+pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>, cmd: RoomCmd) -> Cmd<()> {
+    use crate::sync::engine::Cmd as C;
+    let me = state.me().map(|u| u.id.to_string()).unwrap_or_default();
+    match cmd {
+        RoomCmd::Enqueue { track } => rooms.cmd(C::Enqueue(crate::rooms::QueueItem { track_id: track.id, title: track.title, artist: track.artist, added_by: me })),
+        RoomCmd::Next => rooms.cmd(C::Next),
+        RoomCmd::Play { playing } => rooms.cmd(C::Play(playing)),
+        RoomCmd::Seek { ms } => rooms.cmd(C::Seek(ms)),
+        RoomCmd::Kick { id } => rooms.cmd(C::Kick(id)),
+        RoomCmd::QueueEveryone { on } => {
+            let mut s = rooms.view_settings();
+            s.who_can_queue = if on { crate::rooms::Who::Everyone } else { crate::rooms::Who::HostOnly };
+            rooms.cmd(C::Settings(s));
+        }
+    }
+    Ok(())
+}
+
+/// Live rooms of the people you follow.
+#[tauri::command]
+pub async fn rooms_live(state: State<'_, AppState>, host_ids: Vec<u64>) -> Cmd<Vec<crate::sync::service::LiveRoom>> {
+    crate::sync::service::live_rooms(&state, host_ids).await
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct AutoPause {
     call: bool,

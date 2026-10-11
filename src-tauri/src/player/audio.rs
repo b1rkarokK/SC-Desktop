@@ -46,6 +46,10 @@ pub enum AudioCmd {
     Stop,
     Seek(Duration),
     Volume(f32),
+    /// the next `Load` starts paused at 0:00 (a room holds the track until everybody is ready)
+    Hold(bool),
+    /// 1 ± a little faster / slower than the effects' speed, to bring a room back together
+    Trim(f32),
 }
 
 #[derive(Debug)]
@@ -142,6 +146,10 @@ struct Engine {
     ticks: u32,
     /// loudness gain and length of the current track
     gain: f32,
+    /// the next Load starts paused (a room)
+    hold: bool,
+    /// speed trim of a room, 1.0 = none
+    trim: f32,
     duration_ms: u64,
     crossfade: Duration,
     near_end_sent: bool,
@@ -157,6 +165,8 @@ impl Engine {
             eq,
             fx,
             gain: 1.0,
+            hold: false,
+            trim: 1.0,
             duration_ms: 0,
             crossfade: Duration::ZERO,
             near_end_sent: false,
@@ -233,7 +243,8 @@ impl Engine {
                     Some(old) => old.stop(),
                     None => {}
                 }
-                self.start(None, false);
+                let held = std::mem::take(&mut self.hold);
+                self.start(None, held);
                 match fade {
                     Some(len) if self.fading_out.is_some() && self.sink.is_some() => {
                         self.fade = Some((Instant::now(), len));
@@ -243,6 +254,8 @@ impl Engine {
                 }
             }
             AudioCmd::Crossfade(len) => self.crossfade = len,
+            AudioCmd::Hold(on) => self.hold = on,
+            AudioCmd::Trim(f) => self.trim = f.clamp(0.9, 1.1),
             AudioCmd::Replay { generation } => {
                 if generation == self.generation {
                     self.position_ms.store(0, Ordering::Relaxed);
@@ -342,7 +355,7 @@ impl Engine {
             return;
         }
         // slowed / sped up changed in the effects
-        let speed = self.fx.speed();
+        let speed = self.fx.speed() * self.trim;
         if (sink.speed() - speed).abs() > 0.001 {
             sink.set_speed(speed);
         }
@@ -402,7 +415,7 @@ impl Engine {
             Err(e) => return self.fail(format!("sink: {e}")),
         };
         sink.set_volume(perceptual(self.volume));
-        sink.set_speed(self.fx.speed());
+        sink.set_speed(self.fx.speed() * self.trim);
         let eq = Equalizer::new(decoder.convert_samples::<f32>(), self.eq.clone());
         sink.append(Effects::new(eq, self.fx.clone(), self.gain));
         if let Some(at) = resume_at {

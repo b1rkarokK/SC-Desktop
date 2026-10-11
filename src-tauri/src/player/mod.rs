@@ -217,6 +217,10 @@ pub struct Player {
     fx: Arc<FxShared>,
     /// name of the output device the stream plays to
     device: Mutex<Option<String>>,
+    /// generation of the track a room asked to hold paused at 0:00 once it is loaded (0: none)
+    hold_gen: AtomicU64,
+    /// the track now loading goes in held (set between Load and the state update)
+    room_held: std::sync::atomic::AtomicBool,
     /// loudness gain per track, measured once
     gains: Mutex<std::collections::HashMap<u64, f32>>,
     /// the next load crossfades from the playing track
@@ -255,6 +259,8 @@ impl Player {
             eq,
             fx,
             device: Mutex::new(None),
+            hold_gen: AtomicU64::new(0),
+            room_held: std::sync::atomic::AtomicBool::new(false),
             gains: Mutex::new(std::collections::HashMap::new()),
             crossfade_next: std::sync::atomic::AtomicBool::new(false),
             crossfade: Mutex::new(cfg.fx.crossfade.clamp(0.0, 12.0)),
@@ -1244,7 +1250,15 @@ impl Player {
                                 .then(|| *this.crossfade.lock().unwrap_or_else(|e| e.into_inner()))
                                 .filter(|s| *s > 0.0)
                                 .map(Duration::from_secs_f32);
+                            // a room holds the track at 0:00 until everybody has it
+                            let held = this.hold_gen.load(Ordering::SeqCst) == generation;
+                            if held {
+                                this.out(AudioCmd::Hold(true));
+                            }
                             this.out(AudioCmd::Load { data, generation, gain, duration_ms: track.duration_ms, fade });
+                            if held {
+                                this.room_held.store(true, Ordering::SeqCst);
+                            }
                             // a stand-in for a Go+ preview may be another edit (longer intro …):
                             // the lyrics must follow the recording that really plays
                             let stand_in = this.stand_in.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -1260,12 +1274,17 @@ impl Player {
                         }
                     }
                     let widget = this.external.load(Ordering::SeqCst);
+                    let held = this.room_held.swap(false, Ordering::SeqCst);
                     {
                         let mut s = this.lock();
                         // widget: still "loading" until the sound really starts (AudioEvent::Started)
                         s.loading = widget;
-                        s.playing = true;
+                        s.playing = !held;
                         s.failures = 0;
+                    }
+                    if held || this.hold_gen.load(Ordering::SeqCst) == generation {
+                        // a room waits for this: the track is here (a widget track cannot be held, it plays at once)
+                        let _ = this.app.emit("room:loaded", serde_json::json!({ "ok": true }));
                     }
                     this.emit();
                     this.lookahead();
@@ -1276,6 +1295,9 @@ impl Player {
                 }
                 Err(e) => {
                     tracing::warn!(track = track.id, error = %e, "track load failed");
+                    if this.hold_gen.load(Ordering::SeqCst) == generation {
+                        let _ = this.app.emit("room:loaded", serde_json::json!({ "ok": false }));
+                    }
                     this.emit_error(&e);
                     let failures = {
                         let mut s = this.lock();
@@ -1474,6 +1496,17 @@ impl Player {
         }
     }
 
+    /// A room: load this track and hold it paused at 0:00 (the room starts it for everybody at once).
+    pub fn room_prepare(self: &Arc<Self>, track: TrackDto) {
+        self.play_queue(vec![track], 0, QueueSource::List);
+        self.hold_gen.store(self.generation.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+
+    /// Speed trim of a room: 1.0 normal, a little more / less to catch up.
+    pub fn room_trim(&self, factor: f32) {
+        self.out(AudioCmd::Trim(factor));
+    }
+
     pub fn current_device(&self) -> Option<String> {
         self.device.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -1483,6 +1516,7 @@ impl Player {
         match ev {
             AudioEvent::NearEnd { generation } if generation == current => self.start_crossfade(),
             AudioEvent::Ended { generation } if generation == current => {
+                let _ = self.app.emit("player:ended", ());
                 if self.sleep_after_track() {
                     {
                         let mut s = self.lock();

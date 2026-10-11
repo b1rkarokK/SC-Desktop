@@ -3,3 +3,4 @@
 pub mod crypto;
 pub mod engine;
 pub mod hub;
+pub mod service;

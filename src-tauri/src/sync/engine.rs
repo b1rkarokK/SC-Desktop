@@ -22,7 +22,7 @@ use super::{
     hub::HubEvent,
 };
 use crate::rooms::{
-    drift_fix, Access, ClockSync, Member, Ms, Msg, PlayState, QueueItem, Room, RoomSnapshot, Round, Settings, Status, Barrier, DRIFT_SEEK_MS,
+    drift_fix, ClockSync, Member, Ms, Msg, PlayState, QueueItem, Room, RoomSnapshot, Round, Settings, Status, Barrier, DRIFT_SEEK_MS,
 };
 
 /// How the engine reaches the relay.
@@ -475,8 +475,9 @@ impl Engine {
     fn member_msg(&mut self, m: Msg) -> bool {
         let me = self.p.me.id.clone();
         match m {
-            Msg::Welcome { to, room, host_now: _, host_pub } if to == me => {
+            Msg::Welcome { to, room, host_now, host_pub } if to == me => {
                 self.welcomed = true;
+                self.clock.set_rough(host_now - self.now());
                 self.host_pub = Some(host_pub);
                 self.snap = Some(room);
                 self.ping_sent = 0;
@@ -682,7 +683,7 @@ pub fn start(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 
@@ -714,15 +715,15 @@ mod tests {
 
     /// A fake player that records what it was asked, with a position that runs with real time.
     #[derive(Default)]
-    struct FakePlayer {
-        prepared: Mutex<Vec<String>>,
-        started: Mutex<Option<Instant>>,
-        position: AtomicI64,
-        playing: Mutex<bool>,
-        seeks: AtomicU32,
-        trims: Mutex<Vec<f32>>,
-        stopped: AtomicU32,
-        offset_ms: AtomicI64,
+    pub struct FakePlayer {
+        pub prepared: Mutex<Vec<String>>,
+        pub started: Mutex<Option<Instant>>,
+        pub position: AtomicI64,
+        pub playing: Mutex<bool>,
+        pub seeks: AtomicU32,
+        pub trims: Mutex<Vec<f32>>,
+        pub stopped: AtomicU32,
+        pub offset_ms: AtomicI64,
     }
     impl Port for FakePlayer {
         fn prepare(&self, item: &QueueItem) {
@@ -753,11 +754,11 @@ mod tests {
         }
     }
 
-    fn member(id: &str) -> Member {
+    pub fn member(id: &str) -> Member {
         Member { id: id.into(), name: id.into(), avatar_url: None, status: Status::Connecting, pubkey: None, last_seen: 0 }
     }
 
-    fn item(n: u64) -> QueueItem {
+    pub fn item(n: u64) -> QueueItem {
         QueueItem { track_id: n, title: format!("track{n}"), artist: "a".into(), added_by: "host".into() }
     }
 
@@ -765,7 +766,7 @@ mod tests {
         Arc::new(|_| {})
     }
 
-    async fn wait(cond: impl Fn() -> bool, ms: u64) -> bool {
+    pub async fn wait(cond: impl Fn() -> bool, ms: u64) -> bool {
         for _ in 0..(ms / 20) {
             if cond() {
                 return true;
@@ -812,6 +813,26 @@ mod tests {
             let gap = if h0 > a0 { h0 - a0 } else { a0 - h0 };
             assert!(gap < Duration::from_millis(60), "start moments differ by {gap:?}");
             assert_eq!(st(&host).as_deref(), Some("playing"));
+        });
+    }
+
+    #[test]
+    fn a_member_who_joined_long_after_the_host_started_still_starts_together() {
+        // the clocks of the two engines begin 900 ms apart: without a clock estimate the start would be 900 ms off
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-5", "", &net, "host", true);
+            tokio::time::sleep(Duration::from_millis(900)).await;
+            let (anna, ap) = room("chan-5", "", &net, "anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 4000).await);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 3000).await);
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            anna.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| hp.started.lock().unwrap().is_some() && ap.started.lock().unwrap().is_some(), 4000).await);
+            let (h0, a0) = (hp.started.lock().unwrap().unwrap(), ap.started.lock().unwrap().unwrap());
+            let gap = if h0 > a0 { h0 - a0 } else { a0 - h0 };
+            assert!(gap < Duration::from_millis(60), "start moments differ by {gap:?}");
         });
     }
 
@@ -875,6 +896,50 @@ mod tests {
             assert!(bp.prepared.lock().unwrap().is_empty(), "bob got no track");
             assert_eq!(host.view.lock().unwrap().members.len(), 2);
             drop(anna);
+        });
+    }
+}
+
+#[cfg(test)]
+mod live {
+    use super::tests::{item, member, wait, FakePlayer};
+    use super::*;
+
+    /// The same story as the in-memory tests, over the real relay and the real WebSocket client.
+    /// `cd server && npm run dev`, then `SYNC_URL=http://127.0.0.1:8787 cargo test sync::engine::live -- --ignored`
+    #[test]
+    #[ignore]
+    fn host_and_member_through_the_real_relay() {
+        let Ok(base) = std::env::var("SYNC_URL") else { return };
+        tauri::async_runtime::block_on(async move {
+            let channel = format!("live{}", crate::sync::crypto::new_channel_id());
+            let mk = |id: &str, host: bool| {
+                let (hub, rx) = crate::sync::hub::connect(base.clone(), channel.clone(), 0);
+                let port = Arc::new(FakePlayer::default());
+                let h = start(
+                    Params { channel: channel.clone(), password: "pw".into(), me: member(id), host, settings: Settings { name: "live".into(), ..Settings::default() } },
+                    Arc::new(hub),
+                    rx,
+                    port.clone(),
+                    Arc::new(|_| {}),
+                );
+                (h, port)
+            };
+            let (host, hp) = mk("host", true);
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            let (anna, ap) = mk("anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2 && anna.view.lock().unwrap().members.len() == 2, 8000).await, "joined over the relay");
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 4000).await);
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            anna.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| hp.started.lock().unwrap().is_some() && ap.started.lock().unwrap().is_some(), 6000).await, "started together");
+            let (h0, a0) = (hp.started.lock().unwrap().unwrap(), ap.started.lock().unwrap().unwrap());
+            let gap = if h0 > a0 { h0 - a0 } else { a0 - h0 };
+            println!("start gap over the relay: {gap:?}");
+            assert!(gap < Duration::from_millis(150), "{gap:?}");
+            host.tx.send(Cmd::Leave).unwrap();
+            anna.tx.send(Cmd::Leave).unwrap();
         });
     }
 }

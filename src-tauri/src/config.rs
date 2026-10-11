@@ -94,6 +94,9 @@ pub struct AppConfig {
     /// keep SoundCloud's player warmed up for protected tracks (+50-70 MB, instant start)
     #[serde(default = "yes")]
     pub fast_protected: bool,
+    /// address of the sync relay (rooms, shared playlists): https://sc-desk-sync.<name>.workers.dev
+    #[serde(default)]
+    pub sync_url: String,
     /// pause the music while another program records (a call) / while a full-screen game is in front
     #[serde(default)]
     pub auto_pause_call: bool,
@@ -128,6 +131,7 @@ impl Default for AppConfig {
             discord: DiscordConfig::default(),
             start_minimized: true,
             fast_protected: true,
+            sync_url: String::new(),
             auto_pause_call: false,
             auto_pause_game: false,
             eq_per_device: true,

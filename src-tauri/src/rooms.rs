@@ -181,6 +181,8 @@ pub struct RoomSnapshot {
 #[derive(Debug, Default)]
 pub struct ClockSync {
     best: Option<(Ms, Ms)>, // (round trip, offset)
+    /// a first guess (the host's clock in the Welcome), good to about one network delay, until a real sample comes
+    rough: Option<Ms>,
 }
 
 impl ClockSync {
@@ -203,8 +205,13 @@ impl ClockSync {
         self.best.is_some()
     }
 
+    /// `host_now - local_now` taken from a single message: not exact, but far better than nothing.
+    pub fn set_rough(&mut self, offset: Ms) {
+        self.rough = Some(offset);
+    }
+
     pub fn offset(&self) -> Ms {
-        self.best.map_or(0, |(_, o)| o)
+        self.best.map(|(_, o)| o).or(self.rough).unwrap_or(0)
     }
 
     pub fn rtt(&self) -> Option<Ms> {
