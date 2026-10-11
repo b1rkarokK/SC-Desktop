@@ -19,6 +19,7 @@ mod backup;
 mod hotkeys;
 mod viz;
 mod rooms;
+mod sync;
 mod shared_playlist;
 mod logging;
 mod login;
