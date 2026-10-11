@@ -3,6 +3,11 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.7.1] - 2026-10-12
+
+- "My Wave" starts faster: the shortest of the first tracks plays first, so there is almost no waiting for the start.
+- The equalizer window now says so when a track plays in SoundCloud's own player: the equalizer and effects can't reach such tracks.
+
 ## [0.7.0] - 2026-10-12
 
 - Your own hotkeys: Settings - "Hotkeys". Pause, next and previous track, like, volume up and down, mini player. Click a key in the list and press the new combination. The "Work in games" switch catches them over a full-screen game.
