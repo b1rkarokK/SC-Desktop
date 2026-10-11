@@ -142,6 +142,8 @@ export class EqPopover {
   private setOpen(open: boolean): void {
     this.open = open;
     this.el.hidden = !open;
+    // what the window shows is what the core plays: opening it re-sends the settings
+    if (open) void api.eqSet(this.eq, false).catch(() => undefined);
     this.onToggle?.(open, this.eq.enabled);
   }
 

@@ -42,18 +42,32 @@ export class Slider {
       this.el.classList.add('is-dragging');
       this.fromPointer(e);
     });
-    this.el.addEventListener('pointermove', (e) => {
-      if (this.dragging) this.fromPointer(e);
-    });
-    const end = (e: PointerEvent) => {
+    // a drag must always end: if the button was let go outside the window, the window lost
+    // focus or the capture was taken away, no pointerup arrives, the slider would stay "held"
+    // and follow the mouse (a broken-looking equalizer until restart)
+    const finish = (pointerId?: number) => {
       if (!this.dragging) return;
       this.dragging = false;
       this.el.classList.remove('is-dragging');
-      this.el.releasePointerCapture(e.pointerId);
+      if (pointerId !== undefined) {
+        try {
+          this.el.releasePointerCapture(pointerId);
+        } catch {
+          /* already released */
+        }
+      }
       this.onCommit(this.value);
     };
+    this.el.addEventListener('pointermove', (e) => {
+      if (!this.dragging) return;
+      if (e.buttons === 0) return finish(e.pointerId);
+      this.fromPointer(e);
+    });
+    const end = (e: PointerEvent) => finish(e.pointerId);
     this.el.addEventListener('pointerup', end);
     this.el.addEventListener('pointercancel', end);
+    this.el.addEventListener('lostpointercapture', end);
+    window.addEventListener('blur', () => finish());
     this.el.addEventListener('dblclick', () => {
       if (this.opts.bipolar) {
         this.render(0.5);
