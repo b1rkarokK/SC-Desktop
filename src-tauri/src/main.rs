@@ -86,6 +86,16 @@ fn main() {
                 }));
             }
             charts::start_daily(&handle);
+            {
+                // lyrics cached before the search table existed
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    match app.state::<state::AppState>().db.lyrics_text_backfill().await {
+                        Ok(n) => tracing::info!(rows = n, "lyrics search table filled"),
+                        Err(e) => tracing::warn!(error = %e, "lyrics search table backfill failed"),
+                    }
+                });
+            }
             // the window is created hidden (tauri.conf.json) to avoid a flash on autostart
             if !start_hidden {
                 tray::show_main(&handle);
@@ -207,6 +217,9 @@ fn main() {
             commands::net_check,
             commands::config_set_ui,
             commands::hotkeys_apply,
+            commands::likes_search_lyrics,
+            commands::lyrics_index_status,
+            commands::lyrics_index_run,
             commands::viz_set,
             commands::eq_set,
             commands::discord_set,

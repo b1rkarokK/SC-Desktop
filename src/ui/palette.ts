@@ -5,7 +5,7 @@ import { T } from './i18n';
 import { router } from './router';
 import { store } from './store';
 
-type Filter = 'all' | 'tracks' | 'artists' | 'playlists' | 'likes';
+type Filter = 'all' | 'tracks' | 'artists' | 'playlists' | 'likes' | 'lyrics';
 
 interface Hit {
   kind: 'track' | 'artist' | 'playlist';
@@ -16,12 +16,14 @@ interface Hit {
   id: number;
 }
 
+
 const FILTERS: [Filter, string][] = [
   ['all', T('Всё')],
   ['tracks', T('Треки')],
   ['artists', T('Артисты')],
   ['playlists', T('Плейлисты')],
   ['likes', T('Мои лайки')],
+  ['lyrics', T('По тексту')],
 ];
 
 let open: { close: () => void } | null = null;
@@ -103,7 +105,9 @@ export function openPalette(): void {
         return row;
       }),
     );
-    if (!hits.length && input.value.trim()) list.replaceChildren(h('div', { class: 'pal-empty muted', text: T('Ничего не нашлось') }));
+    if (!hits.length && input.value.trim()) {
+      list.replaceChildren(h('div', { class: 'pal-empty muted', text: filter === 'lyrics' ? T('В текстах лайков такого нет. Проиндексировать тексты можно в Настройках.') : T('Ничего не нашлось') }));
+    }
   };
   const mark = () => {
     [...list.children].forEach((c, i) => c.classList.toggle('is-sel', i === sel));
@@ -117,7 +121,7 @@ export function openPalette(): void {
         toast(T('Добавлено в очередь'));
         return;
       }
-      if (filter === 'likes') {
+      if (filter === 'likes' || filter === 'lyrics') {
         const list = hits.filter((y) => y.track);
         void api.playTracks(list.map((y) => y.track!), Math.max(0, list.indexOf(x)));
       } else {
@@ -140,7 +144,10 @@ export function openPalette(): void {
     }
     try {
       let next: Hit[] = [];
-      if (filter === 'likes') {
+      if (filter === 'lyrics') {
+        // a line of a song you remember: among the liked tracks whose lyrics are known
+        next = (await api.likesSearchLyrics(q)).map((x) => ({ ...trackHit(x.track), sub: `«${x.line}»` }));
+      } else if (filter === 'likes') {
         likes ??= await api.likesPage(0, 5000);
         const w = q.toLowerCase();
         next = likes.filter((t) => `${t.title} ${t.artist}`.toLowerCase().includes(w)).slice(0, 50).map(trackHit);

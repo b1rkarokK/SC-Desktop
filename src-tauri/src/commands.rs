@@ -7,7 +7,8 @@ use std::{
 };
 
 use serde::{de::DeserializeOwned, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
@@ -1512,6 +1513,90 @@ pub fn system_set(
     if autostart != crate::autostart::is_enabled(&app) {
         crate::autostart::set(&app, autostart)?;
     }
+    Ok(())
+}
+
+/// Liked tracks whose (cached) lyrics contain the words typed: the track and the matching line.
+#[derive(serde::Serialize)]
+pub struct LyricHit {
+    track: TrackDto,
+    line: String,
+}
+
+#[tauri::command]
+pub async fn likes_search_lyrics(state: State<'_, AppState>, query: String) -> Cmd<Vec<LyricHit>> {
+    let q = query.trim().to_lowercase();
+    if q.chars().count() < 3 {
+        return Ok(Vec::new());
+    }
+    let rows = state.db.likes_by_lyrics(q.clone(), 40).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(track, text)| {
+            let line = text.lines().find(|l| l.to_lowercase().contains(&q)).unwrap_or_default().to_owned();
+            LyricHit { track, line }
+        })
+        .collect())
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct LyricsIndex {
+    done: u64,
+    total: u64,
+    running: bool,
+}
+
+static LYRICS_INDEXING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+async fn index_status(state: &AppState) -> LyricsIndex {
+    let (done, total) = state.db.lyrics_index_status().await.unwrap_or((0, 0));
+    LyricsIndex { done, total, running: LYRICS_INDEXING.load(std::sync::atomic::Ordering::SeqCst) }
+}
+
+#[tauri::command]
+pub async fn lyrics_index_status(state: State<'_, AppState>) -> Cmd<LyricsIndex> {
+    Ok(index_status(&state).await)
+}
+
+/// Looks lyrics up for every liked track that has none cached, slowly (one every 1.5 s) in the
+/// background, so that "search by lyrics" covers the whole library. `stop` ends it.
+#[tauri::command]
+pub async fn lyrics_index_run(app: AppHandle, start: bool) -> Cmd<()> {
+    use std::sync::atomic::Ordering;
+    if !start {
+        LYRICS_INDEXING.store(false, Ordering::SeqCst);
+        return Ok(());
+    }
+    if LYRICS_INDEXING.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if !LYRICS_INDEXING.load(Ordering::SeqCst) {
+                break;
+            }
+            let state = app.state::<AppState>();
+            let Ok(batch) = state.db.likes_without_lyrics(10).await else { break };
+            if batch.is_empty() {
+                break;
+            }
+            for track in batch {
+                if !LYRICS_INDEXING.load(Ordering::SeqCst) {
+                    break;
+                }
+                // an error is stored as "none found" for now: such a record is looked up again once its
+                // time-to-live has run out, so the run never loops on one track
+                if lyrics_get(app.state::<AppState>(), track.clone(), false).await.is_err() {
+                    let _ = state.db.lyrics_put(LyricsDto { track_id: track.id, found: false, ..Default::default() }).await;
+                }
+                let _ = app.emit("lyrics:index", index_status(&state).await);
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+            }
+        }
+        LYRICS_INDEXING.store(false, Ordering::SeqCst);
+        let state = app.state::<AppState>();
+        let _ = app.emit("lyrics:index", index_status(&state).await);
+    });
     Ok(())
 }
 

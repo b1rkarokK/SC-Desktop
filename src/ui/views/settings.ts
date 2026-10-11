@@ -1,5 +1,6 @@
 // «Настройки» (mockup 8): account, theme, Discord, lyrics, network + FAQ, system.
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { api, coverUrl, errorMessage, type AppConfig, type DiscordConfig, type NetMode } from '../api';
 import { h, toast } from '../dom';
 import { icon, I } from '../icons';
@@ -73,6 +74,7 @@ export class SettingsView implements View {
   }
 
   show(): void {
+    void listen('lyrics:index', () => void this.refreshIndex());
     this.renderAccount();
     this.renderTheme();
     this.renderLyrics();
@@ -232,8 +234,33 @@ export class SettingsView implements View {
           b.addEventListener('click', () => lyricsData.reload());
           return b;
         })()),
+        this.indexRow,
       ),
     );
+    void this.refreshIndex();
+  }
+
+  /** Search by a line of a song (Ctrl+K → «По тексту»): looks the lyrics of all likes up in the background. */
+  private indexRow = h('div');
+
+  private async refreshIndex(): Promise<void> {
+    try {
+      const st = await api.lyricsIndexStatus();
+      const btnRun = btn(st.running ? T('Остановить') : st.done >= st.total ? T('Обновить') : T('Проиндексировать'), st.running ? null : I.refresh);
+      btnRun.addEventListener('click', async () => {
+        await api.lyricsIndexRun(!st.running);
+        void this.refreshIndex();
+      });
+      this.indexRow.replaceChildren(
+        row(
+          T('Поиск по тексту песен'),
+          btnRun,
+          st.total ? T('Тексты просмотрены у {0} из {1} лайков. Ищется в Ctrl+K на вкладке «По тексту».', st.done, st.total) : T('Сначала синхронизируйте лайки.'),
+        ),
+      );
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
   }
 
   // ---------------------------------------------------------- network

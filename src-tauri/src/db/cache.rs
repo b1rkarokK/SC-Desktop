@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS lyrics2 (
 );
 DROP TABLE IF EXISTS lyrics;
 
+-- the text of found lyrics, plain and lower-cased, so liked tracks can be searched by a line
+CREATE TABLE IF NOT EXISTS lyrics_text (
+    track_id INTEGER PRIMARY KEY,
+    text     TEXT NOT NULL,
+    norm     TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS kv (
     key        TEXT    PRIMARY KEY,
     json       TEXT    NOT NULL,
@@ -108,6 +115,11 @@ CREATE INDEX IF NOT EXISTS covers_access ON covers(last_access);
 "#;
 
 const TRACK_COLS: &str = "t.id, t.title, t.artist, t.user_id, t.duration_ms, t.artwork_url, t.permalink_url, t.genre";
+
+/// The words of a found lyrics, one line per row.
+fn lyrics_plain(l: &LyricsDto) -> String {
+    l.lines.iter().map(|x| x.text.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n")
+}
 
 pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
@@ -540,14 +552,23 @@ impl Db {
     // ------------------------------------------------------------ lyrics
 
     pub async fn lyrics_get(&self, track_id: u64) -> AppResult<Option<(LyricsDto, i64)>> {
+        // read as bytes: a row cut in the middle of a letter (a damaged cache) is a miss, not an error
         let row = self
             .run(move |c| {
-                c.query_row(
-                    "SELECT json, fetched_at FROM lyrics2 WHERE track_id = ?1",
-                    [track_id as i64],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-                )
-                .optional()
+                let row = c
+                    .query_row(
+                        "SELECT CAST(json AS BLOB), fetched_at FROM lyrics2 WHERE track_id = ?1",
+                        [track_id as i64],
+                        |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?)),
+                    )
+                    .optional()?;
+                Ok(row.and_then(|(bytes, at)| match String::from_utf8(bytes) {
+                    Ok(json) => Some((json, at)),
+                    Err(_) => {
+                        let _ = c.execute("DELETE FROM lyrics2 WHERE track_id = ?1", [track_id as i64]);
+                        None
+                    }
+                }))
             })
             .await?;
         Ok(row.and_then(|(json, at)| {
@@ -560,12 +581,100 @@ impl Db {
 
     pub async fn lyrics_put(&self, l: LyricsDto) -> AppResult<()> {
         let json = serde_json::to_string(&l)?;
+        let text = if l.found { lyrics_plain(&l) } else { String::new() };
         self.run(move |c| {
             c.execute(
                 "INSERT OR REPLACE INTO lyrics2 (track_id, json, found, fetched_at) VALUES (?1, ?2, ?3, ?4)",
                 params![l.track_id as i64, json, l.found as i64, now()],
-            )
-            .map(|_| ())
+            )?;
+            if text.is_empty() {
+                c.execute("DELETE FROM lyrics_text WHERE track_id = ?1", [l.track_id as i64])?;
+            } else {
+                c.execute(
+                    "INSERT OR REPLACE INTO lyrics_text (track_id, text, norm) VALUES (?1, ?2, ?3)",
+                    params![l.track_id as i64, text, text.to_lowercase()],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Lyrics cached before the search table existed: fill it once.
+    pub async fn lyrics_text_backfill(&self) -> AppResult<usize> {
+        self.run(|c| {
+            let rows: Vec<(i64, Vec<u8>)> = {
+                let mut st = c.prepare(
+                    "SELECT track_id, CAST(json AS BLOB) FROM lyrics2 WHERE found = 1 AND track_id NOT IN (SELECT track_id FROM lyrics_text)",
+                )?;
+                let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                r.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            let n = rows.len();
+            for (id, bytes) in rows {
+                let parsed = String::from_utf8(bytes).ok().and_then(|j| serde_json::from_str::<LyricsDto>(&j).ok());
+                match parsed {
+                    Some(l) => {
+                        let text = lyrics_plain(&l);
+                        if !text.is_empty() {
+                            c.execute(
+                                "INSERT OR REPLACE INTO lyrics_text (track_id, text, norm) VALUES (?1, ?2, ?3)",
+                                params![id, text, text.to_lowercase()],
+                            )?;
+                        }
+                    }
+                    // damaged row (cut in the middle of a letter): dropped, the lyrics are looked up again
+                    None => {
+                        c.execute("DELETE FROM lyrics2 WHERE track_id = ?1", [id])?;
+                    }
+                }
+            }
+            Ok(n)
+        })
+        .await
+    }
+
+    /// Liked tracks whose lyrics contain `query` (already lower-cased): the track and the line.
+    pub async fn likes_by_lyrics(&self, query: String, limit: u32) -> AppResult<Vec<(TrackDto, String)>> {
+        let rows = self
+            .run(move |c| {
+                let mut st = c.prepare_cached(&format!(
+                    "SELECT {TRACK_COLS}, x.text FROM lyrics_text x
+                     JOIN likes l ON l.track_id = x.track_id
+                     JOIN tracks t ON t.id = x.track_id
+                     WHERE instr(x.norm, ?1) > 0 ORDER BY l.position LIMIT ?2"
+                ))?;
+                let r = st.query_map(params![query, limit as i64], |r| Ok((row_to_dto(r)?, r.get::<_, String>(8)?)))?;
+                r.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .await?;
+        Ok(rows)
+    }
+
+    /// How many liked tracks have been looked up for lyrics (found or not) and how many are liked.
+    pub async fn lyrics_index_status(&self) -> AppResult<(u64, u64)> {
+        self.run(|c| {
+            let total: i64 = c.query_row("SELECT COUNT(*) FROM likes", [], |r| r.get(0))?;
+            let done: i64 = c.query_row(
+                "SELECT COUNT(*) FROM likes l WHERE EXISTS (SELECT 1 FROM lyrics2 y WHERE y.track_id = l.track_id)",
+                [],
+                |r| r.get(0),
+            )?;
+            Ok((done as u64, total as u64))
+        })
+        .await
+    }
+
+    /// Liked tracks nobody looked lyrics up for yet, newest first.
+    pub async fn likes_without_lyrics(&self, limit: u32) -> AppResult<Vec<TrackDto>> {
+        self.run(move |c| {
+            let mut st = c.prepare_cached(&format!(
+                "SELECT {TRACK_COLS} FROM likes l JOIN tracks t ON t.id = l.track_id
+                 WHERE NOT EXISTS (SELECT 1 FROM lyrics2 y WHERE y.track_id = l.track_id)
+                 ORDER BY l.position LIMIT ?1"
+            ))?;
+            let r = st.query_map([limit as i64], row_to_dto)?;
+            r.collect::<rusqlite::Result<Vec<_>>>()
         })
         .await
     }

@@ -145,7 +145,7 @@ pub struct AuthStatus {
     pub avatar_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LyricsDto {
     pub track_id: u64,
     pub found: bool,
