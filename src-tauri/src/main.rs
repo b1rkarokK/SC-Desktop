@@ -14,6 +14,7 @@ mod error;
 mod fingerprint;
 mod geniusweb;
 mod home;
+mod backup;
 mod hotkeys;
 mod viz;
 mod rooms;
@@ -217,6 +218,9 @@ fn main() {
             commands::net_check,
             commands::config_set_ui,
             commands::hotkeys_apply,
+            commands::backup_export,
+            commands::backup_import,
+            commands::log_tail,
             commands::likes_search_lyrics,
             commands::lyrics_index_status,
             commands::lyrics_index_run,

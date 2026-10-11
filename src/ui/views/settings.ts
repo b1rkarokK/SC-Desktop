@@ -349,6 +349,36 @@ export class SettingsView implements View {
         check.disabled = false;
       }
     });
+    const backupBtn = btn(T('Сохранить'), I.download);
+    backupBtn.addEventListener('click', async () => {
+      try {
+        const path = await api.backupExport();
+        if (path) toast(T('Копия сохранена: {0}', path.split(/[\/]/).pop() ?? path));
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    });
+    const restoreBtn = btn(T('Восстановить'), I.upload);
+    restoreBtn.addEventListener('click', async () => {
+      try {
+        const r = await api.backupImport();
+        if (r) {
+          toast(T('Восстановлено: {0} лайков, {1} прослушиваний. Настройки подхватятся после перезапуска.', r.likes, r.plays));
+          await store.reloadSets();
+        }
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    });
+    const copyLog = btn(T('Скопировать лог'), I.link);
+    copyLog.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(await api.logTail(300));
+        toast(T('Журнал скопирован'));
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    });
     this.systemBox.replaceChildren(
       group(
         T('Система'),
@@ -364,6 +394,8 @@ export class SettingsView implements View {
           toggle(notifyNew, (v) => void api.newsSet(v).catch((e) => toast(errorMessage(e), 'error'))),
           T('Уведомление Windows, когда артист из подписок выложил трек. Проверка раз в час.'),
         ),
+        row(T('Резервная копия'), h('div', { class: 'row-actions' }, backupBtn, restoreBtn), T('Лайки, история, дизлайки, настройки одним файлом. Вход в SoundCloud не входит в файл.')),
+        row(T('Если что-то сломалось'), copyLog, T('Копирует конец журнала программы, его можно отправить вместе с описанием ошибки.')),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),
       ),
     );

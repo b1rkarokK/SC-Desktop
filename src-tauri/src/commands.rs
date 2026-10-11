@@ -1516,6 +1516,44 @@ pub fn system_set(
     Ok(())
 }
 
+/// Backup file with likes, dislikes, history, wave signals and settings. `None`: cancelled.
+#[tauri::command]
+pub async fn backup_export(app: AppHandle, state: State<'_, AppState>) -> Cmd<Option<String>> {
+    crate::backup::export(&app, &state).await
+}
+
+#[tauri::command]
+pub async fn backup_import(app: AppHandle, state: State<'_, AppState>) -> Cmd<Option<crate::backup::BackupStats>> {
+    let r = crate::backup::import(&app, &state).await?;
+    if r.is_some() {
+        let _ = app.emit("likes:changed", ());
+    }
+    Ok(r)
+}
+
+/// The end of today's log, for «Скопировать лог» in Настройки (to send with an error report).
+#[tauri::command]
+pub async fn log_tail(app: AppHandle, lines: usize) -> Cmd<String> {
+    let dir = app.path().app_log_dir().map_err(|e| AppError::Other(e.to_string()))?;
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    if let Ok(mut rd) = tokio::fs::read_dir(&dir).await {
+        while let Ok(Some(e)) = rd.next_entry().await {
+            if let Ok(m) = e.metadata().await {
+                let t = m.modified().unwrap_or(std::time::UNIX_EPOCH);
+                if newest.as_ref().map_or(true, |(n, _)| t > *n) {
+                    newest = Some((t, e.path()));
+                }
+            }
+        }
+    }
+    let Some((_, path)) = newest else { return Ok(String::new()) };
+    let bytes = tokio::fs::read(&path).await?;
+    let text = String::from_utf8_lossy(&bytes);
+    let all: Vec<&str> = text.lines().collect();
+    let from = all.len().saturating_sub(lines.clamp(1, 2000));
+    Ok(format!("SC Desk {}\n{}", env!("CARGO_PKG_VERSION"), all[from..].join("\n")))
+}
+
 /// Liked tracks whose (cached) lyrics contain the words typed: the track and the matching line.
 #[derive(serde::Serialize)]
 pub struct LyricHit {

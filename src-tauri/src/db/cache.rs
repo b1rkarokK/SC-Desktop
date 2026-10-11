@@ -4,6 +4,7 @@
 //! rusqlite is blocking, so every call hops onto the blocking pool and the
 //! UI / async runtime never waits on disk.
 
+use serde_json::{json, Value};
 use std::{
     collections::HashSet,
     path::Path,
@@ -675,6 +676,99 @@ impl Db {
             ))?;
             let r = st.query_map([limit as i64], row_to_dto)?;
             r.collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .await
+    }
+
+    // ------------------------------------------------------------ backup
+
+    /// Everything a backup keeps from the database: likes, dislikes, history, wave signals and
+    /// the metadata of the tracks they point to.
+    pub async fn backup_dump(&self) -> AppResult<Value> {
+        self.run(|c| {
+            let table3 = |sql: &str| -> rusqlite::Result<Vec<Value>> {
+                let mut st = c.prepare(sql)?;
+                let r = st.query_map([], |r| Ok(json!([r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?])))?;
+                r.collect()
+            };
+            let likes = {
+                let mut st = c.prepare("SELECT track_id, position, liked_at FROM likes")?;
+                let r = st.query_map([], |r| Ok(json!([r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?])))?;
+                r.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            let disliked_artists = {
+                let mut st = c.prepare("SELECT user_id, name, at FROM disliked_artists")?;
+                let r = st.query_map([], |r| Ok(json!([r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?])))?;
+                r.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            let disliked_tracks = {
+                let mut st = c.prepare("SELECT track_id, at FROM disliked_tracks")?;
+                let r = st.query_map([], |r| Ok(json!([r.get::<_, i64>(0)?, r.get::<_, i64>(1)?])))?;
+                r.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            let plays = {
+                let mut st = c.prepare("SELECT track_id, at FROM plays ORDER BY id DESC LIMIT 200000")?;
+                let r = st.query_map([], |r| Ok(json!([r.get::<_, i64>(0)?, r.get::<_, i64>(1)?])))?;
+                r.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            let signals = table3("SELECT track_id, signal, at FROM wave_signals")?;
+            let tracks = {
+                let mut st = c.prepare(
+                    "SELECT json FROM tracks WHERE id IN (
+                       SELECT track_id FROM likes UNION SELECT track_id FROM plays
+                       UNION SELECT track_id FROM wave_signals UNION SELECT track_id FROM disliked_tracks)",
+                )?;
+                let r = st.query_map([], |r| r.get::<_, String>(0))?;
+                r.collect::<rusqlite::Result<Vec<_>>>()?
+                    .into_iter()
+                    .filter_map(|j| serde_json::from_str::<Value>(&j).ok())
+                    .collect::<Vec<_>>()
+            };
+            Ok(json!({
+                "likes": likes, "disliked_artists": disliked_artists, "disliked_tracks": disliked_tracks,
+                "plays": plays, "wave_signals": signals, "tracks": tracks,
+            }))
+        })
+        .await
+    }
+
+    /// Adds what a backup holds to the database; nothing that is already there is changed or removed.
+    pub async fn backup_restore(&self, dump: &Value) -> AppResult<()> {
+        let tracks: Vec<ScTrack> = dump["tracks"].as_array().into_iter().flatten().filter_map(|t| serde_json::from_value(t.clone()).ok()).collect();
+        self.upsert_tracks(tracks).await?;
+        let dump = dump.clone();
+        self.run(move |c| {
+            let tx = c.transaction()?;
+            let arr = |k: &str| dump[k].as_array().cloned().unwrap_or_default();
+            for l in arr("likes") {
+                if let (Some(id), Some(pos), Some(at)) = (l[0].as_i64(), l[1].as_i64(), l[2].as_str()) {
+                    tx.execute("INSERT OR IGNORE INTO likes (track_id, position, liked_at) VALUES (?1, ?2, ?3)", params![id, pos, at])?;
+                }
+            }
+            for a in arr("disliked_artists") {
+                if let (Some(id), Some(name), Some(at)) = (a[0].as_i64(), a[1].as_str(), a[2].as_i64()) {
+                    tx.execute("INSERT OR IGNORE INTO disliked_artists (user_id, name, at) VALUES (?1, ?2, ?3)", params![id, name, at])?;
+                }
+            }
+            for t in arr("disliked_tracks") {
+                if let (Some(id), Some(at)) = (t[0].as_i64(), t[1].as_i64()) {
+                    tx.execute("INSERT OR IGNORE INTO disliked_tracks (track_id, at) VALUES (?1, ?2)", params![id, at])?;
+                }
+            }
+            for p in arr("plays") {
+                if let (Some(id), Some(at)) = (p[0].as_i64(), p[1].as_i64()) {
+                    tx.execute(
+                        "INSERT INTO plays (track_id, at) SELECT ?1, ?2 WHERE NOT EXISTS (SELECT 1 FROM plays WHERE track_id = ?1 AND at = ?2)",
+                        params![id, at],
+                    )?;
+                }
+            }
+            for s in arr("wave_signals") {
+                if let (Some(id), Some(sig), Some(at)) = (s[0].as_i64(), s[1].as_i64(), s[2].as_i64()) {
+                    tx.execute("INSERT OR IGNORE INTO wave_signals (track_id, signal, at) VALUES (?1, ?2, ?3)", params![id, sig, at])?;
+                }
+            }
+            tx.commit()
         })
         .await
     }
