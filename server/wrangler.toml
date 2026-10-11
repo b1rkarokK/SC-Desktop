@@ -1,0 +1,16 @@
+name = "sc-desk-sync"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[durable_objects.bindings]]
+name = "DIR"
+class_name = "Directory"
+
+# SQLite-backed Durable Objects are available on the free Workers plan
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub", "Directory"]

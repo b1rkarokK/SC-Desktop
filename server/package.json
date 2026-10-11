@@ -1,0 +1,14 @@
+{
+  "name": "sc-desk-sync",
+  "private": true,
+  "version": "1.0.0",
+  "description": "SC Desk sync: rooms, shared playlists, live-room directory. Cloudflare Worker + Durable Objects, end-to-end encrypted payloads (the server only sees ciphertext).",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "deploy": "wrangler deploy",
+    "test": "node test/run.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
