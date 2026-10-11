@@ -3,6 +3,16 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.7.0] - 2026-10-12
+
+- Your own hotkeys: Settings - "Hotkeys". Pause, next and previous track, like, volume up and down, mini player. Click a key in the list and press the new combination. The "Work in games" switch catches them over a full-screen game.
+- Quick search Ctrl+K: tracks, artists, playlists and your likes in one box. Enter plays the track and a wave from it, Ctrl+Enter adds it to the queue, Esc closes.
+- Visualizer in full screen: bars, mirror, line, waves and a ring around the cover. Pick the color: accent, from the artwork or white. Chosen in the "View" panel.
+- Share a track: "Share…" in the track menu and a button in full screen. The link can be copied right at the second you are on.
+- "My Wave" got smarter: a small model learns from your likes, skips and finished tracks right on your computer. It looks at language, genre, time of day and weekday, and tries new things more often in "Fresh" mode.
+- Lyrics are found even more often: when nothing turns up for the artist, the song is searched on Genius by its title alone (re-uploads and covers).
+- The update notes now come in two languages, the window shows the language of the interface.
+
 ## [0.6.1] - 2026-10-11
 
 - Windows media panel: the track, its cover and the buttons in the volume flyout, on the lock screen and in quick settings.
