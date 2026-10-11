@@ -371,6 +371,59 @@ pub async fn download_track(app: AppHandle, state: State<'_, AppState>, track: T
     Ok(d)
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct DownloadProgress {
+    done: usize,
+    total: usize,
+    failed: usize,
+    title: String,
+    running: bool,
+}
+
+static DOWNLOADING_MANY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A whole list for offline listening, one track after another. Tracks that are already on the
+/// disk are skipped. Progress comes as "downloads:progress"; `download_many_cancel` stops it.
+#[tauri::command]
+pub async fn download_many(app: AppHandle, tracks: Vec<TrackDto>) -> Cmd<()> {
+    use std::sync::atomic::Ordering;
+    if DOWNLOADING_MANY.swap(true, Ordering::SeqCst) {
+        return Err(AppError::Other(crate::lang::pick("Загрузка уже идёт", "A download is already running").into()));
+    }
+    tauri::async_runtime::spawn(async move {
+        let total = tracks.len();
+        let (mut done, mut failed) = (0usize, 0usize);
+        for t in tracks {
+            if !DOWNLOADING_MANY.load(Ordering::SeqCst) {
+                break;
+            }
+            let state = app.state::<AppState>();
+            let title = t.title.clone();
+            let _ = app.emit("downloads:progress", DownloadProgress { done, total, failed, title: title.clone(), running: true });
+            if crate::downloads::file_of(&state, t.id).await.is_none() {
+                match crate::downloads::download(&app, &state, t).await {
+                    Ok(_) => {
+                        let _ = app.emit("downloads:changed", ());
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, track = %title, "download of a list: one track failed");
+                        failed += 1;
+                    }
+                }
+            }
+            done += 1;
+        }
+        DOWNLOADING_MANY.store(false, Ordering::SeqCst);
+        let _ = app.emit("downloads:progress", DownloadProgress { done, total, failed, title: String::new(), running: false });
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn download_many_cancel() {
+    DOWNLOADING_MANY.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[tauri::command]
 pub async fn download_remove(app: AppHandle, state: State<'_, AppState>, track_id: u64) -> Cmd<()> {
     crate::downloads::remove(&state, track_id).await?;

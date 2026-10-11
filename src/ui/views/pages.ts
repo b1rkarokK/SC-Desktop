@@ -1,4 +1,5 @@
 // Detail pages: track, artist, playlist/album.
+import { listen } from '@tauri-apps/api/event';
 import { api, coverUrl, errorMessage, fmtCount, fmtTime, plural, type Track, type User } from '../api';
 import { playlistGrid } from '../cards';
 import { findCategory } from '../categories';
@@ -211,6 +212,20 @@ export class PlaylistPageView implements View {
         );
         const ext = iconButton(I.external, T('Открыть на SoundCloud'), 'btn btn-square');
         ext.addEventListener('click', () => p.permalink_url && void api.openExternal(p.permalink_url));
+        // the whole list for offline listening
+        const saveBtn = btn(T('Скачать всё'), I.download);
+        let saving = false;
+        saveBtn.addEventListener('click', () => {
+          if (saving) return void api.downloadManyCancel();
+          api.downloadMany(tracks).catch((e) => toast(errorMessage(e), 'error'));
+        });
+        void listen<{ done: number; total: number; failed: number; running: boolean }>('downloads:progress', (e) => {
+          if (!saveBtn.isConnected) return; // the page is gone
+          const q = e.payload;
+          saving = q.running;
+          saveBtn.lastChild && ((saveBtn.lastChild as HTMLElement).textContent = q.running ? T('Остановить ({0}/{1})', q.done, q.total) : T('Скачать всё'));
+          if (!q.running && q.total) toast(q.failed ? T('Скачано {0} из {1}, не удалось: {2}', q.total - q.failed, q.total, q.failed) : T('Скачано: {0}', q.total));
+        });
         const sub = [p.year, T('{0} {1}', tracks.length, plural(tracks.length, 'трек', 'трека', 'треков')), fmtTime(total)].filter(Boolean).join(' · ');
         // own playlist: «Изменить» → drag to reorder, ✕ to remove, saved on SoundCloud
         const listBox = h('div');
@@ -239,7 +254,7 @@ export class PlaylistPageView implements View {
             h('h2', { class: 'hero-title', dir: 'auto', text: p.title }),
             artist,
             h('div', { class: 'muted small', text: sub }),
-            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, wave, editBtn, ext),
+            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, wave, saveBtn, editBtn, ext),
           ),
           listBox,
         );

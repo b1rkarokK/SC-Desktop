@@ -130,6 +130,8 @@ fn main() {
             commands::follows_pending,
             commands::downloads_list,
             commands::download_track,
+            commands::download_many,
+            commands::download_many_cancel,
             commands::download_remove,
             commands::downloads_open,
             commands::downloads_dir,
