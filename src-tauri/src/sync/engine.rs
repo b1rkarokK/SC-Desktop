@@ -1,0 +1,880 @@
+//! The room engine: one task per room we are in, as the host or as a member. It speaks `rooms::Msg`
+//! (sealed with `crypto`) over a `Transport`, keeps the room core (`rooms::Room` on the host),
+//! and drives the local player through a `Port`.
+//!
+//! The stabilizer, in short: a track is loaded everywhere first and starts only when everybody is
+//! ready, at a moment of the host's clock (`Go`), which every member converts with its own clock
+//! offset (`ClockSync`, trusting the shortest round trip). While it plays the host repeats
+//! where it is every few seconds (`Play`); a member that is audibly off seeks, one that is a
+//! little off speeds up or slows down by 2 % for a while (`Port::trim`) instead of a jump.
+
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+use serde::Serialize;
+use tokio::sync::mpsc;
+
+use super::{
+    crypto::{self, Identity, Key},
+    hub::HubEvent,
+};
+use crate::rooms::{
+    drift_fix, Access, ClockSync, Member, Ms, Msg, PlayState, QueueItem, Room, RoomSnapshot, Round, Settings, Status, Barrier, DRIFT_SEEK_MS,
+};
+
+/// How the engine reaches the relay.
+pub trait Transport: Send + Sync + 'static {
+    fn send(&self, blob: String, keep: bool, id: Option<String>);
+}
+
+impl Transport for super::hub::HubClient {
+    fn send(&self, blob: String, keep: bool, id: Option<String>) {
+        super::hub::HubClient::send(self, blob, keep, id)
+    }
+}
+
+/// How the engine drives the local player.
+pub trait Port: Send + Sync + 'static {
+    /// Load the track and hold it at 0:00, paused. The engine learns that it is loaded from `Cmd::Loaded`.
+    fn prepare(&self, item: &QueueItem);
+    /// Start the held track after this delay.
+    fn start_after(&self, delay: Duration);
+    /// Pause or play, at this position.
+    fn set_playing(&self, playing: bool, pos_ms: i64);
+    fn position_ms(&self) -> Option<i64>;
+    /// Run 1 ± a little faster / slower for a while (1.0 = normal).
+    fn trim(&self, factor: f32);
+    fn stop(&self);
+}
+
+pub enum Cmd {
+    Enqueue(QueueItem),
+    /// the host skips to the next track
+    Next,
+    Play(bool),
+    Seek(i64),
+    Kick(String),
+    Settings(Settings),
+    /// the local player has the prepared track (or could not get it)
+    Loaded { ok: bool },
+    /// the local track played to its end
+    TrackEnded,
+    Leave,
+}
+
+#[derive(Clone, Serialize, Default, Debug)]
+pub struct MemberView {
+    pub id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    /// "connecting" | "loading" | "ready" | "playing" | "problem"
+    pub status: String,
+    pub problem: Option<String>,
+    pub host: bool,
+    pub you: bool,
+}
+
+#[derive(Clone, Serialize, Default, Debug)]
+pub struct RoomView {
+    pub active: bool,
+    pub host: bool,
+    pub channel: String,
+    pub name: String,
+    pub has_password: bool,
+    pub members: Vec<MemberView>,
+    pub queue: Vec<QueueItem>,
+    pub current: Option<QueueItem>,
+    pub play: Option<PlayState>,
+    pub who_can_queue_all: bool,
+    pub connected: bool,
+    /// set when the room is over for us: "kicked", "closed", "no answer"
+    pub ended: Option<String>,
+}
+
+pub struct Params {
+    pub channel: String,
+    pub password: String,
+    pub me: Member,
+    pub host: bool,
+    pub settings: Settings,
+}
+
+pub struct Handle {
+    pub tx: mpsc::UnboundedSender<Cmd>,
+    pub view: Arc<Mutex<RoomView>>,
+}
+
+const TICK: Duration = Duration::from_millis(500);
+const PLAY_EVERY: Duration = Duration::from_secs(5);
+const HELLO_EVERY: Duration = Duration::from_secs(2);
+const HELLO_GIVE_UP: Duration = Duration::from_secs(20);
+const PING_EVERY: Duration = Duration::from_secs(10);
+/// below this the picture is already "together"
+const TRIM_FROM_MS: i64 = 120;
+const TRIM: f32 = 0.02;
+
+fn status_kind(s: &Status) -> (&'static str, Option<String>) {
+    match s {
+        Status::Connecting => ("connecting", None),
+        Status::Loading => ("loading", None),
+        Status::Ready => ("ready", None),
+        Status::Playing => ("playing", None),
+        Status::Problem(t) => ("problem", Some(t.clone())),
+    }
+}
+
+struct Engine {
+    p: Params,
+    transport: Arc<dyn Transport>,
+    port: Arc<dyn Port>,
+    view: Arc<Mutex<RoomView>>,
+    on_view: Arc<dyn Fn(&RoomView) + Send + Sync>,
+    key: Key,
+    epoch: u32,
+    identity: Identity,
+    t0: Instant,
+    host_pub: Option<String>,
+    // host side
+    room: Option<Room>,
+    round: Option<Round>,
+    // member side
+    snap: Option<RoomSnapshot>,
+    clock: ClockSync,
+    welcomed: bool,
+    ping_sent: u32,
+    trim_until: Option<Instant>,
+    seq_loading: Option<u64>,
+    last_play: Option<PlayState>,
+    msg_n: u64,
+}
+
+impl Engine {
+    fn now(&self) -> Ms {
+        self.t0.elapsed().as_millis() as Ms
+    }
+
+    fn host_now(&self) -> Ms {
+        if self.p.host {
+            self.now()
+        } else {
+            self.clock.to_host(self.now())
+        }
+    }
+
+    fn send(&mut self, m: &Msg, keep: bool) {
+        self.msg_n += 1;
+        let blob = crypto::seal(&self.key, &self.p.channel, &serde_json::to_vec(m).expect("messages serialise"));
+        self.transport.send(blob, keep, Some(format!("{}-{}", self.p.me.id, self.msg_n)));
+    }
+
+    fn publish(&self) {
+        let mut v = RoomView { active: true, host: self.p.host, channel: self.p.channel.clone(), connected: true, ..Default::default() };
+        let (settings, members, queue, current, play, host_id) = if let Some(r) = &self.room {
+            (r.settings.clone(), r.members.clone(), r.queue.iter().cloned().collect(), r.current.clone().map(|c| c.1), r.play, r.host.clone())
+        } else if let Some(s) = &self.snap {
+            let host = s.members.first().map(|m| m.id.clone()).unwrap_or_default();
+            (s.settings.clone(), s.members.clone(), s.queue.clone(), s.current.clone().map(|c| c.1), s.play, host)
+        } else {
+            (self.p.settings.clone(), vec![self.p.me.clone()], vec![], None, None, String::new())
+        };
+        v.name = settings.name.clone();
+        v.has_password = settings.has_password;
+        v.who_can_queue_all = settings.who_can_queue == crate::rooms::Who::Everyone;
+        v.members = members
+            .iter()
+            .map(|m| {
+                let (kind, problem) = status_kind(&m.status);
+                MemberView { id: m.id.clone(), name: m.name.clone(), avatar_url: m.avatar_url.clone(), status: kind.into(), problem, host: m.id == host_id, you: m.id == self.p.me.id }
+            })
+            .collect();
+        v.queue = queue;
+        v.current = current;
+        v.play = play;
+        {
+            let mut g = self.view.lock().unwrap_or_else(|e| e.into_inner());
+            v.ended = g.ended.clone();
+            *g = v.clone();
+        }
+        (self.on_view)(&v);
+    }
+
+    fn end(&mut self, why: &str) {
+        self.port.stop();
+        let mut g = self.view.lock().unwrap_or_else(|e| e.into_inner());
+        g.ended = Some(why.into());
+        g.connected = false;
+        let v = g.clone();
+        drop(g);
+        (self.on_view)(&v);
+    }
+
+    // ------------------------------------------------------------------ host
+
+    fn roster(&mut self) {
+        let Some(r) = &self.room else { return };
+        let m = Msg::Roster { members: r.members.clone(), settings: r.settings.clone() };
+        let q = Msg::Queue { items: r.queue.iter().cloned().collect() };
+        self.send(&m, false);
+        self.send(&q, false);
+        self.publish();
+    }
+
+    fn start_next(&mut self) {
+        let now = self.now();
+        let Some(room) = self.room.as_mut() else { return };
+        let Some((round, item)) = room.next_round(now) else {
+            room.current = None;
+            room.play = None;
+            self.round = None;
+            self.roster();
+            return;
+        };
+        let seq = round.seq;
+        self.round = Some(round);
+        self.port.prepare(&item);
+        self.send(&Msg::Load { seq, item }, false);
+        self.roster();
+    }
+
+    fn go(&mut self) {
+        let host_now = self.now();
+        let at = Round::start_at(host_now);
+        let Some(room) = self.room.as_mut() else { return };
+        let seq = room.current.as_ref().map(|c| c.0).unwrap_or(0);
+        let st = room.start(at);
+        self.round = None;
+        self.port.start_after(Duration::from_millis((at - host_now).max(0) as u64));
+        self.send(&Msg::Go { seq, at }, false);
+        self.send(&Msg::Play { state: st }, false);
+        self.publish();
+    }
+
+    fn host_state_now(&self, playing: bool, pos: Option<i64>) -> PlayState {
+        PlayState { at: self.now(), pos_ms: pos.unwrap_or_else(|| self.port.position_ms().unwrap_or(0)), playing }
+    }
+
+    fn host_msg(&mut self, from_member: &str, m: Msg) {
+        let now = self.now();
+        match m {
+            Msg::Hello { member } => {
+                let Some(room) = self.room.as_mut() else { return };
+                let m_id = member.id.clone();
+                match room.join(member, true, now) {
+                    Ok(()) => {
+                        let snap = room.snapshot();
+                        let host_pub = self.identity.public_b64();
+                        let w = Msg::Welcome { to: m_id, room: snap, host_now: now, host_pub };
+                        self.send(&w, false);
+                        self.roster();
+                    }
+                    Err(reason) => self.send(&Msg::Denied { to: m_id, reason }, false),
+                }
+            }
+            Msg::Status { id, status } => {
+                if let Some(r) = self.room.as_mut() {
+                    r.set_status(&id, status, now);
+                }
+                self.roster();
+            }
+            Msg::Loaded { seq, id, ok } => {
+                if let Some(round) = self.round.as_mut() {
+                    round.answer(seq, &id, ok);
+                }
+                if let Some(r) = self.room.as_mut() {
+                    r.set_status(&id, if ok { Status::Ready } else { Status::Problem("не загрузился трек".into()) }, now);
+                }
+                self.roster();
+            }
+            Msg::Enqueue { item } => {
+                let ok = self.room.as_mut().map(|r| r.enqueue(from_member, item)).unwrap_or(false);
+                if ok {
+                    self.roster();
+                    if self.room.as_ref().is_some_and(|r| r.current.is_none()) {
+                        self.start_next();
+                    }
+                }
+            }
+            Msg::Ping { id, t0 } => self.send(&Msg::Pong { id, t0, host_t: now }, false),
+            Msg::Leave { id } => {
+                if let Some(r) = self.room.as_mut() {
+                    r.leave(&id);
+                }
+                if let Some(round) = self.round.as_mut() {
+                    round.drop_member(&id);
+                }
+                self.roster();
+            }
+            _ => {}
+        }
+    }
+
+    fn host_cmd(&mut self, c: Cmd) -> bool {
+        let now = self.now();
+        match c {
+            Cmd::Enqueue(item) => {
+                let me = self.p.me.id.clone();
+                let ok = self.room.as_mut().map(|r| r.enqueue(&me, item)).unwrap_or(false);
+                if ok {
+                    self.roster();
+                    if self.room.as_ref().is_some_and(|r| r.current.is_none()) {
+                        self.start_next();
+                    }
+                }
+            }
+            Cmd::Next | Cmd::TrackEnded => self.start_next(),
+            Cmd::Play(playing) => {
+                let st = self.host_state_now(playing, None);
+                self.port.set_playing(playing, st.pos_ms);
+                if let Some(r) = self.room.as_mut() {
+                    r.play = Some(st);
+                }
+                self.send(&Msg::Play { state: st }, false);
+                self.publish();
+            }
+            Cmd::Seek(ms) => {
+                let playing = self.room.as_ref().and_then(|r| r.play).is_none_or(|p| p.playing);
+                let st = PlayState { at: now, pos_ms: ms, playing };
+                self.port.set_playing(playing, ms);
+                if let Some(r) = self.room.as_mut() {
+                    r.play = Some(st);
+                }
+                self.send(&Msg::Play { state: st }, false);
+                self.publish();
+            }
+            Cmd::Kick(id) => self.kick(&id),
+            Cmd::Settings(s) => {
+                if let Some(r) = self.room.as_mut() {
+                    r.settings = s;
+                }
+                self.roster();
+            }
+            Cmd::Loaded { ok } => {
+                // the host's own player has the track
+                let me = self.p.me.id.clone();
+                let seq = self.round.as_ref().map(|r| r.seq).unwrap_or(0);
+                if let Some(round) = self.round.as_mut() {
+                    round.answer(seq, &me, ok);
+                }
+                if let Some(r) = self.room.as_mut() {
+                    r.set_status(&me, if ok { Status::Ready } else { Status::Problem("не загрузился трек".into()) }, now);
+                }
+                self.roster();
+            }
+            Cmd::Leave => {
+                self.send(&Msg::Leave { id: self.p.me.id.clone() }, false);
+                self.end("closed");
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Out of the room, with a new key the kicked one does not get.
+    fn kick(&mut self, id: &str) {
+        let me = self.p.me.id.clone();
+        let Some(room) = self.room.as_mut() else { return };
+        let pubkeys: Vec<(String, Option<String>)> = room.members.iter().filter(|m| m.id != id && m.id != me).map(|m| (m.id.clone(), m.pubkey.clone())).collect();
+        if !room.kick(&me, id) {
+            return;
+        }
+        if let Some(round) = self.round.as_mut() {
+            round.drop_member(id);
+        }
+        self.send(&Msg::Kick { id: id.to_owned() }, false);
+        let new_key = crypto::random_key();
+        let mut wraps = BTreeMap::new();
+        for (mid, pk) in pubkeys {
+            if let Some(w) = pk.and_then(|pk| self.identity.wrap_for(&pk, &self.p.channel, &new_key)) {
+                wraps.insert(mid, w);
+            }
+        }
+        self.epoch += 1;
+        let epoch = self.epoch;
+        self.send(&Msg::Rekey { epoch, wraps }, false);
+        self.key = new_key; // everything after this is under the new key
+        self.roster();
+    }
+
+    fn host_tick(&mut self) {
+        let now = self.now();
+        let gone = self.room.as_mut().map(|r| r.check_silence(now)).unwrap_or_default();
+        for g in &gone {
+            if let Some(round) = self.round.as_mut() {
+                round.drop_member(g);
+            }
+        }
+        let mut changed = !gone.is_empty();
+        if let Some(round) = &self.round {
+            match round.state(now) {
+                Barrier::Go | Barrier::TimedOut => {
+                    self.go();
+                    changed = false;
+                }
+                Barrier::Waiting { .. } => {}
+            }
+        }
+        if changed {
+            self.roster();
+        }
+    }
+
+    fn host_repeat_state(&mut self) {
+        let playing = self.room.as_ref().and_then(|r| r.play).is_some_and(|p| p.playing);
+        if !playing {
+            return;
+        }
+        if let Some(pos) = self.port.position_ms() {
+            let st = self.host_state_now(true, Some(pos));
+            if let Some(r) = self.room.as_mut() {
+                r.play = Some(st);
+            }
+            self.send(&Msg::Play { state: st }, false);
+        }
+    }
+
+    // ---------------------------------------------------------------- member
+
+    fn say_hello(&mut self) {
+        let mut me = self.p.me.clone();
+        me.pubkey = Some(self.identity.public_b64());
+        self.send(&Msg::Hello { member: me }, false);
+    }
+
+    fn apply_play(&mut self, st: PlayState) {
+        self.last_play = Some(st);
+        let host_now = self.host_now();
+        let want = st.position_at(host_now);
+        let Some(mine) = self.port.position_ms() else {
+            self.port.set_playing(st.playing, want);
+            return;
+        };
+        if !st.playing {
+            self.port.set_playing(false, st.pos_ms);
+            return;
+        }
+        if let Some(target) = drift_fix(&st, host_now, mine) {
+            tracing::debug!(off = mine - want, "room: audibly off, seeking");
+            self.port.set_playing(true, target);
+            self.port.trim(1.0);
+            self.trim_until = None;
+            return;
+        }
+        let off = mine - want;
+        if off.abs() > TRIM_FROM_MS && off.abs() <= DRIFT_SEEK_MS {
+            // behind: a little faster; ahead: a little slower; for a few seconds
+            self.port.trim(if off < 0 { 1.0 + TRIM } else { 1.0 - TRIM });
+            self.trim_until = Some(Instant::now() + Duration::from_millis((off.unsigned_abs() * 50).clamp(1500, 8000)));
+        } else if self.trim_until.is_none() {
+            self.port.trim(1.0);
+        }
+    }
+
+    fn member_msg(&mut self, m: Msg) -> bool {
+        let me = self.p.me.id.clone();
+        match m {
+            Msg::Welcome { to, room, host_now: _, host_pub } if to == me => {
+                self.welcomed = true;
+                self.host_pub = Some(host_pub);
+                self.snap = Some(room);
+                self.ping_sent = 0;
+                self.publish();
+            }
+            Msg::Denied { to, reason } if to == me => {
+                self.end(&reason);
+                return false;
+            }
+            Msg::Roster { members, settings } => {
+                if let Some(s) = self.snap.as_mut() {
+                    s.members = members;
+                    s.settings = settings;
+                }
+                self.publish();
+            }
+            Msg::Queue { items } => {
+                if let Some(s) = self.snap.as_mut() {
+                    s.queue = items;
+                }
+                self.publish();
+            }
+            Msg::Load { seq, item } => {
+                self.seq_loading = Some(seq);
+                if let Some(s) = self.snap.as_mut() {
+                    s.current = Some((seq, item.clone()));
+                    s.play = None;
+                }
+                self.port.prepare(&item);
+                self.send(&Msg::Status { id: me, status: Status::Loading }, false);
+                self.publish();
+            }
+            Msg::Go { seq: _, at } => {
+                let delay = (self.clock.to_local(at) - self.now()).max(0) as u64;
+                self.port.start_after(Duration::from_millis(delay));
+                self.send(&Msg::Status { id: me, status: Status::Playing }, false);
+            }
+            Msg::Play { state } => {
+                if let Some(s) = self.snap.as_mut() {
+                    s.play = Some(state);
+                }
+                self.apply_play(state);
+                self.publish();
+            }
+            Msg::Pong { id, t0, host_t } if id == me => self.clock.sample(t0, host_t, self.now()),
+            Msg::Kick { id } if id == me => {
+                self.end("kicked");
+                return false;
+            }
+            Msg::Rekey { epoch, wraps } => {
+                if let (Some(w), Some(hp)) = (wraps.get(&me), self.host_pub.clone()) {
+                    if let Some(k) = self.identity.unwrap_from(&hp, &self.p.channel, w) {
+                        self.key = k;
+                        self.epoch = epoch;
+                    }
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn member_cmd(&mut self, c: Cmd) -> bool {
+        let me = self.p.me.id.clone();
+        match c {
+            Cmd::Enqueue(item) => self.send(&Msg::Enqueue { item }, false),
+            Cmd::Loaded { ok } => {
+                let seq = self.seq_loading.unwrap_or(0);
+                self.send(&Msg::Loaded { seq, id: me, ok }, false);
+            }
+            Cmd::Leave => {
+                self.send(&Msg::Leave { id: me }, false);
+                self.end("closed");
+                return false;
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn member_tick(&mut self, since_hello: Duration) -> bool {
+        if let Some(t) = self.trim_until {
+            if Instant::now() >= t {
+                self.trim_until = None;
+                self.port.trim(1.0);
+            }
+        }
+        if !self.welcomed && since_hello > HELLO_GIVE_UP {
+            self.end("no answer");
+            return false;
+        }
+        true
+    }
+
+    fn ping(&mut self) {
+        let t0 = self.now();
+        let me = self.p.me.id.clone();
+        self.ping_sent += 1;
+        self.send(&Msg::Ping { id: me, t0 }, false);
+    }
+}
+
+/// Runs the room until it ends. `transport` + `events` are the relay, `port` the local player.
+pub fn start(
+    p: Params,
+    transport: Arc<dyn Transport>,
+    mut events: mpsc::UnboundedReceiver<HubEvent>,
+    port: Arc<dyn Port>,
+    on_view: Arc<dyn Fn(&RoomView) + Send + Sync>,
+) -> Handle {
+    let (tx, mut cmds) = mpsc::unbounded_channel::<Cmd>();
+    let view = Arc::new(Mutex::new(RoomView { active: true, host: p.host, channel: p.channel.clone(), ..Default::default() }));
+    let handle = Handle { tx, view: view.clone() };
+    let key = crypto::room_key(&p.channel, &p.password);
+    let identity = Identity::new();
+    let is_host = p.host;
+    let room = is_host.then(|| {
+        let mut host = p.me.clone();
+        host.status = Status::Ready;
+        host.pubkey = Some(identity.public_b64());
+        let mut settings = p.settings.clone();
+        settings.has_password = !p.password.is_empty();
+        Room::new(host, settings)
+    });
+    let mut eng = Engine {
+        p,
+        transport,
+        port,
+        view,
+        on_view,
+        key,
+        epoch: 0,
+        identity,
+        t0: Instant::now(),
+        host_pub: None,
+        room,
+        round: None,
+        snap: None,
+        clock: ClockSync::default(),
+        welcomed: false,
+        ping_sent: 0,
+        trim_until: None,
+        seq_loading: None,
+        last_play: None,
+        msg_n: 0,
+    };
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(TICK);
+        let started = Instant::now();
+        let mut last_hello = Instant::now() - HELLO_EVERY;
+        let mut last_play = Instant::now();
+        let mut last_ping = Instant::now() - PING_EVERY;
+        let mut ping_burst = Instant::now();
+        eng.publish();
+        loop {
+            tokio::select! {
+                ev = events.recv() => {
+                    let Some(ev) = ev else { break };
+                    match ev {
+                        HubEvent::Connected { .. } => {
+                            if !is_host { eng.say_hello(); last_hello = Instant::now(); }
+                            else { eng.roster(); }
+                        }
+                        HubEvent::Disconnected => {
+                            let mut g = eng.view.lock().unwrap_or_else(|e| e.into_inner());
+                            g.connected = false;
+                            let v = g.clone();
+                            drop(g);
+                            (eng.on_view)(&v);
+                        }
+                        HubEvent::Msg { blob, id, .. } => {
+                            // our own message coming back is an acknowledgement, not news
+                            if id.as_deref().is_some_and(|i| i.starts_with(&format!("{}-", eng.p.me.id))) { continue; }
+                            let Some(plain) = crypto::open(&eng.key, &eng.p.channel, &blob) else { continue };
+                            let Ok(m) = serde_json::from_slice::<Msg>(&plain) else { continue };
+                            // who is it from? the host needs it for the queue permission
+                            let from = match &m { Msg::Enqueue { item } => item.added_by.clone(), _ => String::new() };
+                            if is_host { eng.host_msg(&from, m); } else if !eng.member_msg(m) { break; }
+                        }
+                    }
+                }
+                c = cmds.recv() => {
+                    let Some(c) = c else { break };
+                    let go_on = if is_host { eng.host_cmd(c) } else { eng.member_cmd(c) };
+                    if !go_on { break; }
+                }
+                _ = tick.tick() => {
+                    if is_host {
+                        eng.host_tick();
+                        if last_play.elapsed() >= PLAY_EVERY { eng.host_repeat_state(); last_play = Instant::now(); }
+                    } else {
+                        if !eng.member_tick(started.elapsed()) { break; }
+                        if !eng.welcomed && last_hello.elapsed() >= HELLO_EVERY { eng.say_hello(); last_hello = Instant::now(); }
+                        // a quick burst of pings to learn the clock, then now and then
+                        let due = if eng.ping_sent < 6 { ping_burst.elapsed() >= Duration::from_millis(400) } else { last_ping.elapsed() >= PING_EVERY };
+                        if eng.welcomed && due { eng.ping(); last_ping = Instant::now(); ping_burst = Instant::now(); }
+                    }
+                }
+            }
+        }
+    });
+    handle
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+
+    /// A relay in memory: every message goes to everybody, the sender included.
+    struct Loopback {
+        peers: Mutex<Vec<mpsc::UnboundedSender<HubEvent>>>,
+    }
+    struct Line {
+        net: Arc<Loopback>,
+    }
+    impl Transport for Line {
+        fn send(&self, blob: String, keep: bool, id: Option<String>) {
+            for p in self.net.peers.lock().unwrap().iter() {
+                let _ = p.send(HubEvent::Msg { seq: 0, blob: blob.clone(), keep, id: id.clone() });
+            }
+        }
+    }
+    impl Loopback {
+        fn new() -> Arc<Self> {
+            Arc::new(Loopback { peers: Mutex::new(Vec::new()) })
+        }
+        fn join(self: &Arc<Self>) -> (Arc<dyn Transport>, mpsc::UnboundedReceiver<HubEvent>) {
+            let (tx, rx) = mpsc::unbounded_channel();
+            self.peers.lock().unwrap().push(tx.clone());
+            let _ = tx.send(HubEvent::Connected { head: 0, peers: 0 });
+            (Arc::new(Line { net: self.clone() }), rx)
+        }
+    }
+
+    /// A fake player that records what it was asked, with a position that runs with real time.
+    #[derive(Default)]
+    struct FakePlayer {
+        prepared: Mutex<Vec<String>>,
+        started: Mutex<Option<Instant>>,
+        position: AtomicI64,
+        playing: Mutex<bool>,
+        seeks: AtomicU32,
+        trims: Mutex<Vec<f32>>,
+        stopped: AtomicU32,
+        offset_ms: AtomicI64,
+    }
+    impl Port for FakePlayer {
+        fn prepare(&self, item: &QueueItem) {
+            self.prepared.lock().unwrap().push(item.title.clone());
+            *self.started.lock().unwrap() = None;
+        }
+        fn start_after(&self, delay: Duration) {
+            *self.started.lock().unwrap() = Some(Instant::now() + delay);
+            *self.playing.lock().unwrap() = true;
+        }
+        fn set_playing(&self, playing: bool, pos_ms: i64) {
+            *self.playing.lock().unwrap() = playing;
+            self.seeks.fetch_add(1, Ordering::SeqCst);
+            // as if the player now stood at pos_ms
+            *self.started.lock().unwrap() = Some(Instant::now() - Duration::from_millis(pos_ms.max(0) as u64));
+            self.position.store(pos_ms, Ordering::SeqCst);
+        }
+        fn position_ms(&self) -> Option<i64> {
+            let s = (*self.started.lock().unwrap())?;
+            let ms = if Instant::now() >= s { s.elapsed().as_millis() as i64 } else { 0 };
+            Some(ms + self.offset_ms.load(Ordering::SeqCst))
+        }
+        fn trim(&self, f: f32) {
+            self.trims.lock().unwrap().push(f);
+        }
+        fn stop(&self) {
+            self.stopped.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn member(id: &str) -> Member {
+        Member { id: id.into(), name: id.into(), avatar_url: None, status: Status::Connecting, pubkey: None, last_seen: 0 }
+    }
+
+    fn item(n: u64) -> QueueItem {
+        QueueItem { track_id: n, title: format!("track{n}"), artist: "a".into(), added_by: "host".into() }
+    }
+
+    fn quiet() -> Arc<dyn Fn(&RoomView) + Send + Sync> {
+        Arc::new(|_| {})
+    }
+
+    async fn wait(cond: impl Fn() -> bool, ms: u64) -> bool {
+        for _ in 0..(ms / 20) {
+            if cond() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        cond()
+    }
+
+    fn room(channel: &str, password: &str, net: &Arc<Loopback>, id: &str, host: bool) -> (Handle, Arc<FakePlayer>) {
+        let (tr, rx) = net.join();
+        let port = Arc::new(FakePlayer::default());
+        let h = start(
+            Params { channel: channel.into(), password: password.into(), me: member(id), host, settings: Settings { name: "Ночной фонк".into(), ..Settings::default() } },
+            tr,
+            rx,
+            port.clone(),
+            quiet(),
+        );
+        (h, port)
+    }
+
+    #[test]
+    fn everybody_loads_then_starts_together_and_a_late_one_is_waited_for() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-1", "", &net, "host", true);
+            let (anna, ap) = room("chan-1", "", &net, "anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 4000).await, "anna joined");
+            assert!(wait(|| anna.view.lock().unwrap().members.len() == 2, 2000).await, "anna got the roster");
+
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 1 && ap.prepared.lock().unwrap().len() == 1, 3000).await, "both asked to load");
+            // the host has its track, anna is slow: nobody starts yet
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            assert!(hp.started.lock().unwrap().is_none() && ap.started.lock().unwrap().is_none(), "the barrier holds while anna loads");
+            let st = |v: &Handle| v.view.lock().unwrap().members.iter().find(|m| m.id == "anna").map(|m| m.status.clone());
+            assert_eq!(st(&host).as_deref(), Some("loading"), "her nick shows «грузится»");
+
+            anna.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| hp.started.lock().unwrap().is_some() && ap.started.lock().unwrap().is_some(), 4000).await, "all start once everybody is ready");
+            let (h0, a0) = (hp.started.lock().unwrap().unwrap(), ap.started.lock().unwrap().unwrap());
+            let gap = if h0 > a0 { h0 - a0 } else { a0 - h0 };
+            assert!(gap < Duration::from_millis(60), "start moments differ by {gap:?}");
+            assert_eq!(st(&host).as_deref(), Some("playing"));
+        });
+    }
+
+    #[test]
+    fn a_wrong_password_reads_nothing_and_gives_up_with_no_answer() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, _hp) = room("chan-2", "secret", &net, "host", true);
+            let (eve, _ep) = room("chan-2", "guess", &net, "eve", false);
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            assert_eq!(host.view.lock().unwrap().members.len(), 1, "the host never saw eve's hello");
+            assert!(eve.view.lock().unwrap().members.len() <= 1, "and eve was never let in");
+            let (ok, _p) = room("chan-2", "secret", &net, "anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 4000).await, "the right password gets in");
+            drop(ok);
+        });
+    }
+
+    #[test]
+    fn a_member_who_drifts_is_trimmed_a_little_or_seeks_when_far_off() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-3", "", &net, "host", true);
+            let (anna, ap) = room("chan-3", "", &net, "anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 4000).await);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 3000).await);
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            anna.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| ap.started.lock().unwrap().is_some(), 4000).await);
+            tokio::time::sleep(Duration::from_millis(2200)).await; // after the start moment
+
+            // anna is 500 ms behind: not a jump, a little faster
+            ap.offset_ms.store(-500, Ordering::SeqCst);
+            hp.offset_ms.store(0, Ordering::SeqCst);
+            host.tx.send(Cmd::Play(true)).unwrap(); // the host repeats where it is now
+            assert!(wait(|| ap.trims.lock().unwrap().iter().any(|f| *f > 1.0), 3000).await, "a gentle speed-up, not a seek: {:?}", ap.trims.lock().unwrap());
+            let seeks_before = ap.seeks.load(Ordering::SeqCst);
+
+            // 4 s behind: that is audible, seek
+            ap.offset_ms.store(-4000, Ordering::SeqCst);
+            host.tx.send(Cmd::Play(true)).unwrap();
+            assert!(wait(|| ap.seeks.load(Ordering::SeqCst) > seeks_before, 3000).await, "a big gap is fixed by seeking");
+        });
+    }
+
+    #[test]
+    fn a_kicked_member_is_out_and_cannot_read_what_comes_next() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, _hp) = room("chan-4", "", &net, "host", true);
+            let (anna, ap) = room("chan-4", "", &net, "anna", false);
+            let (bob, bp) = room("chan-4", "", &net, "bob", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 3, 5000).await);
+            host.tx.send(Cmd::Kick("bob".into())).unwrap();
+            assert!(wait(|| bob.view.lock().unwrap().ended.as_deref() == Some("kicked"), 3000).await, "bob learns he is out");
+            // after the new key, what the host enqueues reaches anna and not bob
+            host.tx.send(Cmd::Enqueue(item(9))).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().contains(&"track9".to_string()), 4000).await, "anna still follows the room");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            assert!(bp.prepared.lock().unwrap().is_empty(), "bob got no track");
+            assert_eq!(host.view.lock().unwrap().members.len(), 2);
+            drop(anna);
+        });
+    }
+}

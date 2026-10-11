@@ -56,6 +56,9 @@ pub struct Member {
     pub name: String,
     pub avatar_url: Option<String>,
     pub status: Status,
+    /// X25519 public key (base64): the host wraps a new room key for it after a kick
+    #[serde(default)]
+    pub pubkey: Option<String>,
     /// local time of the last message from them
     #[serde(skip)]
     pub last_seen: Ms,
@@ -134,9 +137,11 @@ pub enum Msg {
     /// member -> host: let me in
     Hello { member: Member },
     /// host -> member: you are in; the whole room as it is now
-    Welcome { room: RoomSnapshot, host_now: Ms },
-    /// host -> member: not let in (wrong password, room full, kicked)
-    Denied { reason: String },
+    Welcome { to: String, room: RoomSnapshot, host_now: Ms, host_pub: String },
+    /// host -> member: not let in (room full, kicked)
+    Denied { to: String, reason: String },
+    /// host -> all (under the old key): the room key changed because somebody was kicked
+    Rekey { epoch: u32, wraps: std::collections::BTreeMap<String, String> },
     /// member -> host: my status changed
     Status { id: String, status: Status },
     /// member -> host: put this track in the queue (or the host's own add)
@@ -435,7 +440,7 @@ mod tests {
     use super::*;
 
     fn member(id: &str) -> Member {
-        Member { id: id.into(), name: id.into(), avatar_url: None, status: Status::Connecting, last_seen: 0 }
+        Member { id: id.into(), name: id.into(), avatar_url: None, status: Status::Connecting, pubkey: None, last_seen: 0 }
     }
 
     fn item(n: u64) -> QueueItem {
