@@ -44,11 +44,20 @@ export function openPalette(): void {
   const box = h('div', { class: 'pal panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': T('Быстрый поиск') }, input, chips, list, foot);
   const backdrop = h('div', { class: 'upd-backdrop pal-backdrop' }, box);
 
+  // Esc closes it from anywhere, not only while the focus is inside the box
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  };
   const close = () => {
+    document.removeEventListener('keydown', onEsc, true);
     backdrop.remove();
     open = null;
   };
   open = { close };
+  document.addEventListener('keydown', onEsc, true);
 
   const renderChips = () => {
     chips.replaceChildren(
@@ -156,8 +165,7 @@ export function openPalette(): void {
     timer = window.setTimeout(() => void run(), 250);
   });
   box.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') close();
-    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (hits.length) sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length;
       mark();
