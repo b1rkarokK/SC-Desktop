@@ -56,6 +56,8 @@ pub enum AudioEvent {
     /// sound actually started (widget engine: after buffering / DRM licence)
     Started { generation: u64 },
     Error { generation: u64, message: String },
+    /// the output stream was (re)opened on this device
+    Device { name: String },
 }
 
 pub struct AudioHandle {
@@ -376,6 +378,9 @@ impl Engine {
             let pair = OutputStream::try_default().map_err(|e| e.to_string())?;
             self.device = default_device_name();
             tracing::debug!(device = ?self.device, "audio device opened");
+            if let Some(name) = self.device.clone() {
+                let _ = self.events.send(AudioEvent::Device { name });
+            }
             self.stream = Some(pair);
         }
         Ok(self.stream.as_ref().map(|(_, h)| h.clone()).expect("stream just set"))

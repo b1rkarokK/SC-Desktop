@@ -215,6 +215,8 @@ pub struct Player {
     prefetched: Mutex<Option<(u64, Arc<Vec<u8>>, Option<f32>)>>,
     eq: Arc<EqShared>,
     fx: Arc<FxShared>,
+    /// name of the output device the stream plays to
+    device: Mutex<Option<String>>,
     /// loudness gain per track, measured once
     gains: Mutex<std::collections::HashMap<u64, f32>>,
     /// the next load crossfades from the playing track
@@ -252,6 +254,7 @@ impl Player {
             prefetched: Mutex::new(None),
             eq,
             fx,
+            device: Mutex::new(None),
             gains: Mutex::new(std::collections::HashMap::new()),
             crossfade_next: std::sync::atomic::AtomicBool::new(false),
             crossfade: Mutex::new(cfg.fx.crossfade.clamp(0.0, 12.0)),
@@ -1453,6 +1456,28 @@ impl Player {
         self.advance(true);
     }
 
+    /// The output device changed: its own equalizer, if it has one, takes over.
+    fn on_device(self: &Arc<Self>, name: String) {
+        *self.device.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.clone());
+        let state = self.app.state::<AppState>();
+        let cfg = state.config.get();
+        if !cfg.eq_per_device {
+            return;
+        }
+        if let Some(eq) = cfg.eq_by_device.get(&name) {
+            self.eq.set(eq.clone());
+            let _ = state.config.update(|c| c.eq = eq.clone());
+            let _ = self.app.emit("eq:changed", (&name, eq));
+            tracing::info!(device = %name, preset = %eq.preset, "equalizer of this device applied");
+        } else {
+            let _ = self.app.emit("eq:device", &name);
+        }
+    }
+
+    pub fn current_device(&self) -> Option<String> {
+        self.device.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     fn on_audio_event(self: &Arc<Self>, ev: AudioEvent) {
         let current = self.generation.load(Ordering::SeqCst);
         match ev {
@@ -1480,6 +1505,7 @@ impl Player {
                     self.advance(true);
                 }
             }
+            AudioEvent::Device { name } => self.on_device(name),
             AudioEvent::Started { generation } if generation == current => {
                 self.lock().loading = false;
                 self.emit();

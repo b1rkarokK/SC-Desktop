@@ -3217,3 +3217,14 @@ kbd {
 .eq-note[hidden] {
   display: none;
 }
+
+.eq-device {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.eq-device[hidden] {
+  display: none;
+}

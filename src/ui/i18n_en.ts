@@ -677,6 +677,7 @@ export const EN: Record<string, string> = {
   'У этого трека нет ссылки': 'This track has no link',
   'Эта комбинация уже занята другим действием': 'This combination is already used by another action',
   'в лайках': 'in likes',
+  'Свой для каждого устройства': 'Own for each device',
   'Резервная копия': 'Backup',
   'Лайки, история, дизлайки, настройки одним файлом. Вход в SoundCloud не входит в файл.': 'Likes, history, dislikes and settings in one file. The SoundCloud sign-in is not in the file.',
   'Копия сохранена: {0}': 'Backup saved: {0}',

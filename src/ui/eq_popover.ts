@@ -1,6 +1,7 @@
 // Equalizer popover above the player bar (mockup 9): 10 bands ±12 dB, presets,
 // preamp; below them the effects: speed (slowed / sped up), reverb, loudness
 // leveling, crossfade.
+import { listen } from '@tauri-apps/api/event';
 import { api, errorMessage, type EqConfig, type FxConfig } from './api';
 import { h, toast } from './dom';
 import { iconButton, I } from './icons';
@@ -28,6 +29,9 @@ const toPos = (db: number) => (db + 12) / 24;
 
 export class EqPopover {
   readonly el: HTMLDivElement;
+  private deviceBtn = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
+  private deviceName = h('span', { class: 'muted small' });
+  private deviceRow = h('div', { class: 'eq-device small' });
   private note = h('div', { class: 'eq-note small', text: T('Этот трек играет в плеере SoundCloud: эквалайзер и эффекты на него не действуют.') });
   private eq: EqConfig = { enabled: false, preamp: 0, gains: Array(10).fill(0), preset: 'flat' };
   private sliders: Slider[] = [];
@@ -112,6 +116,7 @@ export class EqPopover {
       'div',
       { class: 'eq-pop panel', role: 'dialog', 'aria-label': T('Эквалайзер') },
       h('div', { class: 'eq-head' }, h('span', { class: 'strong', text: T('Эквалайзер') }), this.enabledBtn, h('div', { class: 'spacer' }), this.preset, close),
+      this.deviceRow,
       this.note,
       h('div', { class: 'eq-scale' }, h('span', { text: '+12' }), h('span', { text: '0' }), h('span', { text: '−12' })),
       bands,
@@ -120,6 +125,22 @@ export class EqPopover {
     );
     this.el.hidden = true;
     this.note.hidden = true;
+    // an equalizer of its own for every output device (speakers, headphones…), switched with it
+    this.deviceRow.append(this.deviceName, h('span', { class: 'spacer' }), h('span', { class: 'muted small', text: T('Свой для каждого устройства') }), this.deviceBtn);
+    this.deviceBtn.addEventListener('click', async () => {
+      const on = this.deviceBtn.getAttribute('aria-checked') !== 'true';
+      await api.eqPerDeviceSet(on).catch((e) => toast(errorMessage(e), 'error'));
+      void this.refreshDevice();
+    });
+    void listen<[string, EqConfig]>('eq:changed', (e) => {
+      // another device took over and brought its own settings
+      this.eq = { ...e.payload[1], gains: [...e.payload[1].gains] };
+      this.render();
+      this.onToggle?.(this.open, this.eq.enabled);
+      void this.refreshDevice();
+    });
+    void listen('eq:device', () => void this.refreshDevice());
+    void this.refreshDevice();
     store.on('player', () => (this.note.hidden = !store.snapshot?.widget));
     document.addEventListener('keydown', (e) => e.key === 'Escape' && this.open && this.setOpen(false));
   }
@@ -143,7 +164,10 @@ export class EqPopover {
     this.open = open;
     this.el.hidden = !open;
     // what the window shows is what the core plays: opening it re-sends the settings
-    if (open) void api.eqSet(this.eq, false).catch(() => undefined);
+    if (open) {
+      void api.eqSet(this.eq, false).catch(() => undefined);
+      void this.refreshDevice();
+    }
     this.onToggle?.(open, this.eq.enabled);
   }
 
@@ -176,6 +200,18 @@ export class EqPopover {
     this.crossValue.textContent = f.crossfade ? T('{0} с', f.crossfade) : T('выкл');
     this.normBtn.classList.toggle('is-on', f.normalize);
     this.normBtn.setAttribute('aria-checked', String(f.normalize));
+  }
+
+  private async refreshDevice(): Promise<void> {
+    try {
+      const d = await api.eqDeviceGet();
+      this.deviceRow.hidden = !d.device;
+      this.deviceName.textContent = d.device ?? '';
+      this.deviceBtn.classList.toggle('is-on', d.per_device);
+      this.deviceBtn.setAttribute('aria-checked', String(d.per_device));
+    } catch {
+      this.deviceRow.hidden = true;
+    }
   }
 
   private commit(persist: boolean): void {

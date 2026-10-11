@@ -1451,8 +1451,49 @@ pub fn sleep_get(player: State<'_, Arc<Player>>) -> crate::player::SleepState {
 pub fn eq_set(state: State<'_, AppState>, player: State<'_, Arc<Player>>, eq: EqConfig, persist: bool) -> Cmd<()> {
     player.set_eq(eq.clone());
     if persist {
-        state.config.update(|c| c.eq = eq)?;
+        let device = player.current_device();
+        state.config.update(|c| {
+            c.eq = eq.clone();
+            // what is set while one pair of speakers plays belongs to those speakers
+            if c.eq_per_device {
+                if let Some(d) = device {
+                    c.eq_by_device.insert(d, eq);
+                }
+            }
+        })?;
     }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct EqDevice {
+    device: Option<String>,
+    per_device: bool,
+    /// this device already has its own equalizer
+    known: bool,
+}
+
+#[tauri::command]
+pub fn eq_device_get(state: State<'_, AppState>, player: State<'_, Arc<Player>>) -> EqDevice {
+    let cfg = state.config.get();
+    let device = player.current_device();
+    EqDevice { known: device.as_ref().is_some_and(|d| cfg.eq_by_device.contains_key(d)), device, per_device: cfg.eq_per_device }
+}
+
+/// «Свой эквалайзер для каждого устройства» on / off.
+#[tauri::command]
+pub fn eq_per_device_set(state: State<'_, AppState>, player: State<'_, Arc<Player>>, on: bool) -> Cmd<()> {
+    let device = player.current_device();
+    state.config.update(|c| {
+        c.eq_per_device = on;
+        // switched on: the equalizer as it is now becomes this device's
+        if on {
+            if let Some(d) = device {
+                let eq = c.eq.clone();
+                c.eq_by_device.entry(d).or_insert(eq);
+            }
+        }
+    })?;
     Ok(())
 }
 

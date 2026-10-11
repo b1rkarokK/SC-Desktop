@@ -226,6 +226,8 @@ fn main() {
             commands::lyrics_index_run,
             commands::viz_set,
             commands::eq_set,
+            commands::eq_device_get,
+            commands::eq_per_device_set,
             commands::discord_set,
             commands::system_get,
             commands::system_set,

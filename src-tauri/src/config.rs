@@ -94,6 +94,12 @@ pub struct AppConfig {
     /// keep SoundCloud's player warmed up for protected tracks (+50-70 MB, instant start)
     #[serde(default = "yes")]
     pub fast_protected: bool,
+    /// the equalizer is remembered per output device (speakers, headphones…) and switches with it
+    #[serde(default = "yes")]
+    pub eq_per_device: bool,
+    /// device name -> its equalizer
+    #[serde(default)]
+    pub eq_by_device: std::collections::BTreeMap<String, EqConfig>,
     /// «Моя волна» without liked tracks and their re-uploads
     pub wave_no_liked: bool,
     /// Windows notification when a followed artist posts a new track
@@ -117,6 +123,8 @@ impl Default for AppConfig {
             discord: DiscordConfig::default(),
             start_minimized: true,
             fast_protected: true,
+            eq_per_device: true,
+            eq_by_device: Default::default(),
             wave_no_liked: true,
             notify_new: true,
             autostart_initialized: false,
