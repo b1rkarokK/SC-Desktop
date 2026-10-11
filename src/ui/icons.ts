@@ -3,6 +3,7 @@ import {
   AudioWaveform,
   Check,
   ChartColumn,
+  Users,
   ChevronDown,
   ChevronLeft,
   CircleHelp,
@@ -164,6 +165,7 @@ export const I = {
   mini: PictureInPicture2,
   opacity: Blend,
   stats: ChartColumn,
+  users: Users,
   edit: Pencil,
   queue: ListOrdered,
 } satisfies Record<string, IconNode>;

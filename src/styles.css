@@ -3228,3 +3228,113 @@ kbd {
 .eq-device[hidden] {
   display: none;
 }
+
+/* ----------------------------------------------------------- rooms */
+.rm-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 640px;
+}
+
+.rm-form .input {
+  flex: 1 1 200px;
+}
+
+.rm-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.rm-live {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rm-live-text {
+  min-width: 0;
+}
+
+.rm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.rm-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.rm-now {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.rm-tag {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rm-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rm-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.rm-dot.is-playing,
+.rm-dot.is-ready {
+  background: var(--ok);
+}
+
+.rm-dot.is-loading,
+.rm-dot.is-connecting {
+  background: #e0a030;
+}
+
+.rm-dot.is-problem {
+  background: var(--err);
+}
+
+.rm-q {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+}

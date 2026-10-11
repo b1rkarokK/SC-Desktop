@@ -9,6 +9,7 @@ import { openArtist, openPlaylist, openTrack, openTrackArtist } from './router';
 import { store } from './store';
 import { T } from './i18n';
 import { shareDialog } from './share_dialog';
+import { addToRoom, room } from './views/rooms';
 
 async function copy(text: string, done: string): Promise<void> {
   try {
@@ -33,6 +34,7 @@ export function trackMenu(e: MouseEvent, t: Track, play?: () => void): void {
     { label: T('Играть следующим'), icon: I.queueNext, action: () => void api.enqueue(t, true).then(() => toast(T('Будет следующим')), fail) },
     { label: T('В конец очереди'), icon: I.queueEnd, action: () => void api.enqueue(t, false).then(() => toast(T('Добавлен в очередь')), fail) },
     { label: T('Добавить в плейлист'), icon: I.playlistAdd, action: () => void addToPlaylistMenu(e, t) },
+    ...(room.active() ? [{ label: T('Добавить в комнату'), icon: I.users, action: () => void addToRoom(t) }] : []),
     'separator',
     { label: liked ? T('Убрать из лайков') : T('Лайкнуть'), icon: I.heart, on: liked, action: () => void store.setLiked(t, !liked) },
     { label: disliked ? T('Снова рекомендовать') : T('Не рекомендовать'), icon: I.dislike, on: disliked, action: () => void store.setDisliked(t, !disliked) },

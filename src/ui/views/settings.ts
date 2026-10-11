@@ -54,6 +54,7 @@ export class SettingsView implements View {
   private lyricsBox = h('div');
   private netBox = h('div');
   private systemBox = h('div');
+  private syncBox = h('div');
   private themeBox = h('div');
   private langBox = h('div');
   private hotkeysBox = h('div');
@@ -66,7 +67,7 @@ export class SettingsView implements View {
       h(
         'div',
         { class: 'view-scroll pad' },
-        h('div', { class: 'settings' }, this.account, this.themeBox, this.langBox, this.hotkeysBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox),
+        h('div', { class: 'settings' }, this.account, this.themeBox, this.langBox, this.hotkeysBox, this.syncBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox),
       ),
     );
     store.on('auth', () => this.renderAccount());
@@ -79,6 +80,7 @@ export class SettingsView implements View {
     this.renderTheme();
     this.renderLyrics();
     this.renderHotkeys();
+    void this.renderSync();
     void this.load();
   }
 
@@ -96,6 +98,28 @@ export class SettingsView implements View {
   }
 
   // ---------------------------------------------------------- account
+
+  /** The relay for rooms (and, later, shared playlists): the address of the Cloudflare Worker from /server. */
+  private async renderSync(): Promise<void> {
+    const url = await invoke<string>('sync_url_get').catch(() => '');
+    const input = h('input', { class: 'input', placeholder: 'https://sc-desk-sync.<имя>.workers.dev', value: url, spellcheck: 'false' });
+    const save = btn(T('Сохранить'), null);
+    save.addEventListener('click', async () => {
+      try {
+        await invoke('sync_url_set', { url: input.value });
+        toast(T('Адрес сохранён'));
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    });
+    this.syncBox.replaceChildren(
+      group(
+        T('Сервер синхронизации'),
+        h('p', { class: 'muted small', text: T('Нужен для комнат. Разворачивается один раз бесплатно, инструкция в папке server репозитория. Сообщения шифруются на ваших устройствах, сервер видит только шифротекст.') }),
+        row(T('Адрес'), h('div', { class: 'row-actions' }, input, save)),
+      ),
+    );
+  }
 
   private renderHotkeys(): void {
     const games = toggle(hotkeys().inGames, (v) => setInGames(v));

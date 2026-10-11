@@ -16,6 +16,7 @@ import { TitleBar } from './ui/titlebar';
 import { updates } from './ui/update_dialog';
 import { initHotkeys } from './ui/hotkeys';
 import { openPalette } from './ui/palette';
+import { initRoomEvents } from './ui/views/rooms';
 import { currentLang, T } from './ui/i18n';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -64,6 +65,7 @@ async function boot(): Promise<void> {
 
   void updates.listen();
   initHotkeys(openPalette);
+  initRoomEvents();
   const [auth, snap] = await Promise.all([api.authStatus(), api.snapshot()]);
   store.setAuth(auth);
   store.setSnapshot(snap);

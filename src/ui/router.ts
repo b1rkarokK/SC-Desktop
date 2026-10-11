@@ -11,6 +11,7 @@ export type Route =
   | { name: 'wave' }
   | { name: 'history' }
   | { name: 'stats' }
+  | { name: 'rooms' }
   | { name: 'search' }
   | { name: 'settings' }
   | { name: 'profile'; tab?: ProfileTab }
@@ -21,9 +22,9 @@ export type Route =
   | { name: 'category'; key: string }
   | { name: 'chart'; kind: string };
 
-export type Section = 'home' | 'likes' | 'wave' | 'history' | 'stats' | 'search' | 'settings' | 'profile';
+export type Section = 'home' | 'likes' | 'wave' | 'history' | 'stats' | 'rooms' | 'search' | 'settings' | 'profile';
 
-const TOP: ReadonlySet<string> = new Set(['home', 'likes', 'wave', 'history', 'stats', 'search', 'settings', 'profile']);
+const TOP: ReadonlySet<string> = new Set(['home', 'likes', 'wave', 'history', 'stats', 'rooms', 'search', 'settings', 'profile']);
 
 class Router {
   private stack: Route[] = [{ name: 'home' }];
