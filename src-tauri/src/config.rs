@@ -94,6 +94,11 @@ pub struct AppConfig {
     /// keep SoundCloud's player warmed up for protected tracks (+50-70 MB, instant start)
     #[serde(default = "yes")]
     pub fast_protected: bool,
+    /// pause the music while another program records (a call) / while a full-screen game is in front
+    #[serde(default)]
+    pub auto_pause_call: bool,
+    #[serde(default)]
+    pub auto_pause_game: bool,
     /// the equalizer is remembered per output device (speakers, headphones…) and switches with it
     #[serde(default = "yes")]
     pub eq_per_device: bool,
@@ -123,6 +128,8 @@ impl Default for AppConfig {
             discord: DiscordConfig::default(),
             start_minimized: true,
             fast_protected: true,
+            auto_pause_call: false,
+            auto_pause_game: false,
             eq_per_device: true,
             eq_by_device: Default::default(),
             wave_no_liked: true,

@@ -88,7 +88,7 @@ fn watch_fullscreen(app: AppHandle) {
 }
 
 #[cfg(windows)]
-fn fullscreen_in_front(own: isize) -> bool {
+pub(crate) fn fullscreen_in_front(own: isize) -> bool {
     use windows_sys::Win32::{
         Foundation::RECT,
         Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
@@ -123,7 +123,7 @@ fn fullscreen_in_front(own: isize) -> bool {
 }
 
 #[cfg(not(windows))]
-fn fullscreen_in_front(_own: isize) -> bool {
+pub(crate) fn fullscreen_in_front(_own: isize) -> bool {
     false
 }
 

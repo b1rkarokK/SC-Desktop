@@ -87,6 +87,7 @@ export class SettingsView implements View {
       this.cfg = await api.configGet();
       this.renderDiscord();
       this.renderNet();
+      this.autoPause = await api.autopauseGet();
       const sys = await api.systemGet();
       this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected, sys.notify_new);
     } catch (e) {
@@ -324,6 +325,13 @@ export class SettingsView implements View {
 
   // ----------------------------------------------------------- system
 
+  private autoPause = { call: false, game: false };
+
+  private saveAutoPause(patch: Partial<{ call: boolean; game: boolean }>): void {
+    this.autoPause = { ...this.autoPause, ...patch };
+    void api.autopauseSet(this.autoPause).catch((e) => toast(errorMessage(e), 'error'));
+  }
+
   private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean, notifyNew: boolean): void {
     let a = autostart;
     let m = minimized;
@@ -394,6 +402,8 @@ export class SettingsView implements View {
           toggle(notifyNew, (v) => void api.newsSet(v).catch((e) => toast(errorMessage(e), 'error'))),
           T('Уведомление Windows, когда артист из подписок выложил трек. Проверка раз в час.'),
         ),
+        row(T('Пауза во время звонка'), toggle(this.autoPause.call, (v) => this.saveAutoPause({ call: v })), T('Музыка встаёт на паузу, когда другая программа включила микрофон (Discord, Zoom), и продолжается после звонка.')),
+        row(T('Пауза в полноэкранной игре'), toggle(this.autoPause.game, (v) => this.saveAutoPause({ game: v })), T('Музыка встаёт на паузу, когда игра открылась на весь экран, и продолжается, когда вы вышли из неё. Выключено: музыка играет и в игре.')),
         row(T('Резервная копия'), h('div', { class: 'row-actions' }, backupBtn, restoreBtn), T('Лайки, история, дизлайки, настройки одним файлом. Вход в SoundCloud не входит в файл.')),
         row(T('Если что-то сломалось'), copyLog, T('Копирует конец журнала программы, его можно отправить вместе с описанием ошибки.')),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),

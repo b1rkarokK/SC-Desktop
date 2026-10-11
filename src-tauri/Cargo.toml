@@ -60,7 +60,7 @@ tauri-plugin-notification = "2"
 
 [target.'cfg(windows)'.dependencies]
 # mini player: is a full-screen app (game, video) in front?
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry"] }
 # Windows media panel (System Media Transport Controls); the version Tauri already uses
 windows = { version = "0.62", features = ["Foundation", "Media", "Media_Playback", "Storage_Streams", "Win32_UI_Shell"] }
 rustfft = "6"

@@ -1557,6 +1557,27 @@ pub fn system_set(
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct AutoPause {
+    call: bool,
+    game: bool,
+}
+
+#[tauri::command]
+pub fn autopause_get(state: State<'_, AppState>) -> AutoPause {
+    let c = state.config.get();
+    AutoPause { call: c.auto_pause_call, game: c.auto_pause_game }
+}
+
+#[tauri::command]
+pub fn autopause_set(state: State<'_, AppState>, value: AutoPause) -> Cmd<()> {
+    state.config.update(|c| {
+        c.auto_pause_call = value.call;
+        c.auto_pause_game = value.game;
+    })?;
+    Ok(())
+}
+
 /// Backup file with likes, dislikes, history, wave signals and settings. `None`: cancelled.
 #[tauri::command]
 pub async fn backup_export(app: AppHandle, state: State<'_, AppState>) -> Cmd<Option<String>> {

@@ -14,6 +14,7 @@ mod error;
 mod fingerprint;
 mod geniusweb;
 mod home;
+mod autopause;
 mod backup;
 mod hotkeys;
 mod viz;
@@ -87,6 +88,7 @@ fn main() {
                 }));
             }
             charts::start_daily(&handle);
+            autopause::start(handle.clone());
             {
                 // lyrics cached before the search table existed
                 let app = handle.clone();
@@ -218,6 +220,8 @@ fn main() {
             commands::net_check,
             commands::config_set_ui,
             commands::hotkeys_apply,
+            commands::autopause_get,
+            commands::autopause_set,
             commands::backup_export,
             commands::backup_import,
             commands::log_tail,
