@@ -38,7 +38,11 @@ export class Slider {
     this.el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       this.dragging = true;
-      this.el.setPointerCapture(e.pointerId);
+      try {
+        this.el.setPointerCapture(e.pointerId);
+      } catch {
+        /* no capture (touch, odd devices): the move events still arrive */
+      }
       this.el.classList.add('is-dragging');
       this.fromPointer(e);
     });
