@@ -84,6 +84,8 @@ pub struct Snapshot {
     /// playback rate (slowed / sped up): track time runs this fast; 1 for
     /// tracks in SoundCloud's widget, which effects don't touch
     pub speed: f32,
+    /// the track plays in SoundCloud's own widget: the equalizer and effects cannot reach it
+    pub widget: bool,
 }
 
 struct State {
@@ -319,6 +321,7 @@ impl Player {
             smart: s.smart,
             recommended: s.current().is_some_and(|t| s.smart_ids.contains(&t.id)),
             speed: self.speed(),
+            widget: self.external.load(Ordering::SeqCst),
         }
     }
 

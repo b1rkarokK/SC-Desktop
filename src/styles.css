@@ -3201,3 +3201,15 @@ kbd {
 .seg-wrap .seg-tab:nth-child(-n + 3) {
   border-top: 0;
 }
+
+.eq-note {
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--accent);
+}
+
+.eq-note[hidden] {
+  display: none;
+}

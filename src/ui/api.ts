@@ -87,6 +87,8 @@ export interface PlayerSnapshot {
   recommended: boolean;
   /** playback rate (slowed / sped up) */
   speed?: number;
+  /** plays in SoundCloud's widget: no equalizer, no effects */
+  widget?: boolean;
 }
 
 export interface AuthStatus {

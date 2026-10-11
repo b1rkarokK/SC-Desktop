@@ -677,6 +677,7 @@ export const EN: Record<string, string> = {
   'У этого трека нет ссылки': 'This track has no link',
   'Эта комбинация уже занята другим действием': 'This combination is already used by another action',
   'в лайках': 'in likes',
+  'Этот трек играет в плеере SoundCloud: эквалайзер и эффекты на него не действуют.': "This track plays in SoundCloud's own player: the equalizer and effects can't reach it.",
   'Зеркало': 'Mirror',
   'Линия': 'Line',
   'Кольцо': 'Ring',

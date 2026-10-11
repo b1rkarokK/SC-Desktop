@@ -671,6 +671,13 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         mixed.insert(at, t);
     }
     spread_artists(&mut mixed);
+    // the first track has to be downloaded whole before it starts: of the first few
+    // take the shortest, so the wave begins sooner (the order stays random otherwise)
+    if let Some((i, shortest)) = mixed.iter().take(4).enumerate().min_by_key(|(_, t)| t.duration) {
+        if i > 0 && shortest.duration * 10 < mixed[0].duration * 8 {
+            mixed.swap(0, i);
+        }
+    }
 
     tracing::info!(seeds = seeds.len(), out = mixed.len(), context = ctx.is_some(), model = model.is_some(), model_ms, "wave batch generated");
     if mixed.is_empty() && ctx.is_some() && gen.familiar {

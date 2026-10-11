@@ -5,6 +5,7 @@ import { api, errorMessage, type EqConfig, type FxConfig } from './api';
 import { h, toast } from './dom';
 import { iconButton, I } from './icons';
 import { Slider } from './slider';
+import { store } from './store';
 import { T } from './i18n';
 
 const BANDS = ['32', '64', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
@@ -27,6 +28,7 @@ const toPos = (db: number) => (db + 12) / 24;
 
 export class EqPopover {
   readonly el: HTMLDivElement;
+  private note = h('div', { class: 'eq-note small', text: T('Этот трек играет в плеере SoundCloud: эквалайзер и эффекты на него не действуют.') });
   private eq: EqConfig = { enabled: false, preamp: 0, gains: Array(10).fill(0), preset: 'flat' };
   private sliders: Slider[] = [];
   private values: HTMLElement[] = [];
@@ -110,12 +112,15 @@ export class EqPopover {
       'div',
       { class: 'eq-pop panel', role: 'dialog', 'aria-label': T('Эквалайзер') },
       h('div', { class: 'eq-head' }, h('span', { class: 'strong', text: T('Эквалайзер') }), this.enabledBtn, h('div', { class: 'spacer' }), this.preset, close),
+      this.note,
       h('div', { class: 'eq-scale' }, h('span', { text: '+12' }), h('span', { text: '0' }), h('span', { text: '−12' })),
       bands,
       h('div', { class: 'eq-pre' }, h('span', { class: 'muted small', text: T('Предусилитель') }), this.preampSlider.el, this.preampValue),
       effects,
     );
     this.el.hidden = true;
+    this.note.hidden = true;
+    store.on('player', () => (this.note.hidden = !store.snapshot?.widget));
     document.addEventListener('keydown', (e) => e.key === 'Escape' && this.open && this.setOpen(false));
   }
 
