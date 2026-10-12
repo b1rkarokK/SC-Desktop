@@ -3207,6 +3207,7 @@ kbd {
 }
 
 .eq-note {
+  grid-column: 1 / -1;
   padding: 6px 10px;
   margin-bottom: 6px;
   border: 1px solid var(--accent);
