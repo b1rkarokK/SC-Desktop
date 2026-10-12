@@ -33,6 +33,7 @@ export function openPalette(): void {
     open.close();
     return;
   }
+  document.dispatchEvent(new Event('sc:close-popovers'));
   let filter: Filter = 'all';
   let hits: Hit[] = [];
   let sel = 0;

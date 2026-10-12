@@ -97,6 +97,29 @@ export class PlayerBar {
       queue.toggle();
     });
     queue.init((open) => this.queueBtn.classList.toggle('is-on', open));
+    // the windows above the bar close on a click anywhere else, on a track change, and when the search opens
+    const closeAll = () => {
+      eq.close();
+      queue.setOpen(false);
+    };
+    document.addEventListener(
+      'pointerdown',
+      (e) => {
+        const t = e.target as Node;
+        if (eq.el.contains(t) || queue.el.contains(t) || this.eqBtn.contains(t) || this.queueBtn.contains(t)) return;
+        closeAll();
+      },
+      true,
+    );
+    document.addEventListener('sc:close-popovers', closeAll);
+    let shownTrack = store.snapshot?.track?.id;
+    store.on('player', () => {
+      const id = store.snapshot?.track?.id;
+      if (id !== shownTrack) {
+        shownTrack = id;
+        eq.close();
+      }
+    });
     this.miniBtn.addEventListener('click', () => void invoke('mini_open').catch((e) => toast(errorMessage(e), 'error')));
     this.sleepBtn.addEventListener('click', () => this.sleepMenu());
     void listen<SleepState>('player:sleep', (e) => this.renderSleep(e.payload));
