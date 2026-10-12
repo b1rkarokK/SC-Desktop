@@ -8,7 +8,7 @@ import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
 import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
 import { ArraySource, PagedSource, VirtualList } from '../virtual_list';
-import { btn, emptyState, viewHead, type View } from './common';
+import { btn, emptyState, signInPrompt, viewHead, type View } from './common';
 import { importDialog } from '../import_dialog';
 import { T } from '../i18n';
 
@@ -82,11 +82,9 @@ export class LibraryView implements View {
   }
 
   private emptyTracks(): HTMLElement {
-    return emptyState(
-      store.auth.has_credentials
-        ? T('Кэш пуст. Нажмите «Синхронизировать», чтобы загрузить лайки.')
-        : T('Войдите в SoundCloud в Настройках.'),
-    );
+    return store.auth.has_credentials
+      ? emptyState(T('Кэш пуст. Нажмите «Синхронизировать», чтобы загрузить лайки.'))
+      : signInPrompt(T('Войдите в SoundCloud, чтобы увидеть свои лайки.'));
   }
 
   private async refreshCounts(): Promise<void> {

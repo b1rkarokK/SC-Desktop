@@ -7,7 +7,7 @@ pub type AppResult<T> = Result<T, AppError>;
 /// `kind` lets the frontend react programmatically (e.g. open Settings on auth errors).
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("Не заданы client_id и oauth_token. Откройте Настройки.")]
+    #[error("Сначала войдите в SoundCloud: Настройки - «Войти через SoundCloud».")]
     NotAuthorized,
     #[error("Вход в SoundCloud устарел. Откройте Настройки и нажмите «Войти через SoundCloud».")]
     AuthExpired,

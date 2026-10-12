@@ -518,6 +518,9 @@ export const EN: Record<string, string> = {
   'Имя и аватар берутся с SoundCloud, но запрос мог отправить кто угодно. Принимайте тех, кого знаете.': 'The name and picture come from SoundCloud, but anybody could have sent the request. Accept the people you know.',
   'вы подписаны на него': 'you follow them',
   'Друзья слушают': 'Friends listening',
+  'Сначала войдите в SoundCloud: Настройки - «Войти через SoundCloud».': 'Sign in to SoundCloud first: Settings - "Sign in with SoundCloud".',
+  'Войдите в SoundCloud, чтобы видеть здесь подборки, ленту и свои лайки.': 'Sign in to SoundCloud to see your mixes, your feed and your likes here.',
+  'Войдите в SoundCloud, чтобы увидеть свои лайки.': 'Sign in to SoundCloud to see your likes.',
   'Очистить историю?': 'Clear the history?',
   'Пропадут все прослушанные треки, альбомы и плейлисты, а с ними и «Итоги». Вернуть их будет нельзя.': 'All played tracks, albums and playlists will be gone, and the stats with them. This cannot be undone.',
   'Прозрачность': 'Opacity',
@@ -679,7 +682,6 @@ export const EN: Record<string, string> = {
   'Этот трек SoundCloud отдаёт только с защитой (DRM): слушать в программе можно, скачать нельзя':
     'SoundCloud serves this track only with protection (DRM): it plays in the app but cannot be downloaded',
   'не удалось сохранить файл: {0}': 'could not save the file: {0}',
-  'Не заданы client_id и oauth_token. Откройте Настройки.': 'client_id and oauth_token are not set. Open Settings.',
   'Вход в SoundCloud устарел. Откройте Настройки и нажмите «Войти через SoundCloud».':
     'The SoundCloud sign-in has expired. Open Settings and press "Sign in with SoundCloud".',
   'Доступ запрещён (403). Если включён VPN или прокси — отключите: SoundCloud блокирует датацентровые IP.':

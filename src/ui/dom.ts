@@ -49,6 +49,8 @@ document.addEventListener('visibilitychange', notify);
 export function toast(message: string, kind: 'error' | 'info' = 'info', ms = 5000): void {
   const host = document.getElementById('toasts');
   if (!host) return;
+  // the same message that is on the screen already (several loads failing for one reason) is not repeated
+  if ([...host.children].some((c) => c.textContent === message)) return;
   const el = h('div', { class: `toast toast-${kind}`, role: kind === 'error' ? 'alert' : 'status', text: message });
   host.append(el);
   while (host.children.length > 4) host.firstElementChild?.remove();

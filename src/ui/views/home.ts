@@ -7,9 +7,10 @@ import { listen } from '@tauri-apps/api/event';
 import { CATEGORY_GROUPS, type Category } from '../categories';
 import { openCategory, openChart, openMix, openPlaylist, type HomeTab } from '../router';
 import { SegTabs } from '../seg_tabs';
+import { store } from '../store';
 import { invoke } from '@tauri-apps/api/core';
 import { openShared, type SharedInfo } from './shared';
-import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
+import { btn, emptyState, sectionTitle, signInPrompt, staticTrackList, viewHead, type View } from './common';
 import { T } from '../i18n';
 import { tr } from '../i18n';
 
@@ -90,14 +91,24 @@ export class HomeView implements View {
       () => this.render(),
     );
     this.el = h('section', { class: 'view' }, viewHead(T('Главная'), this.refreshBtn), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
+    // signed in while this page is open (or out): start over
+    store.on('auth', () => {
+      this.sections = null;
+      this.feedLoaded = false;
+      if (this.el.isConnected) this.show();
+    });
   }
 
   show(tab?: HomeTab): void {
     if (tab) this.tabs.select(tab);
-    if (this.sections === null) void this.loadHome(false);
-    if (!this.feedLoaded) void this.loadFeed(false);
+    if (store.auth.has_credentials) {
+      if (this.sections === null) void this.loadHome(false);
+      if (!this.feedLoaded) void this.loadFeed(false);
+    }
     this.render();
   }
+
+
 
   private async reload(): Promise<void> {
     this.refreshBtn.disabled = true;
@@ -134,7 +145,11 @@ export class HomeView implements View {
   }
 
   private render(): void {
-    this.refreshBtn.hidden = this.tabs.value === 'categories';
+    this.refreshBtn.hidden = this.tabs.value === 'categories' || !store.auth.has_credentials;
+    if (!store.auth.has_credentials && this.tabs.value !== 'categories') {
+      this.body.replaceChildren(signInPrompt(T('Войдите в SoundCloud, чтобы видеть здесь подборки, ленту и свои лайки.')));
+      return;
+    }
     if (this.tabs.value === 'home') this.renderHome();
     else if (this.tabs.value === 'categories') this.renderCategories();
     else this.renderFeed();

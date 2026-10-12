@@ -33,6 +33,13 @@ export function btn(label: string, ic: Parameters<typeof icon>[0] | null, primar
   return h('button', { type: 'button', class: primary ? 'btn btn-primary' : 'btn' }, ic ? icon(ic) : null, h('span', { text: label }));
 }
 
+/** Not signed in: what to do, with the button, in place of an empty page and a red error. */
+export function signInPrompt(text: string): HTMLElement {
+  const go = btn(T('Войти через SoundCloud'), I.login, true);
+  go.addEventListener('click', () => api.authLogin().catch((e) => toast(errorMessage(e), 'error')));
+  return h('div', { class: 'empty' }, h('p', { text }), go);
+}
+
 export function emptyState(text: string): HTMLElement {
   return h('div', { class: 'empty', text });
 }
