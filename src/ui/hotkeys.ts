@@ -76,7 +76,7 @@ const NAMES: Record<string, string> = {
   Quote: "'",
   BracketLeft: '[',
   BracketRight: ']',
-  Backslash: '\',
+  Backslash: '\\',
   Minus: '-',
   Equal: '=',
   Backquote: '`',
