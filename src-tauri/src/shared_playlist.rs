@@ -185,6 +185,15 @@ impl Playlist {
         }
     }
 
+    pub fn clock(&self) -> u64 {
+        self.clock
+    }
+
+    /// Tracks still in the list that somebody other than `me` added after Lamport time `since`.
+    pub fn others_since(&self, me: &str, since: u64) -> usize {
+        self.entries.values().filter(|e| !e.removed && e.added_by != me && e.added_at > since).count()
+    }
+
     /// What happened, newest first: who added which track, who took which out (Lamport order, there
     /// is no wall clock in an edit). Moves are not listed.
     pub fn history(&self, limit: usize) -> Vec<Event> {

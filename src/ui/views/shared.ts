@@ -109,7 +109,11 @@ export class SharedView implements View {
   private timer = 0;
 
   constructor() {
-    this.el = h('section', { class: 'view' }, viewHead(T('Общие плейлисты')), this.body);
+    const join = btn(T('Присоединиться'), I.link);
+    join.addEventListener('click', () => void this.joinDialog());
+    const create = btn(T('Создать'), I.plus, true);
+    create.addEventListener('click', () => void this.createDialog());
+    this.el = h('section', { class: 'view' }, viewHead(T('Общие плейлисты'), join, create), this.body);
     void listen<string>('playlist:changed', (e) => {
       if (!this.el.isConnected) return;
       window.clearTimeout(this.timer);
@@ -144,38 +148,10 @@ export class SharedView implements View {
   // -------------------------------------------------------------------- list
 
   private lobby(): HTMLElement[] {
-    const link = h('input', { class: 'input', placeholder: T('Ссылка на общий плейлист'), spellcheck: 'false' });
-    const join = btn(T('Присоединиться'), null, true);
-    const doJoin = async () => {
-      try {
-        const channel = await invoke<string>('sp_join', { link: link.value.trim() });
-        link.value = '';
-        this.open = channel;
-        await this.load();
-      } catch (e) {
-        fail(e);
-      }
-    };
-    join.addEventListener('click', () => void doJoin());
-    link.addEventListener('keydown', (e) => e.key === 'Enter' && join.click());
-
-    const title = h('input', { class: 'input', placeholder: T('Название'), maxlength: '100' });
-    const create = btn(T('Создать'), I.plus);
-    create.addEventListener('click', async () => {
-      try {
-        const r = await invoke<{ info: SharedInfo; link: string }>('sp_create', { title: title.value, access: 'link' });
-        await navigator.clipboard.writeText(r.link).catch(() => undefined);
-        toast(T('Плейлист создан, ссылка скопирована'));
-        title.value = '';
-        this.open = r.info.channel;
-        await this.load();
-      } catch (e) {
-        fail(e);
-      }
-    });
-
     const rows = h('div', { class: 'rm-list' });
-    if (!this.list.length) rows.append(h('p', { class: 'muted small', text: T('Пока нет общих плейлистов.') }));
+    if (!this.list.length) {
+      return [emptyState(T('Пока нет общих плейлистов. Создайте свой или присоединитесь по ссылке: кнопки справа вверху.')), h('p', { class: 'muted small', text: T('Все меняют один и тот же список. Если кто-то не в сети, он получит правки позже. Данные шифруются, сервер их не читает.') })];
+    }
     for (const p of this.list) {
       const row = h(
         'div',
@@ -183,13 +159,69 @@ export class SharedView implements View {
         h('div', { class: 'rm-live-text' }, h('div', { class: 'strong', dir: 'auto', text: p.title || T('Без названия') }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} треков', p.count)} · ${T('{0} человек', p.members.length)}` })),
         p.unseen ? h('span', { class: 'rm-tag', text: T('новых: {0}', p.unseen) }) : null,
       );
-      row.addEventListener('click', () => {
+      const go = () => {
         this.open = p.channel;
         void this.load();
-      });
+      };
+      row.addEventListener('click', go);
+      row.addEventListener('keydown', (e) => e.key === 'Enter' && go());
       rows.append(row);
     }
-    return [sectionTitle(T('Присоединиться по ссылке')), h('div', { class: 'rm-form' }, link, join), sectionTitle(T('Мои общие плейлисты')), rows, sectionTitle(T('Новый общий плейлист')), h('div', { class: 'rm-form' }, title, create), h('p', { class: 'muted small', text: T('Все меняют один и тот же список. Если кто-то не в сети, он получит правки позже. Данные шифруются, сервер их не читает.') })];
+    return [rows];
+  }
+
+  /** A small dialog with one text field; null when cancelled. */
+  private ask(title: string, hint: string, placeholder: string, okLabel: string, maxlength = '200'): Promise<string | null> {
+    return new Promise((done) => {
+      const input = h('input', { class: 'input', placeholder, maxlength, spellcheck: 'false' });
+      const cancel = h('button', { type: 'button', class: 'btn', text: T('Отмена') });
+      const ok = h('button', { type: 'button', class: 'btn btn-primary', text: okLabel });
+      const box = h('div', { class: 'upd panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, h('div', { class: 'upd-title', text: title }), h('div', { class: 'muted small', text: hint }), input, h('div', { class: 'upd-actions' }, cancel, ok));
+      const backdrop = h('div', { class: 'upd-backdrop' }, box);
+      const close = (v: string | null) => {
+        backdrop.remove();
+        done(v);
+      };
+      const submit = () => {
+        const v = input.value.trim();
+        if (v) close(v);
+        else input.focus();
+      };
+      cancel.addEventListener('click', () => close(null));
+      ok.addEventListener('click', submit);
+      backdrop.addEventListener('pointerdown', (ev) => ev.target === backdrop && close(null));
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') submit();
+        else if (ev.key === 'Escape') close(null);
+      });
+      document.body.append(backdrop);
+      input.focus();
+    });
+  }
+
+  private async joinDialog(): Promise<void> {
+    const link = await this.ask(T('Присоединиться'), T('Вставьте ссылку на общий плейлист, которую вам прислали.'), T('Ссылка на общий плейлист'), T('Присоединиться'), '400');
+    if (!link) return;
+    try {
+      this.open = await invoke<string>('sp_join', { link });
+      await this.load();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  private async createDialog(): Promise<void> {
+    const title = await this.ask(T('Новый общий плейлист'), T('Все меняют один и тот же список. Ссылку для друзей можно скопировать на его странице.'), T('Название'), T('Создать'), '100');
+    if (!title) return;
+    try {
+      const r = await invoke<{ info: SharedInfo; link: string }>('sp_create', { title, access: 'link' });
+      await navigator.clipboard.writeText(r.link).catch(() => undefined);
+      toast(T('Плейлист создан, ссылка скопирована'));
+      this.open = r.info.channel;
+      await this.load();
+    } catch (e) {
+      fail(e);
+    }
   }
 
   // -------------------------------------------------------------------- page
@@ -201,7 +233,8 @@ export class SharedView implements View {
       this.open = null;
       void this.load();
     });
-    const head = h('div', { class: 'rm-head' }, h('div', {}, h('div', { class: 'rm-title', dir: 'auto', text: i.title }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} человек', i.members.length)}${i.role ? ' · ' + ROLE_TEXT[i.role] : ''}` })));
+    const people = h('div', { class: 'rm-people' }, ...i.members.slice(0, 5).map((m) => h('span', { class: 'rm-avatar', title: m.name, text: (m.name || '?').slice(0, 1) })));
+    const head = h('div', { class: 'rm-head' }, h('div', {}, h('div', { class: 'rm-title', dir: 'auto', text: i.title }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} человек', i.members.length)}${i.role ? ' · ' + ROLE_TEXT[i.role] : ''}` })), people);
 
     const play = btn(T('Играть'), I.play, true);
     play.addEventListener('click', () => void invoke('sp_play', { channel: i.channel, index: 0, shuffle: false }).catch(fail));

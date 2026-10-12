@@ -795,4 +795,7 @@ export const EN: Record<string, string> = {
   'добавил(а)': 'added',
   'Играть вместе': 'Play together',
   'В плейлисте нет треков, которые можно включить': 'There are no playable tracks in the playlist',
+  'Пока нет общих плейлистов. Создайте свой или присоединитесь по ссылке: кнопки справа вверху.': 'No shared playlists yet. Create your own or join by link: the buttons at the top right.',
+  'Вставьте ссылку на общий плейлист, которую вам прислали.': 'Paste the shared playlist link you were sent.',
+  'Все меняют один и тот же список. Ссылку для друзей можно скопировать на его странице.': 'Everyone edits the same list. You can copy the link for friends on its page.',
 };

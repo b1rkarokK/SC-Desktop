@@ -172,6 +172,15 @@ impl Pl {
             .collect()
     }
 
+    pub fn clock(&self) -> u64 {
+        self.lock().playlist.clock()
+    }
+
+    /// Tracks others added after Lamport time `since`.
+    pub fn unseen_since(&self, since: u64) -> usize {
+        self.lock().playlist.others_since(&self.me.to_string(), since)
+    }
+
     /// The last `limit` changes: (removed?, who, track id), newest first.
     pub fn history(&self, limit: usize) -> Vec<(bool, String, u64)> {
         let st = self.lock();

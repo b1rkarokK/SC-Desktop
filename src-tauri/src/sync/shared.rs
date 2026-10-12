@@ -167,16 +167,21 @@ impl SharedPlaylists {
         self.start(app).await;
     }
 
-    async fn seen(app: &AppHandle) -> HashMap<String, usize> {
-        app.state::<AppState>().db.kv_get::<HashMap<String, usize>>("sp:seen").await.ok().flatten().map(|(v, _)| v).unwrap_or_default()
+    async fn seen(app: &AppHandle) -> HashMap<String, u64> {
+        app.state::<AppState>().db.kv_get::<HashMap<String, u64>>("sp:seen2").await.ok().flatten().map(|(v, _)| v).unwrap_or_default()
     }
 
     pub async fn list(&self, app: &AppHandle) -> Vec<SpInfo> {
         let seen = Self::seen(app).await;
-        let mut v: Vec<SpInfo> = self.map.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(c, e)| info(c, &e.pl)).collect();
-        for i in &mut v {
-            // never opened here: nothing is "new" yet
-            i.unseen = i.count.saturating_sub(seen.get(&i.channel).copied().unwrap_or(i.count));
+        let mut v: Vec<SpInfo> = Vec::new();
+        {
+            let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+            for (c, e) in map.iter() {
+                let mut i = info(c, &e.pl);
+                // never opened here: nothing is "new" yet; your own tracks are never new
+                i.unseen = e.pl.unseen_since(seen.get(c).copied().unwrap_or_else(|| e.pl.clock()));
+                v.push(i);
+            }
         }
         v.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
         v
@@ -245,9 +250,10 @@ impl SharedPlaylists {
         let i = info(channel, &pl);
         // opened: everything in it is seen now
         let mut seen = Self::seen(app).await;
-        if seen.get(channel) != Some(&i.count) {
-            seen.insert(channel.to_owned(), i.count);
-            let _ = state.db.kv_put("sp:seen", &seen).await;
+        let clock = pl.clock();
+        if seen.get(channel) != Some(&clock) {
+            seen.insert(channel.to_owned(), clock);
+            let _ = state.db.kv_put("sp:seen2", &seen).await;
         }
         let history = past
             .into_iter()
