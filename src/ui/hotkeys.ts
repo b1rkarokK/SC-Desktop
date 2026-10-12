@@ -61,7 +61,26 @@ export function resetCombos(): void {
   save({ ...hotkeys(), keys: {} });
 }
 
-const NAMES: Record<string, string> = { Space: T('Пробел'), ArrowRight: '→', ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓', Escape: 'Esc', Backspace: '⌫' };
+const NAMES: Record<string, string> = {
+  Space: T('Пробел'),
+  ArrowRight: '→',
+  ArrowLeft: '←',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  Escape: 'Esc',
+  Backspace: '⌫',
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+  Semicolon: ';',
+  Quote: "'",
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\',
+  Minus: '-',
+  Equal: '=',
+  Backquote: '`',
+};
 
 export function keyName(code: string): string {
   return NAMES[code] ?? code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'Num ');
