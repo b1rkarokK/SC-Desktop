@@ -84,8 +84,9 @@ function deviceButton(): HTMLElement {
   let data: AudioDevices | null = null;
   const show = (d: AudioDevices) => {
     data = d;
-    const now = d.current ?? d.system ?? '';
-    label.textContent = now ? (d.picked ? now : now) : T('Звук');
+    // the picked device if it is there, else where the sound goes now
+    const now = (d.picked && d.devices.includes(d.picked) ? d.picked : d.current ?? d.system) ?? '';
+    label.textContent = now || T('Звук');
     label.title = d.picked ? now : T('Как в системе: {0}', now);
     iconBox.replaceChildren(icon(deviceIcon(now), 15));
     root.hidden = !now && !d.devices.length;
