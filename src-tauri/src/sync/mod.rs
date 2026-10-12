@@ -4,4 +4,5 @@ pub mod crypto;
 pub mod engine;
 pub mod hub;
 pub mod playlists;
+pub mod shared;
 pub mod service;

@@ -67,6 +67,7 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(sync::service::Rooms::default());
+            app.manage(sync::shared::SharedPlaylists::default());
             let guard = logging::init(&app.path().app_log_dir()?)?;
             app.manage(logging::LogGuard(guard));
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
@@ -91,6 +92,14 @@ fn main() {
             }
             charts::start_daily(&handle);
             autopause::start(handle.clone());
+            {
+                // the shared playlists we are in: reopened once the sign-in is known
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                    app.state::<sync::shared::SharedPlaylists>().start(&app).await;
+                });
+            }
             {
                 // lyrics cached before the search table existed
                 let app = handle.clone();
@@ -224,6 +233,19 @@ fn main() {
             commands::net_check,
             commands::config_set_ui,
             commands::hotkeys_apply,
+            commands::sp_list,
+            commands::sp_create,
+            commands::sp_join,
+            commands::sp_leave,
+            commands::sp_get,
+            commands::sp_add,
+            commands::sp_remove,
+            commands::sp_move,
+            commands::sp_access,
+            commands::sp_title,
+            commands::sp_invite,
+            commands::sp_remove_member,
+            commands::sp_play,
             commands::sync_url_get,
             commands::sync_url_set,
             commands::room_create,

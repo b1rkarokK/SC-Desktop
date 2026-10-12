@@ -5,6 +5,7 @@ import { openMenu, type MenuItem } from './context_menu';
 import { h, toast } from './dom';
 import { I } from './icons';
 import { T } from './i18n';
+import { addToShared, editableShared } from './views/shared';
 
 function fail(e: unknown): void {
   toast(errorMessage(e), 'error');
@@ -31,6 +32,13 @@ export async function addToPlaylistMenu(e: MouseEvent, t: Track): Promise<void> 
         void api.playlistAddTrack(p.id, t.id).then(() => toast(T('Добавлен в «{0}»', p.title)), fail);
       },
     });
+  }
+  const shared = await editableShared();
+  if (shared.length) {
+    items.push('separator');
+    for (const p of shared) {
+      items.push({ label: p.title, icon: I.users, action: () => void addToShared(p.channel, p.title, t) });
+    }
   }
   openMenu(e, items);
 }

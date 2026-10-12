@@ -1616,12 +1616,110 @@ pub fn sync_url_get(state: State<'_, AppState>) -> String {
 }
 
 #[tauri::command]
-pub fn sync_url_set(state: State<'_, AppState>, url: String) -> Cmd<()> {
+pub fn sync_url_set(app: AppHandle, state: State<'_, AppState>, url: String) -> Cmd<()> {
     let url = url.trim().trim_end_matches('/').to_owned();
     if !url.is_empty() && !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(AppError::Config("Адрес сервера должен начинаться с https://".into()));
     }
     state.config.update(|c| c.sync_url = url)?;
+    tauri::async_runtime::spawn(async move {
+        app.state::<crate::sync::shared::SharedPlaylists>().reconnect(&app).await;
+    });
+    Ok(())
+}
+
+// ---- shared playlists
+
+#[tauri::command]
+pub async fn sp_list(sp: State<'_, crate::sync::shared::SharedPlaylists>) -> Cmd<Vec<crate::sync::shared::SpInfo>> {
+    Ok(sp.list().await)
+}
+
+#[derive(serde::Serialize)]
+pub struct SpCreated {
+    info: crate::sync::shared::SpInfo,
+    link: String,
+}
+
+#[tauri::command]
+pub async fn sp_create(app: AppHandle, sp: State<'_, crate::sync::shared::SharedPlaylists>, title: String, access: String) -> Cmd<SpCreated> {
+    let (info, link) = sp.create(&app, title, parse_access(&access)).await?;
+    Ok(SpCreated { info, link })
+}
+
+fn parse_access(s: &str) -> crate::shared_playlist::Access {
+    use crate::shared_playlist::Access;
+    match s {
+        "closed" => Access::Closed,
+        "invite" => Access::Invite,
+        "open" => Access::Open,
+        _ => Access::Link,
+    }
+}
+
+#[tauri::command]
+pub async fn sp_join(app: AppHandle, sp: State<'_, crate::sync::shared::SharedPlaylists>, link: String) -> Cmd<String> {
+    Ok(sp.join(&app, &link).await?)
+}
+
+#[tauri::command]
+pub async fn sp_leave(app: AppHandle, sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String) -> Cmd<()> {
+    sp.leave(&app, &channel).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sp_get(app: AppHandle, sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String) -> Cmd<crate::sync::shared::SpDetail> {
+    Ok(sp.detail(&app, &channel).await?)
+}
+
+#[tauri::command]
+pub fn sp_add(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, track_id: u64) -> Cmd<()> {
+    Ok(sp.add(&channel, track_id)?)
+}
+
+#[tauri::command]
+pub fn sp_remove(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, entry: String) -> Cmd<()> {
+    Ok(sp.remove(&channel, &entry)?)
+}
+
+#[tauri::command]
+pub fn sp_move(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, entry: String, index: usize) -> Cmd<()> {
+    Ok(sp.move_to(&channel, &entry, index)?)
+}
+
+#[tauri::command]
+pub fn sp_access(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, access: String) -> Cmd<()> {
+    Ok(sp.set_access(&channel, parse_access(&access))?)
+}
+
+#[tauri::command]
+pub fn sp_title(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, title: String) -> Cmd<()> {
+    Ok(sp.set_title(&channel, title)?)
+}
+
+#[tauri::command]
+pub fn sp_invite(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, user_id: u64, name: String, role: String) -> Cmd<()> {
+    use crate::shared_playlist::Role;
+    Ok(sp.invite(&channel, user_id, name, if role == "viewer" { Role::Viewer } else { Role::Editor })?)
+}
+
+#[tauri::command]
+pub fn sp_remove_member(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, user_id: u64) -> Cmd<()> {
+    Ok(sp.remove_member(&channel, user_id)?)
+}
+
+/// Play a shared playlist from `index`, optionally shuffled.
+#[tauri::command]
+pub async fn sp_play(app: AppHandle, sp: State<'_, crate::sync::shared::SharedPlaylists>, player: State<'_, Arc<Player>>, channel: String, index: usize, shuffle: bool) -> Cmd<()> {
+    let d = sp.detail(&app, &channel).await?;
+    let tracks: Vec<TrackDto> = d.tracks.into_iter().filter_map(|t| t.track).collect();
+    if tracks.is_empty() {
+        return Err(AppError::Other(crate::lang::pick("В плейлисте нет треков, которые можно включить", "There are no playable tracks in the playlist").into()));
+    }
+    player.set_shuffle(shuffle);
+    let at = if shuffle { index.min(tracks.len() - 1) } else { index.min(tracks.len() - 1) };
+    player.play_queue(tracks, at, QueueSource::List);
     Ok(())
 }
 
