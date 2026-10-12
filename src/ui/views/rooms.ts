@@ -191,6 +191,8 @@ export class RoomsView implements View {
   private main = h('div', { class: 'rm-main' });
   private roster = h('aside', { class: 'rm-roster' });
   private live: LiveRoom[] = [];
+  /** friends who are listening to something now (only shown: a person is joined through a room) */
+  private nowFriends: { name: string; line: string }[] = [];
   private mine: MineRoom[] = [];
   private err = '';
   private timer = 0;
@@ -250,6 +252,12 @@ export class RoomsView implements View {
     try {
       this.live = await invoke<LiveRoom[]>('rooms_live', { hostIds: await api.friendIds() });
       this.err = '';
+      try {
+        const [now, people] = await Promise.all([api.friendsListening(), api.friendsList()]);
+        this.nowFriends = now.map((n) => ({ name: people.friends.find((f) => f.id === n.id)?.name ?? '', line: `${n.title} - ${n.artist}` })).filter((n) => n.name);
+      } catch {
+        this.nowFriends = [];
+      }
     } catch (e) {
       this.live = [];
       this.err = errorMessage(e);
@@ -310,6 +318,12 @@ export class RoomsView implements View {
       h('div', { class: 'rm-sidehead' }, h('span', { text: T('Мои комнаты') }), create),
       rows,
       ...(this.err ? [h('p', { class: 'muted small rm-hint', text: this.err })] : friends.childElementCount ? [h('div', { class: 'rm-sidehead' }, h('span', { text: T('У друзей сейчас') })), friends] : []),
+      ...(this.nowFriends.length
+        ? [
+            h('div', { class: 'rm-sidehead' }, h('span', { text: T('Друзья слушают') })),
+            h('div', { class: 'rm-items' }, ...this.nowFriends.map((n) => h('div', { class: 'rm-friend' }, h('span', { class: 'rm-pav small', text: initial(n.name) }), h('div', { class: 'rm-item-text' }, h('div', { class: 'rm-item-name', dir: 'auto', text: n.name }), h('div', { class: 'rm-item-sub', dir: 'auto', text: n.line }))))),
+          ]
+        : []),
       h('div', { class: 'spacer' }),
       join,
     );

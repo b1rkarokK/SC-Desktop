@@ -755,7 +755,7 @@ impl Friends {
         let Ok(client) = super::service::http() else { return };
         if want {
             let t = snap.track.expect("checked above");
-            if matches!(last, Some((id, true, at)) if id == t.id && at.elapsed() < Duration::from_secs(50)) {
+            if matches!(last, Some((id, true, at)) if id == t.id && at.elapsed() < Duration::from_secs(90)) {
                 return;
             }
             let body = NowPlaying { track_id: t.id, title: t.title, artist: t.artist, artwork_url: t.artwork_url, at: now_ms() };

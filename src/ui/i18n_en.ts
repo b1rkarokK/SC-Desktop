@@ -517,6 +517,7 @@ export const EN: Record<string, string> = {
   'тайминги оригинала пересчитаны под темп: ×{0}': 'timings of the original recalculated for the tempo: ×{0}',
   'Имя и аватар берутся с SoundCloud, но запрос мог отправить кто угодно. Принимайте тех, кого знаете.': 'The name and picture come from SoundCloud, but anybody could have sent the request. Accept the people you know.',
   'вы подписаны на него': 'you follow them',
+  'Друзья слушают': 'Friends listening',
   'Очистить историю?': 'Clear the history?',
   'Пропадут все прослушанные треки, альбомы и плейлисты, а с ними и «Итоги». Вернуть их будет нельзя.': 'All played tracks, albums and playlists will be gone, and the stats with them. This cannot be undone.',
   'Прозрачность': 'Opacity',
