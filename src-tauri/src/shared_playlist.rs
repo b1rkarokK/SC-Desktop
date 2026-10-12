@@ -42,9 +42,25 @@ pub enum Role {
     Viewer,
 }
 
+/// The strip at the top of a shared playlist: a picture, or a colour, or nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cover {
+    /// "#rrggbb"
+    #[serde(default)]
+    pub color: Option<String>,
+    /// a small JPEG as a data URL (the owner's picture, cut down to a couple of hundred KB)
+    #[serde(default)]
+    pub image: Option<String>,
+}
+
+/// The largest picture kept in a playlist (data URL characters).
+pub const MAX_COVER_IMAGE: usize = 230_000;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub title: String,
+    #[serde(default)]
+    pub cover: Cover,
     pub access: Access,
     /// SoundCloud user id -> role
     pub members: BTreeMap<u64, Role>,
@@ -414,7 +430,7 @@ mod tests {
 
     #[test]
     fn access_modes() {
-        let mut s = Settings { title: "t".into(), access: Access::Closed, members: BTreeMap::from([(1, Role::Owner), (2, Role::Editor), (3, Role::Viewer)]) };
+        let mut s = Settings { title: "t".into(), cover: Cover::default(), access: Access::Closed, members: BTreeMap::from([(1, Role::Owner), (2, Role::Editor), (3, Role::Viewer)]) };
         // closed: only the named
         assert!(s.can_view(Some(2), false) && !s.can_view(Some(9), true) && !s.can_view(None, true));
         // link: the link is enough to look, not to edit

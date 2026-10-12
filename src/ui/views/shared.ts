@@ -29,6 +29,8 @@ export interface SharedInfo {
   mine: boolean;
   can_edit: boolean;
   members: Member[];
+  cover: { color: string | null; image: string | null };
+  artworks: string[];
 }
 
 interface SharedTrack {
@@ -58,6 +60,45 @@ const MODES: [Access, string, string][] = [
   ['invite', T('По приглашению'), T('Ссылка сама по себе ничего не открывает, нужно приглашение')],
   ['open', T('Открытый'), T('Любой со ссылкой смотрит и добавляет треки')],
 ];
+
+const COVER_COLORS = ['#3a2418', '#1f2c3f', '#2a3a24', '#3a2438', '#3a3318', '#18353a', '#3a1f1f', '#2a2a2a'];
+
+/** The top of a tile: the owner's picture, else a colour, else the artwork of the first tracks. */
+export function coverStrip(info: SharedInfo, className: string, artworks: string[] = info.artworks): HTMLElement {
+  const strip = h('div', { class: className });
+  if (info.cover.image) {
+    strip.style.backgroundImage = `url("${info.cover.image}")`;
+    strip.classList.add('has-image');
+  } else if (info.cover.color) {
+    strip.style.background = info.cover.color;
+  } else if (artworks.length) {
+    strip.classList.add('is-mosaic');
+    for (const a of artworks.slice(0, 4)) strip.append(h('div', { class: 'sp-art', style: `background-image:url("${a}")` }));
+  }
+  return strip;
+}
+
+/** A picture cut to the strip's shape (4 : 1, at most 1200 px wide) and squeezed until it is small enough to keep. */
+async function pictureToCover(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const w = Math.min(1200, bitmap.width);
+  const h2 = Math.round(w / 4);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h2;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas');
+  // fill the strip: scale to cover, centred
+  const scale = Math.max(w / bitmap.width, h2 / bitmap.height);
+  const dw = bitmap.width * scale;
+  const dh = bitmap.height * scale;
+  ctx.drawImage(bitmap, (w - dw) / 2, (h2 - dh) / 2, dw, dh);
+  for (const q of [0.82, 0.7, 0.58, 0.46, 0.34]) {
+    const url = canvas.toDataURL('image/jpeg', q);
+    if (url.length <= 220_000) return url;
+  }
+  throw new Error(T('Картинка слишком большая'));
+}
 
 const ROLE_TEXT: Record<Role, string> = { owner: T('владелец'), editor: T('редактор'), viewer: T('зритель') };
 
@@ -148,26 +189,32 @@ export class SharedView implements View {
   // -------------------------------------------------------------------- list
 
   private lobby(): HTMLElement[] {
-    const rows = h('div', { class: 'rm-list' });
     if (!this.list.length) {
       return [emptyState(T('Пока нет общих плейлистов. Создайте свой или присоединитесь по ссылке: кнопки справа вверху.')), h('p', { class: 'muted small', text: T('Все меняют один и тот же список. Если кто-то не в сети, он получит правки позже. Данные шифруются, сервер их не читает.') })];
     }
+    const grid = h('div', { class: 'sp-tiles' });
     for (const p of this.list) {
-      const row = h(
+      const tile = h(
         'div',
-        { class: 'rm-live', role: 'button', tabindex: '0' },
-        h('div', { class: 'rm-live-text' }, h('div', { class: 'strong', dir: 'auto', text: p.title || T('Без названия') }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} треков', p.count)} · ${T('{0} человек', p.members.length)}` })),
-        p.unseen ? h('span', { class: 'rm-tag', text: T('новых: {0}', p.unseen) }) : null,
+        { class: 'sp-tile', role: 'button', tabindex: '0' },
+        coverStrip(p, 'sp-tile-top'),
+        h(
+          'div',
+          { class: 'sp-tile-body' },
+          h('div', { class: 'sp-tile-title', dir: 'auto', text: p.title || T('Без названия') }),
+          h('div', { class: 'muted small', text: `${T('{0} треков', p.count)} · ${T('{0} человек', p.members.length)}` }),
+          p.unseen ? h('span', { class: 'rm-tag', text: T('новых: {0}', p.unseen) }) : null,
+        ),
       );
       const go = () => {
         this.open = p.channel;
         void this.load();
       };
-      row.addEventListener('click', go);
-      row.addEventListener('keydown', (e) => e.key === 'Enter' && go());
-      rows.append(row);
+      tile.addEventListener('click', go);
+      tile.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+      grid.append(tile);
     }
-    return [rows];
+    return [grid];
   }
 
   /** A small dialog with one text field; null when cancelled. */
@@ -234,7 +281,14 @@ export class SharedView implements View {
       void this.load();
     });
     const people = h('div', { class: 'rm-people' }, ...i.members.slice(0, 5).map((m) => h('span', { class: 'rm-avatar', title: m.name, text: (m.name || '?').slice(0, 1) })));
-    const head = h('div', { class: 'rm-head' }, h('div', {}, h('div', { class: 'rm-title', dir: 'auto', text: i.title }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} человек', i.members.length)}${i.role ? ' · ' + ROLE_TEXT[i.role] : ''}` })), people);
+    // the strip across the top (a picture, a colour or nothing), and under it the header with the tracks' artwork
+    const hasStrip = !!(i.cover.image || i.cover.color);
+    const strip = hasStrip ? coverStrip(i, 'sp-strip') : null;
+    const art = d.tracks.map((t) => t.track?.artwork_url).filter((a): a is string => !!a).slice(0, 4);
+    const mosaic = h('div', { class: 'sp-mosaic' });
+    if (art.length) for (const a of art) mosaic.append(h('div', { class: 'sp-art', style: `background-image:url("${a}")` }));
+    else mosaic.append(icon(I.playlist, 28));
+    const head = h('div', { class: 'rm-head sp-head' }, mosaic, h('div', { class: 'sp-head-text' }, h('div', { class: 'rm-title', dir: 'auto', text: i.title }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} треков', d.tracks.length)} · ${T('{0} человек', i.members.length)}${i.role ? ' · ' + ROLE_TEXT[i.role] : ''}` })), people);
 
     const play = btn(T('Играть'), I.play, true);
     play.addEventListener('click', () => void invoke('sp_play', { channel: i.channel, index: 0, shuffle: false }).catch(fail));
@@ -254,7 +308,9 @@ export class SharedView implements View {
         const v = prompt(T('Название'), i.title);
         if (v && v.trim()) await invoke('sp_title', { channel: i.channel, title: v.trim() }).catch(fail);
       });
-      actions.append(access, rename);
+      const look = btn(T('Оформление'), I.edit);
+      look.addEventListener('click', () => void this.coverDialog(d));
+      actions.append(access, rename, look);
     }
     const leave = btn(T('Покинуть'), I.close);
     leave.addEventListener('click', async () => {
@@ -292,7 +348,7 @@ export class SharedView implements View {
       const what = ev.title || T('трек');
       history.append(h('div', { class: 'rm-q' }, h('span', { dir: 'auto', text: `${who} ${ev.removed ? T('убрал(а)') : T('добавил(а)')} «${what}»` })));
     }
-    const out = [h('div', { class: 'row-actions' }, back), head, actions, sectionTitle(T('Треки ({0})', d.tracks.length)), tracks, sectionTitle(T('Участники')), members];
+    const out = [h('div', { class: 'row-actions' }, back), ...(strip ? [strip] : []), head, actions, sectionTitle(T('Треки ({0})', d.tracks.length)), tracks, sectionTitle(T('Участники')), members];
     if (d.history.length) out.push(sectionTitle(T('История')), history);
     return out;
   }
@@ -313,6 +369,50 @@ export class SharedView implements View {
     } catch (e) {
       fail(e);
     }
+  }
+
+  /** The look: a picture across the top, a colour, or nothing. */
+  private async coverDialog(d: SharedDetail): Promise<void> {
+    const i = d.info;
+    const save = (color: string | null, image: string | null) => invoke('sp_cover', { channel: i.channel, color, image }).catch(fail);
+    const swatches = h('div', { class: 'sp-swatches' });
+    for (const c of COVER_COLORS) {
+      const b = h('button', { type: 'button', class: `sp-swatch${i.cover.color === c && !i.cover.image ? ' is-on' : ''}`, title: c, 'aria-label': c });
+      b.style.background = c;
+      b.addEventListener('click', async () => {
+        await save(c, null);
+        done();
+      });
+      swatches.append(b);
+    }
+    const file = h('input', { type: 'file', accept: 'image/*', hidden: 'hidden' });
+    const pick = btn(T('Выбрать картинку…'), I.upload);
+    pick.addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      try {
+        await save(i.cover.color, await pictureToCover(f));
+        done();
+      } catch (e) {
+        fail(e);
+      }
+    });
+    const clear = btn(T('Убрать оформление'), I.close);
+    clear.addEventListener('click', async () => {
+      await save(null, null);
+      done();
+    });
+    const close = h('button', { type: 'button', class: 'btn btn-primary', text: T('Готово') });
+    const box = h('div', { class: 'upd panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': T('Оформление') }, h('div', { class: 'upd-title', text: T('Оформление') }), h('div', { class: 'muted small', text: T('Полоса сверху: своя картинка, цвет или ничего. Её видят все участники.') }), swatches, h('div', { class: 'row-actions' }, pick, clear), file, h('div', { class: 'upd-actions' }, close));
+    const backdrop = h('div', { class: 'upd-backdrop' }, box);
+    const done = () => {
+      backdrop.remove();
+      void this.load();
+    };
+    close.addEventListener('click', done);
+    backdrop.addEventListener('pointerdown', (e) => e.target === backdrop && done());
+    document.body.append(backdrop);
   }
 
   // ------------------------------------------------------------ access dialog

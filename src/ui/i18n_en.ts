@@ -829,4 +829,9 @@ export const EN: Record<string, string> = {
   'Не в сети, {0}': 'Offline, {0}',
   'хост': 'host',
   'Хост передаётся сам: когда он выйдет, им станет следующий по списку.': 'The host passes on by itself: when they leave, the next one in the list takes over.',
+  'Оформление': 'Appearance',
+  'Выбрать картинку…': 'Choose a picture…',
+  'Убрать оформление': 'Remove the appearance',
+  'Полоса сверху: своя картинка, цвет или ничего. Её видят все участники.': 'The strip at the top: your own picture, a colour or nothing. Everyone in the playlist sees it.',
+  'Картинка слишком большая': 'The picture is too big',
 };

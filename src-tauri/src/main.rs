@@ -249,6 +249,7 @@ fn main() {
             commands::sp_move,
             commands::sp_access,
             commands::sp_title,
+            commands::sp_cover,
             commands::sp_invite,
             commands::sp_remove_member,
             commands::sp_play,

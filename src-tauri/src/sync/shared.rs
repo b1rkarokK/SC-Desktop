@@ -60,6 +60,9 @@ pub struct SpInfo {
     pub mine: bool,
     pub can_edit: bool,
     pub members: Vec<playlists::Member>,
+    pub cover: crate::shared_playlist::Cover,
+    /// artwork of the first tracks, for the mosaic when there is no picture or colour
+    pub artworks: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -98,6 +101,8 @@ fn info(channel: &str, pl: &Pl) -> SpInfo {
         mine: st.mine,
         can_edit: pl.can_edit(),
         members: pl.members(),
+        cover: pl.cover(),
+        artworks: Vec::new(),
     }
 }
 
@@ -174,13 +179,22 @@ impl SharedPlaylists {
     pub async fn list(&self, app: &AppHandle) -> Vec<SpInfo> {
         let seen = Self::seen(app).await;
         let mut v: Vec<SpInfo> = Vec::new();
+        let mut firsts: Vec<(usize, Vec<u64>)> = Vec::new();
         {
             let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
             for (c, e) in map.iter() {
                 let mut i = info(c, &e.pl);
                 // never opened here: nothing is "new" yet; your own tracks are never new
                 i.unseen = e.pl.unseen_since(seen.get(c).copied().unwrap_or_else(|| e.pl.clock()));
+                let ids: Vec<u64> = e.pl.rows().iter().take(4).map(|r| r.track_id).collect();
+                firsts.push((v.len(), ids));
                 v.push(i);
+            }
+        }
+        let state = app.state::<AppState>();
+        for (at, ids) in firsts {
+            if let Ok(tracks) = state.db.tracks_by_ids(ids.clone()).await {
+                v[at].artworks = ids.iter().filter_map(|id| tracks.iter().find(|t| t.id == *id)).filter_map(|t| TrackDto::from(t).artwork_url).collect();
             }
         }
         v.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
@@ -276,6 +290,10 @@ impl SharedPlaylists {
 
     pub fn set_access(&self, channel: &str, access: Access) -> AppResult<()> {
         self.pl(channel)?.set_access(access).map_err(AppError::Other)
+    }
+
+    pub fn set_cover(&self, channel: &str, color: Option<String>, image: Option<String>) -> AppResult<()> {
+        self.pl(channel)?.set_cover(color, image).map_err(AppError::Other)
     }
 
     pub fn set_title(&self, channel: &str, title: String) -> AppResult<()> {

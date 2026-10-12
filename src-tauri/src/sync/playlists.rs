@@ -280,6 +280,18 @@ impl Pl {
         self.change_settings(|s| s.access = access)
     }
 
+    pub fn set_cover(&self, color: Option<String>, image: Option<String>) -> Result<(), String> {
+        if image.as_deref().is_some_and(|i| i.len() > crate::shared_playlist::MAX_COVER_IMAGE || !i.starts_with("data:image/")) {
+            return Err("картинка слишком большая".into());
+        }
+        let color = color.filter(|c| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|d| d.is_ascii_hexdigit()));
+        self.change_settings(|s| s.cover = crate::shared_playlist::Cover { color, image })
+    }
+
+    pub fn cover(&self) -> crate::shared_playlist::Cover {
+        self.lock().settings.as_ref().map(|s| s.cover.clone()).unwrap_or_default()
+    }
+
     pub fn set_title(&self, title: String) -> Result<(), String> {
         self.change_settings(|s| s.title = title)
     }
@@ -307,7 +319,7 @@ impl Pl {
     /// The first settings of a playlist we found.
     pub fn found(&self, title: String, access: Access) {
         let mut st = self.lock();
-        let mut s = Settings { title, access, members: BTreeMap::new() };
+        let mut s = Settings { title, cover: Default::default(), access, members: BTreeMap::new() };
         s.members.insert(self.me, Role::Owner);
         let stamp = st.playlist.next_stamp(&self.me.to_string());
         st.settings = Some(s.clone());

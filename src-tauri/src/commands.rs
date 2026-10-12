@@ -1705,6 +1705,11 @@ pub fn sp_access(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: S
 }
 
 #[tauri::command]
+pub fn sp_cover(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, color: Option<String>, image: Option<String>) -> Cmd<()> {
+    Ok(sp.set_cover(&channel, color, image)?)
+}
+
+#[tauri::command]
 pub fn sp_title(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, title: String) -> Cmd<()> {
     Ok(sp.set_title(&channel, title)?)
 }

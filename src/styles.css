@@ -3778,3 +3778,108 @@ kbd {
     display: none;
   }
 }
+
+/* ---- shared playlists: tiles, the strip, the header with the artwork mosaic */
+.sp-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.sp-tile {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.sp-tile:hover,
+.sp-tile:focus-visible {
+  border-color: var(--accent, #ff5500);
+  outline: none;
+}
+
+.sp-tile-top {
+  height: 84px;
+  background: color-mix(in srgb, var(--text) 8%, var(--panel));
+  background-position: center;
+  background-size: cover;
+}
+
+.is-mosaic {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.sp-art {
+  background-position: center;
+  background-size: cover;
+}
+
+.sp-tile-body {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  padding: 8px 10px 10px;
+}
+
+.sp-tile-title {
+  max-width: 100%;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-strip {
+  height: 110px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background-position: center;
+  background-size: cover;
+}
+
+.sp-head {
+  justify-content: flex-start;
+}
+
+.sp-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sp-mosaic {
+  display: grid;
+  flex: none;
+  grid-template-columns: 1fr 1fr;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 8%, var(--panel));
+  color: var(--muted);
+}
+
+.sp-mosaic .sp-art {
+  width: 100%;
+  height: 100%;
+}
+
+.sp-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sp-swatch {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+
+.sp-swatch.is-on {
+  border-color: var(--text);
+}
