@@ -14,10 +14,14 @@ Installs in a couple of seconds, no admin rights needed. You get a desktop short
 - My Wave: an endless mix based on your taste. Pick a mood and keep tracks you already liked out of it
 - Search all of SoundCloud, open track, artist and playlist pages
 - Lyrics that light up in time with the song, sometimes word by word. There's a fullscreen mode you can tweak
-- Listening history by day
-- 10-band equalizer
-- Themes: OLED, dark, light
-- Discord status: what's playing, cover art and time left
+- Rooms: listen together, one track at everyone's place at once (audio and chat are not sent, only commands). A room stays in "My rooms" and the host passes on by itself
+- Shared playlists: one list for everybody, with roles, history of changes and a picture or colour of your own
+- Friends: requests, a list, invitations to rooms and playlists, and what a friend is listening to right now. Everything is encrypted on your devices
+- Listening history by day and a yearly recap
+- 10-band equalizer, slowed / sped up, reverb, crossfade; a separate equalizer for every output device
+- Themes: OLED, dark, light, and your own (colours, a background picture, your own CSS)
+- Hotkeys of your own that work over games too
+- Discord status: what's playing, cover art, time left, and a "Join" button for an open room
 - Lives in the tray, works with media keys, can start with Windows
 - Switch headphones or speakers mid-song and the sound follows
 
