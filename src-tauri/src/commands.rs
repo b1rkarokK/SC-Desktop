@@ -1541,8 +1541,14 @@ pub struct AudioDevices {
 }
 
 #[tauri::command]
-pub fn audio_devices(state: State<'_, AppState>, player: State<'_, Arc<Player>>) -> AudioDevices {
-    AudioDevices { devices: crate::player::audio::output_device_names(), picked: state.config.get().output_device, current: player.current_device(), system: crate::player::audio::system_device_name() }
+pub async fn audio_devices(state: State<'_, AppState>, player: State<'_, Arc<Player>>) -> Cmd<AudioDevices> {
+    let picked = state.config.get().output_device;
+    let current = player.current_device();
+    // listing the devices asks the sound system and can take a few hundred ms: not on the window's thread
+    let (devices, system) = tauri::async_runtime::spawn_blocking(|| (crate::player::audio::output_device_names(), crate::player::audio::system_device_name()))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(AudioDevices { devices, picked, current, system })
 }
 
 /// Pick the output device (None: the system's, followed as it changes).

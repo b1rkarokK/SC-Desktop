@@ -122,14 +122,16 @@ function deviceButton(): HTMLElement {
       h('div', { class: 'dev-note muted small', text: T('Треки в плеере SoundCloud (защищённые) идут на устройство по умолчанию.') }),
     );
   };
-  btn.addEventListener('click', async () => {
+  btn.addEventListener('click', () => {
     if (!list.hidden) {
       list.hidden = true;
       return;
     }
-    await refresh();
-    draw();
+    // opens at once with what we know; the fresh list replaces it a moment later
+    if (data) draw();
+    else list.replaceChildren(h('div', { class: 'dev-head', text: T('Загрузка…') }));
     list.hidden = false;
+    void refresh().then(() => !list.hidden && draw());
   });
   document.addEventListener('pointerdown', (e) => {
     if (!list.hidden && !root.contains(e.target as Node)) list.hidden = true;
