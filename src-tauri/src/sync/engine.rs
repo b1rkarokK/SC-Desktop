@@ -111,7 +111,10 @@ const TICK: Duration = Duration::from_millis(500);
 const PLAY_EVERY: Duration = Duration::from_secs(5);
 const HELLO_EVERY: Duration = Duration::from_secs(2);
 const HELLO_GIVE_UP: Duration = Duration::from_secs(20);
-const PING_EVERY: Duration = Duration::from_secs(10);
+#[cfg(not(test))]
+const PING_EVERY: Duration = Duration::from_secs(4);
+#[cfg(test)]
+const PING_EVERY: Duration = Duration::from_secs(1);
 /// below this the picture is already "together"
 const TRIM_FROM_MS: i64 = 120;
 const TRIM: f32 = 0.02;
@@ -297,7 +300,22 @@ impl Engine {
                     }
                 }
             }
-            Msg::Ping { id, t0 } => self.send(&Msg::Pong { id, t0, host_t: now }, false),
+            Msg::Ping { id, t0 } => {
+                // the ping is a member's heartbeat: without it a listener whose status does not change
+                // (steadily playing) would look silent and be dropped
+                let mut back = false;
+                if let Some(r) = self.room.as_mut() {
+                    r.heard_from(&id, now);
+                    if r.members.iter().any(|m| m.id == id && matches!(&m.status, Status::Problem(p) if p == "проблема с соединением")) {
+                        r.set_status(&id, Status::Ready, now);
+                        back = true;
+                    }
+                }
+                self.send(&Msg::Pong { id, t0, host_t: now }, false);
+                if back {
+                    self.roster();
+                }
+            }
             Msg::Leave { id } => {
                 if let Some(r) = self.room.as_mut() {
                     r.leave(&id);
@@ -813,6 +831,22 @@ pub(crate) mod tests {
             let gap = if h0 > a0 { h0 - a0 } else { a0 - h0 };
             assert!(gap < Duration::from_millis(60), "start moments differ by {gap:?}");
             assert_eq!(st(&host).as_deref(), Some("playing"));
+        });
+    }
+
+    #[test]
+    fn a_quiet_listener_who_keeps_pinging_stays_in_the_room() {
+        // test build: silent for 3 s is a problem, 5 s is gone; a steadily playing member sends nothing else
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, _hp) = room("chan-quiet", "", &net, "host", true);
+            let (anna, _ap) = room("chan-quiet", "", &net, "anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 4000).await);
+            tokio::time::sleep(Duration::from_millis(7500)).await;
+            let st = |v: &Handle| v.view.lock().unwrap().members.iter().find(|m| m.id == "anna").map(|m| m.status.clone());
+            assert_eq!(host.view.lock().unwrap().members.len(), 2, "anna was dropped for being quiet");
+            assert_ne!(st(&host).as_deref(), Some("problem"), "anna shows a connection problem");
+            assert_eq!(anna.view.lock().unwrap().members.len(), 2);
         });
     }
 

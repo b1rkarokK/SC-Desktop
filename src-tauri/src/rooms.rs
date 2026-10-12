@@ -25,9 +25,15 @@ use serde::{Deserialize, Serialize};
 pub type Ms = i64;
 
 /// A member silent for this long is shown as having a connection problem.
+#[cfg(not(test))]
 pub const SILENT_PROBLEM_MS: Ms = 8_000;
+#[cfg(test)]
+pub const SILENT_PROBLEM_MS: Ms = 3_000;
 /// A member silent for this long is dropped from the barrier and the room.
+#[cfg(not(test))]
 pub const SILENT_GONE_MS: Ms = 45_000;
+#[cfg(test)]
+pub const SILENT_GONE_MS: Ms = 5_000;
 /// How long the host waits for everybody to load a track before starting anyway.
 pub const BARRIER_TIMEOUT_MS: Ms = 20_000;
 /// Start is announced this far ahead so every member can still receive it.
