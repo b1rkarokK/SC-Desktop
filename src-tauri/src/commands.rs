@@ -1773,6 +1773,12 @@ pub async fn room_join(app: AppHandle, state: State<'_, AppState>, rooms: State<
     Ok(())
 }
 
+/// The section the window is on (for the Discord status).
+#[tauri::command]
+pub fn discord_section(player: State<'_, Arc<Player>>, section: String) {
+    player.discord_section(Some(section));
+}
+
 /// Our rooms, with who is in them right now.
 #[tauri::command]
 pub async fn rooms_mine(state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>) -> Cmd<Vec<crate::sync::service::MineView>> {

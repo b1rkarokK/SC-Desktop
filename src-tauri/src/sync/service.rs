@@ -373,6 +373,14 @@ impl Rooms {
         let (app_v, ch_v, pw_v) = (app.clone(), channel.clone(), password.clone());
         let on_view: Arc<dyn Fn(&RoomView) + Send + Sync> = Arc::new(move |v: &RoomView| {
             let _ = app_v.emit("room:view", v);
+            // the Discord status: in a room (or not any more)
+            let info = (v.active && v.ended.is_none() && !v.name.is_empty()).then(|| crate::discord::RoomInfo {
+                name: v.name.clone(),
+                members: v.members.iter().filter(|m| m.status != "connecting" || m.you).count().max(1),
+                open: !v.has_password,
+                channel: v.channel.clone(),
+            });
+            app_v.state::<Arc<Player>>().discord_room(info);
             if v.ended.is_some() || v.name.is_empty() {
                 return;
             }

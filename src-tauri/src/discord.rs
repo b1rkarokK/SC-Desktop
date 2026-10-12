@@ -31,9 +31,25 @@ pub struct Presence {
     pub playing: bool,
 }
 
+/// The room we are in, for the status.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoomInfo {
+    pub name: String,
+    pub members: usize,
+    /// no password: the status may offer joining
+    pub open: bool,
+    pub channel: String,
+}
+
+/// A page that opens `scdesk://room/<channel>` or offers to download the app. Empty until it is published:
+/// without it the status carries no "join" button.
+pub const JOIN_PAGE: &str = "";
+
 enum Cmd {
     Set(Option<Presence>),
     Config(DiscordConfig),
+    Section(Option<String>),
+    Room(Option<RoomInfo>),
 }
 
 pub struct Discord {
@@ -57,6 +73,15 @@ impl Discord {
     pub fn configure(&self, cfg: DiscordConfig) {
         let _ = self.tx.send(Cmd::Config(cfg));
     }
+
+    /// Where in the app we are ("likes", "home" …): shown while nothing plays.
+    pub fn set_section(&self, key: Option<String>) {
+        let _ = self.tx.send(Cmd::Section(key));
+    }
+
+    pub fn set_room(&self, room: Option<RoomInfo>) {
+        let _ = self.tx.send(Cmd::Room(room));
+    }
 }
 
 struct Worker {
@@ -65,6 +90,10 @@ struct Worker {
     last: Option<Presence>,
     /// what Discord currently shows (for de-duplication: Discord rate-limits updates)
     shown: Option<(u64, bool, i64)>,
+    section: Option<String>,
+    room: Option<RoomInfo>,
+    /// the "not listening" status on screen
+    ambient_shown: Option<String>,
 }
 
 fn now_secs() -> i64 {
@@ -73,7 +102,7 @@ fn now_secs() -> i64 {
 
 impl Worker {
     fn new(cfg: DiscordConfig) -> Self {
-        Self { cfg, client: None, last: None, shown: None }
+        Self { cfg, client: None, last: None, shown: None, section: None, room: None, ambient_shown: None }
     }
 
     fn run(mut self, rx: mpsc::Receiver<Cmd>) {
@@ -94,6 +123,19 @@ impl Worker {
                 Some(Cmd::Config(c)) => {
                     self.apply_config(c);
                     self.shown = None;
+                    self.ambient_shown = None;
+                    self.push();
+                }
+                Some(Cmd::Section(k)) => {
+                    self.section = k;
+                    self.push();
+                }
+                Some(Cmd::Room(r)) => {
+                    // the track line carries the room too: show it again
+                    if self.room != r {
+                        self.shown = None;
+                    }
+                    self.room = r;
                     self.push();
                 }
                 None => {}
@@ -150,14 +192,18 @@ impl Worker {
             _ => None,
         };
         let Some(p) = want else {
-            if self.shown.is_some() {
+            self.shown = None;
+            // nothing plays: say where we are, or that we are in a room
+            if let (true, Some((details, state))) = (self.cfg.enabled, self.ambient()) {
+                self.show_ambient(details, state);
+            } else if self.ambient_shown.take().is_some() || self.client.is_some() {
                 if let Some(c) = self.client.as_mut() {
                     let _ = c.clear_activity();
                 }
-                self.shown = None;
             }
             return;
         };
+        self.ambient_shown = None;
 
         let start = now_secs() - (p.position_ms / 1000) as i64;
         let key = (p.track_id, p.playing, start);
@@ -180,8 +226,39 @@ impl Worker {
         self.shown = Some(key);
     }
 
+    /// What to say when no track is on: (details, state).
+    fn ambient(&self) -> Option<(String, String)> {
+        if let Some(r) = &self.room {
+            let who = if r.members == 1 { crate::lang::pick("1 слушает", "1 listening").to_owned() } else { format!("{} {}", r.members, crate::lang::pick("слушают", "listening")) };
+            return Some((format!("{} «{}»", crate::lang::pick("В комнате", "In the room"), r.name), who));
+        }
+        self.section.as_deref().and_then(section_text).map(|t| (t, "SC Desk".to_owned()))
+    }
+
+    fn show_ambient(&mut self, details: String, state: String) {
+        let key = format!("{details}|{state}");
+        if self.ambient_shown.as_deref() == Some(key.as_str()) {
+            return;
+        }
+        if !self.ensure_client() {
+            return;
+        }
+        let (d, st) = (truncate(&details, 120), truncate(&state, 120));
+        let activity = Activity::new().activity_type(ActivityType::Playing).details(&d).state(&st);
+        let sent = self.client.as_mut().map(|c| c.set_activity(activity).is_ok()).unwrap_or(false);
+        if sent {
+            self.ambient_shown = Some(key);
+        } else {
+            // the pipe broke: connect again next time
+            self.client = None;
+        }
+    }
+
     fn send(&mut self, p: &Presence, start: i64) -> Result<(), ()> {
-        let state = if p.playing { p.artist.clone() } else { format!("{} · {}", p.artist, crate::lang::pick("на паузе", "paused")) };
+        let mut state = if p.playing { p.artist.clone() } else { format!("{} · {}", p.artist, crate::lang::pick("на паузе", "paused")) };
+        if let Some(r) = &self.room {
+            state = format!("{state} · {} «{}»", crate::lang::pick("в комнате", "in the room"), r.name);
+        }
         let details = truncate(&p.title, 120);
         let state = truncate(&state, 120);
         let mut activity = Activity::new().activity_type(ActivityType::Listening).details(&details).state(&state);
@@ -204,11 +281,41 @@ impl Worker {
                 activity = activity.buttons(button);
             }
         }
+        // an open room, with the page that opens it (or sends to the download): a join button
+        let join;
+        if !JOIN_PAGE.is_empty() {
+            if let Some(r) = self.room.as_ref().filter(|r| r.open) {
+                join = format!("{JOIN_PAGE}#{}", r.channel);
+                activity = activity.buttons(vec![Button::new(crate::lang::pick("Присоединиться", "Join"), &join)]);
+            }
+        }
         let client = self.client.as_mut().ok_or(())?;
         client.set_activity(activity).map_err(|e| {
             tracing::debug!(error = %e, "discord set_activity failed");
         })
     }
+}
+
+/// «Листает лайки» and the like, from the section key the window reports.
+fn section_text(key: &str) -> Option<String> {
+    use crate::lang::pick;
+    Some(match key {
+        "home" => pick("На главной", "On the home page"),
+        "likes" => pick("Листает лайки", "Browsing likes"),
+        "wave" => pick("Выбирает волну", "Picking a wave"),
+        "history" => pick("Смотрит историю", "Looking at history"),
+        "stats" => pick("Смотрит итоги", "Looking at the stats"),
+        "rooms" => pick("Выбирает комнату", "Choosing a room"),
+        "shared" => pick("В общих плейлистах", "In shared playlists"),
+        "search" => pick("Ищет музыку", "Searching for music"),
+        "settings" => pick("В настройках", "In settings"),
+        "profile" => pick("В профиле", "In the profile"),
+        "artist" => pick("Смотрит артиста", "Looking at an artist"),
+        "playlist" => pick("Смотрит плейлист", "Looking at a playlist"),
+        "track" => pick("Смотрит трек", "Looking at a track"),
+        "category" | "chart" | "mix" => pick("Выбирает, что послушать", "Choosing what to play"),
+        _ => return None,
+    }.into())
 }
 
 /// Discord limits fields to 128 bytes; cut on a char boundary.

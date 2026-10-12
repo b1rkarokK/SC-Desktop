@@ -258,6 +258,7 @@ fn main() {
             commands::room_create,
             commands::room_join,
             commands::room_leave,
+            commands::discord_section,
             commands::rooms_mine,
             commands::room_enter,
             commands::room_forget,

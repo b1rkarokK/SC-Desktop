@@ -522,6 +522,15 @@ impl Player {
         });
     }
 
+    /// Where in the app the user is, for the Discord status while nothing plays.
+    pub fn discord_section(&self, key: Option<String>) {
+        self.discord.set_section(key);
+    }
+
+    pub fn discord_room(&self, room: Option<crate::discord::RoomInfo>) {
+        self.discord.set_room(room);
+    }
+
     pub fn set_eq(&self, cfg: EqConfig) {
         self.eq.set(cfg);
     }
