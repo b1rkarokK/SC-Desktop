@@ -7,6 +7,7 @@ import { api, errorMessage, type Track, type User } from '../api';
 import { h, toast } from '../dom';
 import { T } from '../i18n';
 import { icon, I } from '../icons';
+import { router } from '../router';
 import { btn, emptyState, sectionTitle, viewHead, type View } from './common';
 
 type Access = 'closed' | 'link' | 'invite' | 'open';
@@ -24,6 +25,7 @@ export interface SharedInfo {
   role: Role | null;
   access: Access | null;
   count: number;
+  unseen: number;
   mine: boolean;
   can_edit: boolean;
   members: Member[];
@@ -74,6 +76,23 @@ export async function addToShared(channel: string, title: string, t: Track): Pro
   }
 }
 
+let wanted: string | null = null;
+
+/** Open a shared playlist in its section (from the home page). */
+export function openShared(channel: string): void {
+  wanted = channel;
+  router.go({ name: 'shared' });
+}
+
+/** Tracks added by others since each playlist was last opened: the dot in the navigation. */
+export async function unseenTotal(): Promise<number> {
+  try {
+    return (await invoke<SharedInfo[]>('sp_list')).reduce((n, p) => n + p.unseen, 0);
+  } catch {
+    return 0;
+  }
+}
+
 export class SharedView implements View {
   el: HTMLElement;
   private body = h('div', { class: 'view-scroll pad' });
@@ -93,6 +112,10 @@ export class SharedView implements View {
   }
 
   show(): void {
+    if (wanted) {
+      this.open = wanted;
+      wanted = null;
+    }
     void this.load();
   }
 
@@ -151,6 +174,7 @@ export class SharedView implements View {
         'div',
         { class: 'rm-live', role: 'button', tabindex: '0' },
         h('div', { class: 'rm-live-text' }, h('div', { class: 'strong', dir: 'auto', text: p.title || T('Без названия') }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} треков', p.count)} · ${T('{0} человек', p.members.length)}` })),
+        p.unseen ? h('span', { class: 'rm-tag', text: T('новых: {0}', p.unseen) }) : null,
       );
       row.addEventListener('click', () => {
         this.open = p.channel;

@@ -5,4 +5,5 @@ pub mod engine;
 pub mod hub;
 pub mod playlists;
 pub mod shared;
+pub mod watch;
 pub mod service;

@@ -11,7 +11,7 @@ import type { View } from './views/common';
 import { HistoryView } from './views/history';
 import { StatsView } from './views/stats';
 import { RoomsView } from './views/rooms';
-import { SharedView } from './views/shared';
+import { SharedView, unseenTotal } from './views/shared';
 import { HomeView } from './views/home';
 import { ProfileView } from './views/profile';
 import { LibraryView } from './views/library';
@@ -58,6 +58,10 @@ export class MainWindow {
       this.tabs.set(id, b);
       list.append(b);
     }
+    // a dot on «Общие плейлисты» while others added tracks you have not looked at
+    const dot = () => void unseenTotal().then((n) => this.tabs.get('shared')?.classList.toggle('has-new', n > 0));
+    void listen('playlist:changed', dot);
+    window.setTimeout(dot, 12_000);
     this.user.addEventListener('click', () => {
       // a pending check: straight to the queue, where it is passed
       router.go({ name: 'profile', tab: this.user.classList.contains('has-alert') ? 'queue' : undefined });

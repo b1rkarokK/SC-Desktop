@@ -252,6 +252,7 @@ export interface SystemPrefs {
   start_minimized: boolean;
   fast_protected: boolean;
   notify_new: boolean;
+  notify_rooms: boolean;
 }
 
 export interface AppErrorPayload {
@@ -452,6 +453,7 @@ export const api = {
   discordSet: (discord: DiscordConfig) => invoke<void>('discord_set', { discord }),
   systemGet: () => invoke<SystemPrefs>('system_get'),
   newsSet: (enabled: boolean) => invoke<void>('news_set', { enabled }),
+  roomsNotifySet: (enabled: boolean) => invoke<void>('rooms_notify_set', { enabled }),
   systemSet: (autostart: boolean, startMinimized: boolean, fastProtected: boolean) =>
     invoke<void>('system_set', { autostart, startMinimized, fastProtected }),
 };

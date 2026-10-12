@@ -89,7 +89,7 @@ export class SettingsView implements View {
       this.renderNet();
       this.autoPause = await api.autopauseGet();
       const sys = await api.systemGet();
-      this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected, sys.notify_new);
+      this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected, sys.notify_new, sys.notify_rooms);
     } catch (e) {
       toast(errorMessage(e), 'error');
     }
@@ -332,7 +332,7 @@ export class SettingsView implements View {
     void api.autopauseSet(this.autoPause).catch((e) => toast(errorMessage(e), 'error'));
   }
 
-  private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean, notifyNew: boolean): void {
+  private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean, notifyNew: boolean, notifyRooms: boolean): void {
     let a = autostart;
     let m = minimized;
     let f = fastProtected;
@@ -341,7 +341,7 @@ export class SettingsView implements View {
       api.systemSet(a, m, f).catch(async (e) => {
         toast(errorMessage(e), 'error');
         const s = await api.systemGet();
-        this.renderSystem(s.autostart, s.start_minimized, s.fast_protected, s.notify_new);
+        this.renderSystem(s.autostart, s.start_minimized, s.fast_protected, s.notify_new, s.notify_rooms);
       });
     const version = h('span', { class: 'muted small' });
     void invoke<string>('app_version').then((v) => (version.textContent = T('Версия {0}', v)));
@@ -401,6 +401,11 @@ export class SettingsView implements View {
           T('Уведомлять о новых треках подписок'),
           toggle(notifyNew, (v) => void api.newsSet(v).catch((e) => toast(errorMessage(e), 'error'))),
           T('Уведомление Windows, когда артист из подписок выложил трек. Проверка раз в час.'),
+        ),
+        row(
+          T('Уведомлять об открытых комнатах друзей'),
+          toggle(notifyRooms, (v) => void api.roomsNotifySet(v).catch((e) => toast(errorMessage(e), 'error'))),
+          T('Уведомление Windows, когда кто-то из подписок открыл комнату. Проверка раз в полторы минуты.'),
         ),
         row(T('Пауза во время звонка'), toggle(this.autoPause.call, (v) => this.saveAutoPause({ call: v })), T('Музыка встаёт на паузу, когда другая программа включила микрофон (Discord, Zoom), и продолжается после звонка.')),
         row(T('Пауза в полноэкранной игре'), toggle(this.autoPause.game, (v) => this.saveAutoPause({ game: v })), T('Музыка встаёт на паузу, когда игра открылась на весь экран, и продолжается, когда вы вышли из неё. Выключено: музыка играет и в игре.')),

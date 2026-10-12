@@ -86,6 +86,7 @@ fn main() {
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
             news::start(&handle);
+            sync::watch::start(&handle);
             geniusweb::init(&handle);
             {
                 let app = handle.clone();
@@ -204,6 +205,7 @@ fn main() {
             commands::sleep_get,
             commands::queue_get,
             commands::news_set,
+            commands::rooms_notify_set,
             commands::stats_get,
             commands::mini_open,
             commands::mini_close,

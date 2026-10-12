@@ -1569,12 +1569,20 @@ pub struct SystemPrefs {
     start_minimized: bool,
     fast_protected: bool,
     notify_new: bool,
+    notify_rooms: bool,
 }
 
 /// «Уведомлять о новых треках подписок».
 #[tauri::command]
 pub fn news_set(state: State<'_, AppState>, enabled: bool) -> Cmd<()> {
     state.config.update(|c| c.notify_new = enabled)?;
+    Ok(())
+}
+
+/// «Уведомлять, когда друг открыл комнату».
+#[tauri::command]
+pub fn rooms_notify_set(state: State<'_, AppState>, enabled: bool) -> Cmd<()> {
+    state.config.update(|c| c.notify_rooms = enabled)?;
     Ok(())
 }
 
@@ -1586,6 +1594,7 @@ pub fn system_get(app: AppHandle, state: State<'_, AppState>) -> SystemPrefs {
         start_minimized: cfg.start_minimized,
         fast_protected: cfg.fast_protected,
         notify_new: cfg.notify_new,
+        notify_rooms: cfg.notify_rooms,
     }
 }
 
@@ -1633,8 +1642,8 @@ pub fn sync_url_set(app: AppHandle, state: State<'_, AppState>, url: String) -> 
 // ---- shared playlists
 
 #[tauri::command]
-pub async fn sp_list(sp: State<'_, crate::sync::shared::SharedPlaylists>) -> Cmd<Vec<crate::sync::shared::SpInfo>> {
-    Ok(sp.list().await)
+pub async fn sp_list(app: AppHandle, sp: State<'_, crate::sync::shared::SharedPlaylists>) -> Cmd<Vec<crate::sync::shared::SpInfo>> {
+    Ok(sp.list(&app).await)
 }
 
 #[derive(serde::Serialize)]

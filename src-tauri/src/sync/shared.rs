@@ -55,6 +55,8 @@ pub struct SpInfo {
     pub role: Option<Role>,
     pub access: Option<Access>,
     pub count: usize,
+    /// tracks added since this playlist was last opened here
+    pub unseen: usize,
     pub mine: bool,
     pub can_edit: bool,
     pub members: Vec<playlists::Member>,
@@ -84,6 +86,7 @@ fn info(channel: &str, pl: &Pl) -> SpInfo {
         role: pl.role(),
         access: pl.settings().map(|s| s.access),
         count: st.playlist.len(),
+        unseen: 0,
         mine: st.mine,
         can_edit: pl.can_edit(),
         members: pl.members(),
@@ -156,8 +159,17 @@ impl SharedPlaylists {
         self.start(app).await;
     }
 
-    pub async fn list(&self) -> Vec<SpInfo> {
+    async fn seen(app: &AppHandle) -> HashMap<String, usize> {
+        app.state::<AppState>().db.kv_get::<HashMap<String, usize>>("sp:seen").await.ok().flatten().map(|(v, _)| v).unwrap_or_default()
+    }
+
+    pub async fn list(&self, app: &AppHandle) -> Vec<SpInfo> {
+        let seen = Self::seen(app).await;
         let mut v: Vec<SpInfo> = self.map.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(c, e)| info(c, &e.pl)).collect();
+        for i in &mut v {
+            // never opened here: nothing is "new" yet
+            i.unseen = i.count.saturating_sub(seen.get(&i.channel).copied().unwrap_or(i.count));
+        }
         v.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
         v
     }
@@ -218,7 +230,14 @@ impl SharedPlaylists {
         }
         let tracks = rows.into_iter().map(|r| SpTrack { track: have.get(&r.track_id).cloned(), entry: r.entry, track_id: r.track_id, added_by: r.added_by, added_by_name: r.added_by_name }).collect();
         let link = playlists::make_link(channel, &pl.stored().key);
-        Ok(SpDetail { info: info(channel, &pl), tracks, link })
+        let i = info(channel, &pl);
+        // opened: everything in it is seen now
+        let mut seen = Self::seen(app).await;
+        if seen.get(channel) != Some(&i.count) {
+            seen.insert(channel.to_owned(), i.count);
+            let _ = state.db.kv_put("sp:seen", &seen).await;
+        }
+        Ok(SpDetail { info: i, tracks, link })
     }
 
     pub fn add(&self, channel: &str, track_id: u64) -> AppResult<()> {

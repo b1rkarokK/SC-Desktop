@@ -787,4 +787,7 @@ export const EN: Record<string, string> = {
   'Пригласить из подписок…': 'Invite from following…',
   'Приглашён: {0}': 'Invited: {0}',
   'тайминги могут быть сдвинуты: версия отличается на {0} с': 'timings may be shifted: this version differs by {0} s',
+  'Уведомлять об открытых комнатах друзей': 'Notify when friends open a room',
+  'Уведомление Windows, когда кто-то из подписок открыл комнату. Проверка раз в полторы минуты.': 'A Windows notification when somebody you follow opens a room. Checked every minute and a half.',
+  'новых: {0}': 'new: {0}',
 };

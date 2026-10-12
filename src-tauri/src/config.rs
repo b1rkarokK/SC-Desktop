@@ -113,6 +113,9 @@ pub struct AppConfig {
     /// Windows notification when a followed artist posts a new track
     #[serde(default = "yes")]
     pub notify_new: bool,
+    /// Windows notification when somebody you follow opens a room
+    #[serde(default = "yes")]
+    pub notify_rooms: bool,
     /// autostart was set up once (enabled by default on the first launch)
     pub autostart_initialized: bool,
     /// Frontend-owned preferences (theme, panels, fullscreen view…), stored verbatim.
@@ -138,6 +141,7 @@ impl Default for AppConfig {
             eq_by_device: Default::default(),
             wave_no_liked: true,
             notify_new: true,
+            notify_rooms: true,
             autostart_initialized: false,
             ui:serde_json::Value::Object(Default::default()),
         }

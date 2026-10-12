@@ -7,6 +7,8 @@ import { listen } from '@tauri-apps/api/event';
 import { CATEGORY_GROUPS, type Category } from '../categories';
 import { openCategory, openChart, openMix, openPlaylist, type HomeTab } from '../router';
 import { SegTabs } from '../seg_tabs';
+import { invoke } from '@tauri-apps/api/core';
+import { openShared, type SharedInfo } from './shared';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
 import { T } from '../i18n';
 import { tr } from '../i18n';
@@ -147,7 +149,37 @@ export class HomeView implements View {
       this.body.replaceChildren(emptyState(T('SoundCloud пока ничего не подобрал. Послушайте и полайкайте треки, и здесь появятся миксы.')));
       return;
     }
-    this.body.replaceChildren(...this.sections.flatMap((s) => [sectionTitle(tr(s.title)), shelf(s.cards)]));
+    const own = this.sharedBox;
+    this.body.replaceChildren(own, ...this.sections.flatMap((s) => [sectionTitle(tr(s.title)), shelf(s.cards)]));
+    void this.fillShared();
+  }
+
+  private sharedBox = h('div');
+
+  /** The shared playlists you are in, above the shelves (nothing if there are none). */
+  private async fillShared(): Promise<void> {
+    let list: SharedInfo[] = [];
+    try {
+      list = await invoke<SharedInfo[]>('sp_list');
+    } catch {
+      /* no relay: no block */
+    }
+    if (!list.length) {
+      this.sharedBox.replaceChildren();
+      return;
+    }
+    const rows = h('div', { class: 'rm-list' });
+    for (const p of list.slice(0, 4)) {
+      const row = h(
+        'div',
+        { class: 'rm-live', role: 'button', tabindex: '0' },
+        h('div', { class: 'rm-live-text' }, h('div', { class: 'strong', dir: 'auto', text: p.title }), h('div', { class: 'muted small', text: `${T('{0} треков', p.count)} · ${T('{0} человек', p.members.length)}` })),
+        p.unseen ? h('span', { class: 'rm-tag', text: T('новых: {0}', p.unseen) }) : null,
+      );
+      row.addEventListener('click', () => openShared(p.channel));
+      rows.append(row);
+    }
+    this.sharedBox.replaceChildren(sectionTitle(T('Общие плейлисты')), rows);
   }
 
   private covers: Record<string, string[]> = {};
