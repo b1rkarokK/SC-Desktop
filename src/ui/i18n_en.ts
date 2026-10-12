@@ -834,4 +834,5 @@ export const EN: Record<string, string> = {
   'Убрать оформление': 'Remove the appearance',
   'Полоса сверху: своя картинка, цвет или ничего. Её видят все участники.': 'The strip at the top: your own picture, a colour or nothing. Everyone in the playlist sees it.',
   'Картинка слишком большая': 'The picture is too big',
+  'в сети · {0}': 'online · {0}',
 };

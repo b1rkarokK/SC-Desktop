@@ -204,8 +204,11 @@ export class RoomsView implements View {
     const rows = h('div', { class: 'rm-items' });
     if (!this.mine.length) rows.append(h('p', { class: 'muted small rm-hint', text: T('Пока нет своих комнат. Создайте комнату или присоединитесь по ссылке.') }));
     for (const r of this.mine) {
-      const on = r.online > 0;
-      const sub = r.channel === active ? T('вы здесь · {0}', Math.max(r.online, 1)) : on ? (r.current ? T('играет · {0}', r.online) : T('{0} в комнате', r.online)) : r.queue_len ? T('пусто · очередь {0}', r.queue_len) : T('пусто');
+      const live = r.channel === active ? room.view : null;
+      const on = r.online > 0 || !!live;
+      // «в сети» is just being in the room; the track shows only while it really plays (only known for the room we are in)
+      const nowPlaying = !!live?.play?.playing && !!live.current;
+      const sub = nowPlaying ? `${live!.current!.title} - ${live!.current!.artist}` : on ? T('в сети · {0}', Math.max(r.online, 1)) : r.queue_len ? T('пусто · очередь {0}', r.queue_len) : T('пусто');
       const forget = h('button', { type: 'button', class: 'rm-forget', title: T('Убрать из списка'), 'aria-label': T('Убрать из списка') }, icon(I.close, 12));
       const item = h(
         'div',
