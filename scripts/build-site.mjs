@@ -31,6 +31,8 @@ const L = {
     of: 'из',
     features: [
       ['Без рекламы', 'Только музыка: никаких вставок между треками.'],
+      ['Друзья', 'Запросы, список, приглашения в комнаты и плейлисты и то, что друг слушает прямо сейчас. Всё шифруется.'],
+      ['Свои темы', 'Цвета, фоновая картинка и свой CSS. Без нагрузки на компьютер.'],
       ['Эквалайзер и скорость', 'Настройте звук под себя, ускоряйте и замедляйте треки, ставьте таймер сна.'],
       ['Выбор устройства вывода', 'Колонки, наушники или Bluetooth: переключайтесь прямо в шапке программы.'],
       ['Статус в Discord', 'Друзья видят, что вы слушаете, и могут зайти к вам в комнату.'],
@@ -74,6 +76,8 @@ const L = {
     of: 'of',
     features: [
       ['No ads', 'Only music: nothing between the tracks.'],
+      ['Friends', 'Requests, a list, invitations to rooms and playlists, and what a friend listens to right now. Everything is encrypted.'],
+      ['Own themes', 'Colours, a background picture and your own CSS. No load on the computer.'],
       ['Equalizer and speed', 'Shape the sound, speed tracks up or slow them down, set a sleep timer.'],
       ['Output device picker', 'Speakers, headphones or Bluetooth: switch right in the app header.'],
       ['Discord status', 'Friends see what you listen to and can join your room.'],
