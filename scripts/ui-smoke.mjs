@@ -86,7 +86,7 @@ const AUDIT = `(() => {
     const chrome = [...document.querySelectorAll('button, .btn, .seg-tab, .nav-label, label, summary, h2, h3, .upd-title, .muted')].filter(visible).filter((e) => !e.closest('.row, .rm-qrow, .rm-q, .card, .pal-row, .profile-row, .fd-row, .rm-item, .rm-person, .sp-tile, .hist-row, .lyrics, .ly-line'));
     for (const el of chrome) {
       const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim();
-      if (own === 'Русский' || own === 'Язык / Language' || own.startsWith('· ') || el.closest('.eq-device, .hero, .pb-now, .fs-meta, .mini-meta, .wave-meta')) continue;
+      if (own === 'Русский' || own === 'Язык / Language' || (el.closest('.upd') && own.includes(' - ')) || own.startsWith('· ') || el.closest('.eq-device, .hero, .pb-now, .fs-meta, .mini-meta, .wave-meta')) continue;
       if (/[А-Яа-яЁё]/.test(own) && own.length < 120) found.push(['untranslated', '"' + own.slice(0, 60) + '"']);
     }
   }
@@ -143,7 +143,57 @@ async function walk(tag) {
   await audit(`${tag}-palette`);
   await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 1`);
   await deep(tag);
+  await dialogs(tag);
   await evaluate(`document.querySelectorAll('.nav-item')[0].click(); 1`);
+}
+
+const esc = () => evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 1`);
+const clickText = (sel, ...texts) =>
+  evaluate(`(() => { const els = [...document.querySelectorAll(${JSON.stringify(sel)})]; const want = ${JSON.stringify(texts)}; const el = els.find((e) => want.some((t) => e.textContent.trim().startsWith(t))); if (!el) return false; el.click(); return true; })()`);
+
+// the dialogs and menus one opens on purpose
+async function dialogs(tag) {
+  const open = async (nav, sel, texts, label, tab) => {
+    await evaluate(`document.querySelectorAll('.nav-item')[${nav}].click(); 1`);
+    await sleep(700);
+    if (tab) {
+      await evaluate(`document.querySelector('.nav-user')?.click(); 1`);
+      await sleep(400);
+      await clickText('.seg-tab', ...tab);
+      await sleep(500);
+    }
+    if (await clickText(sel, ...texts)) {
+      await audit(`${tag}-dialog-${label}`);
+      await esc();
+      await sleep(300);
+      // a dialog that Escape does not close is closed by its own "done" / "cancel"
+      await evaluate(`document.querySelectorAll('.upd-backdrop .btn').forEach((b) => b.click()); 1`);
+    }
+  };
+  await open(8, 'button', ['Своя тема', 'Custom theme'], 'custom-theme');
+  await open(8, 'button', ['Вставить код темы', 'Paste a theme code'], 'paste-theme');
+  await open(0, '.nav-user', [''], 'profile-friends-open', ['Друзья', 'Friends']);
+  await clickText('button', 'Добавить друга', 'Add a friend');
+  await audit(`${tag}-dialog-add-friend`);
+  await esc();
+  await evaluate(`document.querySelectorAll('.upd-backdrop .btn').forEach((b) => b.click()); 1`);
+  await open(5, '.rm-joinbtn, button', ['Присоединиться', 'Join'], 'join-room');
+  await open(4, 'button', ['Создать', 'Create'], 'create-shared');
+  await open(4, 'button', ['Присоединиться', 'Join'], 'join-shared');
+  // a track's menu and the share dialog
+  await evaluate(`document.querySelectorAll('.nav-item')[3].click(); 1`);
+  await sleep(800);
+  await clickText('.seg-tab', 'Треки', 'Tracks');
+  await sleep(600);
+  await evaluate(`(() => { const r = document.querySelector('.row'); if (!r) return 0; r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 })); return 1; })()`);
+  await sleep(300);
+  await audit(`${tag}-track-menu`);
+  if (await clickText('.ctx button, .menu button, [role=menuitem]', 'Поделиться', 'Share')) {
+    await audit(`${tag}-dialog-share`);
+    await esc();
+    await evaluate(`document.querySelectorAll('.upd-backdrop .btn').forEach((b) => b.click()); 1`);
+  }
+  await esc();
 }
 
 // pages one clicks into: search results, an artist with all its tabs, a playlist, a track
