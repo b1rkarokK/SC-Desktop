@@ -353,8 +353,12 @@ export class RoomsView implements View {
     }
     this.roster.hidden = false;
     const online = v.members.filter((m) => m.status !== 'connecting' || m.you);
-    const ids = new Set(v.members.map((m) => m.id));
-    const away = (this.mine.find((r) => r.channel === v.channel)?.known ?? []).filter((k) => !ids.has(k.id));
+    // away: known to the room, but not here now (a member still «connecting» is not here either)
+    const here = new Set(online.map((m) => m.id));
+    const known = new Map<string, string>();
+    for (const k of this.mine.find((r) => r.channel === v.channel)?.known ?? []) known.set(k.id, k.name);
+    for (const m of v.members) if (!known.has(m.id)) known.set(m.id, m.name);
+    const away = [...known].filter(([id]) => !here.has(id)).map(([id, name]) => ({ id, name }));
     const person = (m: RoomMember) => {
       const text = m.host ? `${T('хост')} · ${STATUS_TEXT[m.status]}` : STATUS_TEXT[m.status];
       const kick = v.host && !m.you ? h('button', { type: 'button', class: 'rm-forget', title: T('Убрать из комнаты'), 'aria-label': T('Убрать из комнаты') }, icon(I.close, 12)) : null;

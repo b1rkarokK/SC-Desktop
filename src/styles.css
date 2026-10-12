@@ -3582,6 +3582,8 @@ kbd {
 
 .rm-joinbtn {
   display: flex;
+  border: 0;
+  background: none;
   align-items: center;
   gap: 8px;
   padding: 8px;
@@ -3882,4 +3884,8 @@ kbd {
 
 .sp-swatch.is-on {
   border-color: var(--text);
+}
+
+.rm-q .icon-btn {
+  background: none;
 }
