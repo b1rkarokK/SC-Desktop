@@ -84,6 +84,10 @@ async fn watch(app: &AppHandle) -> AppResult<()> {
     state.set_credentials(Some(creds));
     tracing::info!(user = %me.username, "signed in via login window");
     state.set_me(me);
+    {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { crate::sync::start_account_services(&app).await });
+    }
 
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.close();

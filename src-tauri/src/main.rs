@@ -139,8 +139,7 @@ fn main() {
                     for _ in 0..40 {
                         tokio::time::sleep(std::time::Duration::from_secs(4)).await;
                         if app.state::<state::AppState>().me().is_some() {
-                            app.state::<sync::shared::SharedPlaylists>().start(&app).await;
-                            app.state::<sync::friends::Friends>().start(&app).await;
+                            sync::start_account_services(&app).await;
                             break;
                         }
                     }

@@ -65,7 +65,7 @@ pub async fn auth_verify(state: State<'_, AppState>) -> Cmd<AuthStatus> {
 }
 
 #[tauri::command]
-pub async fn auth_save(state: State<'_, AppState>, client_id: String, oauth_token: String) -> Cmd<AuthStatus> {
+pub async fn auth_save(app: AppHandle, state: State<'_, AppState>, client_id: String, oauth_token: String) -> Cmd<AuthStatus> {
     let client_id = client_id.trim().to_owned();
     // people paste the whole header value
     let oauth_token = oauth_token.trim().trim_start_matches("OAuth ").trim().to_owned();
@@ -81,6 +81,10 @@ pub async fn auth_save(state: State<'_, AppState>, client_id: String, oauth_toke
     state.set_credentials(Some(creds));
     tracing::info!(user = %me.username, "credentials saved");
     state.set_me(me);
+    {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { crate::sync::start_account_services(&app).await });
+    }
     Ok(auth_status_of(&state))
 }
 

@@ -36,6 +36,7 @@ const BOOK: &str = "friends:book";
 const KEY: &str = "friends:key";
 const SINCE: &str = "friends:since";
 const PKEY: &str = "friends:pkey";
+const OWNER: &str = "friends:owner";
 /// what we listen to is shown for this long without a refresh
 const NOW_FRESH_MS: i64 = 4 * 60 * 1000;
 const MAX_INVITES: usize = 50;
@@ -475,6 +476,18 @@ impl Friends {
         let state = app.state::<AppState>();
         let Some(me) = state.me() else { return };
         let Ok(base) = super::service::server_url(&state) else { return };
+        // the list, the keys and the cursor belong to one account: another one starts from nothing
+        let owner = state.db.kv_get::<u64>(OWNER).await.ok().flatten().map(|(o, _)| o);
+        // (no owner recorded yet = a list made before this was kept: it is this account's)
+        if owner.is_some_and(|o| o != me.id) {
+            tracing::info!("another account signed in: the friend list starts empty");
+            for key in [KEY, PKEY, BOOK, SINCE] {
+                let _ = state.db.kv_delete(key).await;
+            }
+        }
+        if owner != Some(me.id) {
+            let _ = state.db.kv_put(OWNER, &me.id).await;
+        }
         let ident = match state.db.kv_get::<String>(KEY).await.ok().flatten().and_then(|(k, _)| Identity::from_secret_b64(&k)) {
             Some(i) => i,
             None => {

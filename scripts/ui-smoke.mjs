@@ -86,7 +86,7 @@ const AUDIT = `(() => {
     const chrome = [...document.querySelectorAll('button, .btn, .seg-tab, .nav-label, label, summary, h2, h3, .upd-title, .muted')].filter(visible).filter((e) => !e.closest('.row, .rm-qrow, .rm-q, .card, .pal-row, .profile-row, .fd-row, .rm-item, .rm-person, .sp-tile, .hist-row, .lyrics, .ly-line'));
     for (const el of chrome) {
       const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim();
-      if (own === 'Русский' || own === 'Язык / Language' || own.startsWith('· ') || el.closest('.eq-device, .hero')) continue;
+      if (own === 'Русский' || own === 'Язык / Language' || own.startsWith('· ') || el.closest('.eq-device, .hero, .pb-now, .fs-meta, .mini-meta, .wave-meta')) continue;
       if (/[А-Яа-яЁё]/.test(own) && own.length < 120) found.push(['untranslated', '"' + own.slice(0, 60) + '"']);
     }
   }

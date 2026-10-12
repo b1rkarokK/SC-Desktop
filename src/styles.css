@@ -4427,3 +4427,8 @@ kbd {
   margin-left: 8px;
   color: var(--accent);
 }
+
+/* a friend who is listening to something right now */
+.profile-row .row-artist.ok {
+  color: var(--ok);
+}
