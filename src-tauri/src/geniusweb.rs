@@ -41,7 +41,8 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 /// Cloudflare often passes by itself in a few seconds: show the window only after that
 const SHOW_AFTER: Duration = Duration::from_secs(4);
 /// closed the check window without passing: don't ask again for a while
-const DECLINE_PAUSE: Duration = Duration::from_secs(30 * 60);
+const DECLINE_PAUSE: Duration = Duration::from_secs(6 * 3600);
+/// the check is only ever shown while SC Desk itself is the window in front (never over a game)
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 /// plain HTTP got 403 this session: go straight to the browser page
@@ -168,8 +169,20 @@ fn arm_check_timer() {
         if ready || IN_CHECK.swap(true, Ordering::Relaxed) {
             return;
         }
+        let app = APP.get();
+        let in_front = app.and_then(|a| a.get_webview_window("main")).is_some_and(|m| m.is_focused().unwrap_or(false) && !m.is_minimized().unwrap_or(true));
+        if !in_front {
+            // the user is elsewhere (a game, another app): do not pop up, stay quiet for a long while
+            tracing::info!("genius: check needed, SC Desk is not in front; skipped");
+            IN_CHECK.store(false, Ordering::Relaxed);
+            *DECLINED_AT.lock().unwrap() = Some(Instant::now());
+            if let Some(w) = app.and_then(|a| a.get_webview_window(LABEL)) {
+                let _ = w.destroy();
+            }
+            return;
+        }
         tracing::info!("genius: Cloudflare check shown");
-        if let Some(w) = APP.get().and_then(|a| a.get_webview_window(LABEL)) {
+        if let Some(w) = app.and_then(|a| a.get_webview_window(LABEL)) {
             let _ = w.set_skip_taskbar(false);
             let _ = w.center();
             let _ = w.show();
