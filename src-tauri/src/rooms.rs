@@ -143,7 +143,7 @@ pub enum Msg {
     /// member -> host: let me in
     Hello { member: Member },
     /// host -> member: you are in; the whole room as it is now
-    Welcome { to: String, room: RoomSnapshot, host_now: Ms, host_pub: String },
+    Welcome { to: String, room: RoomSnapshot, host_now: Ms, host_pub: String, #[serde(default)] host: String },
     /// host -> member: not let in (room full, kicked)
     Denied { to: String, reason: String },
     /// host -> all (under the old key): the room key changed because somebody was kicked
@@ -170,6 +170,12 @@ pub enum Msg {
     Ping { id: String, t0: Ms },
     Pong { id: String, t0: Ms, host_t: Ms },
     Leave { id: String },
+    /// host -> all, every few seconds: "I am the host" (`term` grows with every change of host)
+    HostBeat { id: String, term: u32, pubkey: String },
+    /// host -> all: I am going, the next one in the list takes over
+    HostLeft { id: String },
+    /// host -> relay log (kept): the room as it is, for whoever enters an empty room next
+    State { snapshot: RoomSnapshot },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

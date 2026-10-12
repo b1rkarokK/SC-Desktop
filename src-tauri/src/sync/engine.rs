@@ -54,6 +54,8 @@ pub enum Cmd {
     Enqueue(QueueItem),
     /// the host skips to the next track
     Next,
+    /// restart the track, or go back to the one before it
+    Prev,
     Play(bool),
     Seek(i64),
     Kick(String),
@@ -81,6 +83,7 @@ pub struct MemberView {
 pub struct RoomView {
     pub active: bool,
     pub host: bool,
+    pub host_id: String,
     pub channel: String,
     pub name: String,
     pub has_password: bool,
@@ -110,7 +113,29 @@ pub struct Handle {
 const TICK: Duration = Duration::from_millis(500);
 const PLAY_EVERY: Duration = Duration::from_secs(5);
 const HELLO_EVERY: Duration = Duration::from_secs(2);
-const HELLO_GIVE_UP: Duration = Duration::from_secs(20);
+#[cfg(not(test))]
+mod timing {
+    use std::time::Duration;
+    pub const HOST_SILENT: Duration = Duration::from_secs(12);
+    pub const ELECT_STEP: Duration = Duration::from_secs(5);
+    pub const BEAT_EVERY: Duration = Duration::from_secs(3);
+    pub const ENTER_WAIT: Duration = Duration::from_millis(2500);
+    pub const STATE_EVERY: Duration = Duration::from_secs(6);
+}
+#[cfg(test)]
+mod timing {
+    use std::time::Duration;
+    pub const HOST_SILENT: Duration = Duration::from_millis(2500);
+    pub const ELECT_STEP: Duration = Duration::from_millis(1500);
+    pub const BEAT_EVERY: Duration = Duration::from_millis(500);
+    pub const ENTER_WAIT: Duration = Duration::from_millis(1200);
+    pub const STATE_EVERY: Duration = Duration::from_millis(800);
+}
+use timing::*;
+/// how many played tracks "previous" can go back through
+const HISTORY: usize = 30;
+/// "previous" within this long of the start goes to the earlier track, later it restarts this one
+const PREV_RESTART_MS: i64 = 3_000;
 #[cfg(not(test))]
 const PING_EVERY: Duration = Duration::from_secs(4);
 #[cfg(test)]
@@ -154,6 +179,25 @@ struct Engine {
     seq_loading: Option<u64>,
     last_play: Option<PlayState>,
     msg_n: u64,
+    /// who the room's host is now, and the term of that host's rule
+    host_id: String,
+    term: u32,
+    /// the last time anything came from the host
+    host_heard: Option<Instant>,
+    /// when we connected to the relay (the wait before taking over an empty room counts from here)
+    connected_at: Option<Instant>,
+    /// the room as the relay has it: for whoever enters an empty room
+    last_state: Option<RoomSnapshot>,
+    decrypted: u32,
+    undecrypted: u32,
+    state_dirty: bool,
+    last_state_sent: Instant,
+    last_beat: Instant,
+    /// played tracks, newest last, for "previous"
+    history: Vec<QueueItem>,
+    skip_history: bool,
+    /// a restored room starts its track from here
+    resume_ms: Option<i64>,
 }
 
 impl Engine {
@@ -176,12 +220,11 @@ impl Engine {
     }
 
     fn publish(&self) {
-        let mut v = RoomView { active: true, host: self.p.host, channel: self.p.channel.clone(), connected: true, ..Default::default() };
+        let mut v = RoomView { active: true, host: self.p.host, host_id: self.host_id.clone(), channel: self.p.channel.clone(), connected: true, ..Default::default() };
         let (settings, members, queue, current, play, host_id) = if let Some(r) = &self.room {
             (r.settings.clone(), r.members.clone(), r.queue.iter().cloned().collect(), r.current.clone().map(|c| c.1), r.play, r.host.clone())
         } else if let Some(s) = &self.snap {
-            let host = s.members.first().map(|m| m.id.clone()).unwrap_or_default();
-            (s.settings.clone(), s.members.clone(), s.queue.clone(), s.current.clone().map(|c| c.1), s.play, host)
+            (s.settings.clone(), s.members.clone(), s.queue.clone(), s.current.clone().map(|c| c.1), s.play, self.host_id.clone())
         } else {
             (self.p.settings.clone(), vec![self.p.me.clone()], vec![], None, None, String::new())
         };
@@ -224,12 +267,22 @@ impl Engine {
         let q = Msg::Queue { items: r.queue.iter().cloned().collect() };
         self.send(&m, false);
         self.send(&q, false);
+        self.state_dirty = true;
         self.publish();
     }
 
     fn start_next(&mut self) {
         let now = self.now();
         let Some(room) = self.room.as_mut() else { return };
+        if !self.skip_history {
+            if let Some((_, played)) = room.current.clone() {
+                self.history.push(played);
+                if self.history.len() > HISTORY {
+                    self.history.remove(0);
+                }
+            }
+        }
+        self.skip_history = false;
         let Some((round, item)) = room.next_round(now) else {
             room.current = None;
             room.play = None;
@@ -249,9 +302,17 @@ impl Engine {
         let at = Round::start_at(host_now);
         let Some(room) = self.room.as_mut() else { return };
         let seq = room.current.as_ref().map(|c| c.0).unwrap_or(0);
-        let st = room.start(at);
+        let mut st = room.start(at);
         self.round = None;
-        self.port.start_after(Duration::from_millis((at - host_now).max(0) as u64));
+        match self.resume_ms.take() {
+            Some(ms) if ms > 2_000 => {
+                // a restored room: from where it stopped (the others catch up through the play state)
+                st.pos_ms = ms;
+                room.play = Some(st);
+                self.port.set_playing(true, ms);
+            }
+            _ => self.port.start_after(Duration::from_millis((at - host_now).max(0) as u64)),
+        }
         self.send(&Msg::Go { seq, at }, false);
         self.send(&Msg::Play { state: st }, false);
         self.publish();
@@ -271,7 +332,7 @@ impl Engine {
                     Ok(()) => {
                         let snap = room.snapshot();
                         let host_pub = self.identity.public_b64();
-                        let w = Msg::Welcome { to: m_id, room: snap, host_now: now, host_pub };
+                        let w = Msg::Welcome { to: m_id, room: snap, host_now: now, host_pub, host: self.p.me.id.clone() };
                         self.send(&w, false);
                         self.roster();
                     }
@@ -318,6 +379,13 @@ impl Engine {
                     self.roster();
                 }
             }
+            Msg::HostBeat { id, term, pubkey } => {
+                // two hosts (both took an empty room at once, or the old one came back): the higher term wins,
+                // at equal terms the smaller id
+                if id != self.p.me.id && (term, std::cmp::Reverse(id.clone())) > (self.term, std::cmp::Reverse(self.p.me.id.clone())) {
+                    self.demote(&id, term, pubkey);
+                }
+            }
             Msg::Leave { id } => {
                 if let Some(r) = self.room.as_mut() {
                     r.leave(&id);
@@ -345,6 +413,37 @@ impl Engine {
                 }
             }
             Cmd::Next | Cmd::TrackEnded => self.start_next(),
+            Cmd::Prev => {
+                let pos = self.port.position_ms().unwrap_or(0);
+                let earlier = self.history.pop();
+                match (pos <= PREV_RESTART_MS, earlier) {
+                    (true, Some(prev)) => {
+                        // the track before this one, then this one again
+                        if let Some(r) = self.room.as_mut() {
+                            if let Some((_, cur)) = r.current.clone() {
+                                r.queue.push_front(cur);
+                            }
+                            r.queue.push_front(prev);
+                        }
+                        self.skip_history = true;
+                        self.start_next();
+                    }
+                    (_, earlier) => {
+                        if let Some(e) = earlier {
+                            self.history.push(e);
+                        }
+                        let playing = self.room.as_ref().and_then(|r| r.play).is_none_or(|p| p.playing);
+                        let st = PlayState { at: now, pos_ms: 0, playing };
+                        self.port.set_playing(playing, 0);
+                        if let Some(r) = self.room.as_mut() {
+                            r.play = Some(st);
+                        }
+                        self.send(&Msg::Play { state: st }, false);
+                        self.publish();
+                    }
+                }
+            }
+            Cmd::Play(true) if self.room.as_ref().is_some_and(|r| r.current.is_none() && !r.queue.is_empty()) => self.start_next(),
             Cmd::Play(playing) => {
                 let st = self.host_state_now(playing, None);
                 self.port.set_playing(playing, st.pos_ms);
@@ -384,7 +483,19 @@ impl Engine {
                 self.roster();
             }
             Cmd::Leave => {
-                self.send(&Msg::Leave { id: self.p.me.id.clone() }, false);
+                // the room stays: its state is kept for the next one, the next in the list takes over
+                if let Some(pos) = self.port.position_ms() {
+                    let st = self.host_state_now(self.room.as_ref().and_then(|r| r.play).is_some_and(|p| p.playing), Some(pos));
+                    if let Some(r) = self.room.as_mut() {
+                        if r.current.is_some() {
+                            r.play = Some(st);
+                        }
+                    }
+                }
+                self.send_state();
+                let me = self.p.me.id.clone();
+                self.send(&Msg::HostLeft { id: me.clone() }, false);
+                self.send(&Msg::Leave { id: me }, false);
                 self.end("closed");
                 return false;
             }
@@ -427,6 +538,12 @@ impl Engine {
             }
         }
         let mut changed = !gone.is_empty();
+        if self.last_beat.elapsed() >= BEAT_EVERY {
+            self.beat();
+        }
+        if self.state_dirty && self.last_state_sent.elapsed() >= STATE_EVERY {
+            self.send_state();
+        }
         if let Some(round) = &self.round {
             match round.state(now) {
                 Barrier::Go | Barrier::TimedOut => {
@@ -453,6 +570,90 @@ impl Engine {
             }
             self.send(&Msg::Play { state: st }, false);
         }
+    }
+
+    fn beat(&mut self) {
+        self.last_beat = Instant::now();
+        let m = Msg::HostBeat { id: self.p.me.id.clone(), term: self.term, pubkey: self.identity.public_b64() };
+        self.send(&m, false);
+    }
+
+    /// The room as it is, kept on the relay: whoever enters the empty room next continues from it.
+    fn send_state(&mut self) {
+        self.state_dirty = false;
+        self.last_state_sent = Instant::now();
+        let Some(r) = &self.room else { return };
+        let mut snapshot = r.snapshot();
+        // who is in the room is not part of what is kept: names stay, state does not
+        for m in &mut snapshot.members {
+            m.status = Status::Connecting;
+        }
+        self.send(&Msg::State { snapshot }, true);
+    }
+
+    /// Become the host: of an empty room (`restored` from the relay) or in place of one that went quiet.
+    fn promote(&mut self, restored: Option<RoomSnapshot>) {
+        let now = self.now();
+        let old_host = self.host_id.clone();
+        let me = self.p.me.clone();
+        let mut host = me.clone();
+        host.status = Status::Ready;
+        host.pubkey = Some(self.identity.public_b64());
+        host.last_seen = now;
+        let from_election = self.snap.is_some();
+        let source = self.snap.take().or(restored);
+        let mut settings = source.as_ref().map(|s| s.settings.clone()).unwrap_or_else(|| self.p.settings.clone());
+        settings.has_password = !self.p.password.is_empty();
+        let mut room = Room::new(host, settings);
+        if let Some(src) = &source {
+            for m in src.members.iter().filter(|m| m.id != me.id && m.id != old_host) {
+                let mut m = m.clone();
+                m.status = Status::Connecting;
+                m.last_seen = now;
+                room.members.push(m);
+            }
+            room.queue = src.queue.iter().cloned().collect();
+            if let Some((_, item)) = &src.current {
+                let carry_on = from_election && !self.awaiting_load && self.last_play.is_some_and(|p| p.playing);
+                if carry_on {
+                    // the music is playing here already: just go on, now as the host
+                    room.current = src.current.clone();
+                    room.play = Some(PlayState { at: now, pos_ms: self.port.position_ms().unwrap_or(0), playing: true });
+                } else {
+                    // continue from where it stopped, when somebody presses play
+                    room.queue.push_front(item.clone());
+                    self.resume_ms = src.play.map(|p| p.pos_ms);
+                    self.port.stop();
+                }
+            }
+        }
+        self.term = self.term.max(1) + u32::from(from_election);
+        self.round = None;
+        self.room = Some(room);
+        self.p.host = true;
+        self.host_id = me.id.clone();
+        self.welcomed = true;
+        self.host_heard = None;
+        self.awaiting_load = false;
+        self.beat();
+        self.roster();
+    }
+
+    /// Another host has the room (it won the tie, or it is the newer one): back to being a member of it.
+    fn demote(&mut self, host: &str, term: u32, pubkey: String) {
+        self.p.host = false;
+        self.room = None;
+        self.round = None;
+        self.snap = None;
+        self.welcomed = false;
+        self.term = term;
+        self.host_id = host.to_owned();
+        self.host_pub = Some(pubkey);
+        self.clock = ClockSync::default();
+        self.ping_sent = 0;
+        self.host_heard = Some(Instant::now());
+        self.say_hello();
+        self.publish();
     }
 
     // ---------------------------------------------------------------- member
@@ -498,8 +699,12 @@ impl Engine {
     fn member_msg(&mut self, m: Msg) -> bool {
         let me = self.p.me.id.clone();
         match m {
-            Msg::Welcome { to, room, host_now, host_pub } if to == me => {
+            Msg::Welcome { to, room, host_now, host_pub, host } if to == me => {
                 self.welcomed = true;
+                self.host_heard = Some(Instant::now());
+                if !host.is_empty() {
+                    self.host_id = host;
+                }
                 self.clock.set_rough(host_now - self.now());
                 self.host_pub = Some(host_pub);
                 // joined in the middle of a track: load it like any other, then catch up with the host
@@ -520,19 +725,50 @@ impl Engine {
                 return false;
             }
             Msg::Roster { members, settings } => {
+                self.host_heard = Some(Instant::now());
+                let listed = members.iter().any(|m| m.id == me);
                 if let Some(s) = self.snap.as_mut() {
                     s.members = members;
                     s.settings = settings;
                 }
                 self.publish();
+                if !listed && self.welcomed {
+                    // a new host that does not know us yet
+                    self.say_hello();
+                }
+            }
+            Msg::HostBeat { id, term, pubkey } if id != me => {
+                let better = (term, std::cmp::Reverse(id.clone())) > (self.term, std::cmp::Reverse(self.host_id.clone()));
+                if id == self.host_id || better || self.host_id.is_empty() {
+                    if id != self.host_id {
+                        // a new host: its clock is its own, sync again; it may not know us yet
+                        self.host_id = id;
+                        self.host_pub = Some(pubkey);
+                        self.clock = ClockSync::default();
+                        self.ping_sent = 0;
+                        self.welcomed = false;
+                        self.say_hello();
+                    }
+                    self.term = term;
+                    self.host_heard = Some(Instant::now());
+                }
+            }
+            Msg::HostLeft { id } if id == self.host_id => {
+                // the host said goodbye: no waiting for the silence to run out
+                self.host_heard = Instant::now().checked_sub(HOST_SILENT);
+            }
+            Msg::State { snapshot } => {
+                self.last_state = Some(snapshot);
             }
             Msg::Queue { items } => {
+                self.host_heard = Some(Instant::now());
                 if let Some(s) = self.snap.as_mut() {
                     s.queue = items;
                 }
                 self.publish();
             }
             Msg::Load { seq, item } => {
+                self.host_heard = Some(Instant::now());
                 self.seq_loading = Some(seq);
                 self.awaiting_load = true;
                 self.last_play = None;
@@ -545,18 +781,23 @@ impl Engine {
                 self.publish();
             }
             Msg::Go { seq: _, at } => {
+                self.host_heard = Some(Instant::now());
                 let delay = (self.clock.to_local(at) - self.now()).max(0) as u64;
                 self.port.start_after(Duration::from_millis(delay));
                 self.send(&Msg::Status { id: me, status: Status::Playing }, false);
             }
             Msg::Play { state } => {
+                self.host_heard = Some(Instant::now());
                 if let Some(s) = self.snap.as_mut() {
                     s.play = Some(state);
                 }
                 self.apply_play(state);
                 self.publish();
             }
-            Msg::Pong { id, t0, host_t } if id == me => self.clock.sample(t0, host_t, self.now()),
+            Msg::Pong { id, t0, host_t } if id == me => {
+                self.host_heard = Some(Instant::now());
+                self.clock.sample(t0, host_t, self.now());
+            }
             Msg::Kick { id } if id == me => {
                 self.end("kicked");
                 return false;
@@ -604,9 +845,31 @@ impl Engine {
                 self.port.trim(1.0);
             }
         }
-        if !self.welcomed && since_hello > HELLO_GIVE_UP {
-            self.end("no answer");
-            return false;
+        let _ = since_hello;
+        // nobody answered: the room is empty (or the key is wrong)
+        if !self.welcomed && self.host_heard.is_none() && self.connected_at.is_some_and(|t| t.elapsed() >= ENTER_WAIT) {
+            if self.decrypted == 0 && self.undecrypted > 0 {
+                // the relay has messages we cannot read: not our password
+                self.end("no answer");
+                return false;
+            }
+            let restored = self.last_state.clone();
+            self.promote(restored);
+            return true;
+        }
+        // the host went quiet: the next in the list takes over, one after another
+        if self.welcomed {
+            if let (Some(heard), Some(snap)) = (self.host_heard, self.snap.as_ref()) {
+                let me = self.p.me.id.clone();
+                let order: Vec<&Member> = snap.members.iter().filter(|m| m.id != self.host_id && !matches!(m.status, Status::Problem(_))).collect();
+                if let Some(rank) = order.iter().position(|m| m.id == me) {
+                    if heard.elapsed() >= HOST_SILENT + ELECT_STEP * rank as u32 {
+                        tracing::info!(rank, "room: the host is gone, taking over");
+                        self.promote(None);
+                        return true;
+                    }
+                }
+            }
         }
         true
     }
@@ -633,6 +896,7 @@ pub fn start(
     let key = crypto::room_key(&p.channel, &p.password);
     let identity = Identity::new();
     let is_host = p.host;
+    let host_id0 = if is_host { p.me.id.clone() } else { String::new() };
     let room = is_host.then(|| {
         let mut host = p.me.clone();
         host.status = Status::Ready;
@@ -663,6 +927,19 @@ pub fn start(
         seq_loading: None,
         last_play: None,
         msg_n: 0,
+        host_id: host_id0,
+        term: u32::from(is_host),
+        host_heard: None,
+        connected_at: None,
+        last_state: None,
+        decrypted: 0,
+        undecrypted: 0,
+        state_dirty: false,
+        last_state_sent: Instant::now(),
+        last_beat: Instant::now(),
+        history: Vec::new(),
+        skip_history: false,
+        resume_ms: None,
     };
     tauri::async_runtime::spawn(async move {
         let mut tick = tokio::time::interval(TICK);
@@ -678,8 +955,9 @@ pub fn start(
                     let Some(ev) = ev else { break };
                     match ev {
                         HubEvent::Connected { .. } => {
-                            if !is_host { eng.say_hello(); last_hello = Instant::now(); }
-                            else { eng.roster(); }
+                            eng.connected_at = Some(Instant::now());
+                            if !eng.p.host { eng.say_hello(); last_hello = Instant::now(); }
+                            else { eng.roster(); eng.beat(); }
                         }
                         HubEvent::Disconnected => {
                             let mut g = eng.view.lock().unwrap_or_else(|e| e.into_inner());
@@ -691,21 +969,22 @@ pub fn start(
                         HubEvent::Msg { blob, id, .. } => {
                             // our own message coming back is an acknowledgement, not news
                             if id.as_deref().is_some_and(|i| i.starts_with(&format!("{}-", eng.p.me.id))) { continue; }
-                            let Some(plain) = crypto::open(&eng.key, &eng.p.channel, &blob) else { continue };
+                            let Some(plain) = crypto::open(&eng.key, &eng.p.channel, &blob) else { eng.undecrypted += 1; continue };
                             let Ok(m) = serde_json::from_slice::<Msg>(&plain) else { continue };
+                            eng.decrypted += 1;
                             // who is it from? the host needs it for the queue permission
                             let from = match &m { Msg::Enqueue { item } => item.added_by.clone(), _ => String::new() };
-                            if is_host { eng.host_msg(&from, m); } else if !eng.member_msg(m) { break; }
+                            if eng.p.host { eng.host_msg(&from, m); } else if !eng.member_msg(m) { break; }
                         }
                     }
                 }
                 c = cmds.recv() => {
                     let Some(c) = c else { break };
-                    let go_on = if is_host { eng.host_cmd(c) } else { eng.member_cmd(c) };
+                    let go_on = if eng.p.host { eng.host_cmd(c) } else { eng.member_cmd(c) };
                     if !go_on { break; }
                 }
                 _ = tick.tick() => {
-                    if is_host {
+                    if eng.p.host {
                         eng.host_tick();
                         if last_play.elapsed() >= PLAY_EVERY { eng.host_repeat_state(); last_play = Instant::now(); }
                     } else {
@@ -730,12 +1009,17 @@ pub(crate) mod tests {
     /// A relay in memory: every message goes to everybody, the sender included.
     struct Loopback {
         peers: Mutex<Vec<mpsc::UnboundedSender<HubEvent>>>,
+        /// what the relay keeps (messages marked `keep`), replayed to whoever comes later
+        log: Mutex<Vec<String>>,
     }
     struct Line {
         net: Arc<Loopback>,
     }
     impl Transport for Line {
         fn send(&self, blob: String, keep: bool, id: Option<String>) {
+            if keep {
+                self.net.log.lock().unwrap().push(blob.clone());
+            }
             for p in self.net.peers.lock().unwrap().iter() {
                 let _ = p.send(HubEvent::Msg { seq: 0, blob: blob.clone(), keep, id: id.clone() });
             }
@@ -743,12 +1027,15 @@ pub(crate) mod tests {
     }
     impl Loopback {
         fn new() -> Arc<Self> {
-            Arc::new(Loopback { peers: Mutex::new(Vec::new()) })
+            Arc::new(Loopback { peers: Mutex::new(Vec::new()), log: Mutex::new(Vec::new()) })
         }
         fn join(self: &Arc<Self>) -> (Arc<dyn Transport>, mpsc::UnboundedReceiver<HubEvent>) {
             let (tx, rx) = mpsc::unbounded_channel();
             self.peers.lock().unwrap().push(tx.clone());
             let _ = tx.send(HubEvent::Connected { head: 0, peers: 0 });
+            for (i, blob) in self.log.lock().unwrap().iter().enumerate() {
+                let _ = tx.send(HubEvent::Msg { seq: i as u64 + 1, blob: blob.clone(), keep: true, id: None });
+            }
             (Arc::new(Line { net: self.clone() }), rx)
         }
     }
@@ -853,6 +1140,88 @@ pub(crate) mod tests {
             let gap = if h0 > a0 { h0 - a0 } else { a0 - h0 };
             assert!(gap < Duration::from_millis(60), "start moments differ by {gap:?}");
             assert_eq!(st(&host).as_deref(), Some("playing"));
+        });
+    }
+
+    #[test]
+    fn an_empty_room_is_taken_by_whoever_enters_first_and_continues_from_its_saved_state() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, _hp) = room("chan-keep", "", &net, "host", true);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            host.tx.send(Cmd::Enqueue(item(2))).unwrap();
+            assert!(wait(|| host.view.lock().unwrap().queue.len() == 1, 3000).await);
+            // the state is saved on the relay a moment later; then the host goes and the room is empty
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            host.tx.send(Cmd::Leave).unwrap();
+            assert!(wait(|| host.view.lock().unwrap().ended.is_some(), 2000).await);
+
+            let (anna, ap) = room("chan-keep", "", &net, "anna", false);
+            assert!(wait(|| anna.view.lock().unwrap().host, 4000).await, "anna became the host of the empty room");
+            let v = anna.view.lock().unwrap().clone();
+            assert_eq!(v.queue.len(), 2, "the queue was kept: {:?}", v.queue);
+            assert_eq!(v.name, "Ночной фонк");
+            // she presses play: the first track is asked for
+            anna.tx.send(Cmd::Play(true)).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 2000).await, "play starts the queue");
+        });
+    }
+
+    #[test]
+    fn when_the_host_leaves_the_next_in_the_list_takes_over_and_the_music_goes_on() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-hand", "", &net, "host", true);
+            let (anna, ap) = room("chan-hand", "", &net, "anna", false);
+            let (bob, _bp) = room("chan-hand", "", &net, "bob", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 3, 4000).await);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 3000).await);
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            anna.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            bob.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| hp.started.lock().unwrap().is_some() && ap.started.lock().unwrap().is_some(), 4000).await);
+
+            host.tx.send(Cmd::Leave).unwrap();
+            assert!(wait(|| anna.view.lock().unwrap().host, 4000).await, "anna, first after the host, took over");
+            assert!(!bob.view.lock().unwrap().host, "bob stays a member");
+            assert!(wait(|| bob.view.lock().unwrap().host_id == "anna", 3000).await, "bob follows the new host");
+            assert!(*ap.playing.lock().unwrap(), "the music goes on for the new host");
+            assert_eq!(anna.view.lock().unwrap().current.as_ref().map(|c| c.title.clone()), Some("track1".into()));
+        });
+    }
+
+    #[test]
+    fn two_who_enter_an_empty_room_at_once_end_up_with_one_host() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (a, _ap) = room("chan-race", "", &net, "aa", false);
+            let (b, _bp) = room("chan-race", "", &net, "bb", false);
+            assert!(wait(|| a.view.lock().unwrap().host || b.view.lock().unwrap().host, 4000).await);
+            tokio::time::sleep(Duration::from_millis(2500)).await;
+            let (ha, hb) = (a.view.lock().unwrap().host, b.view.lock().unwrap().host);
+            assert!(ha ^ hb, "exactly one host, got aa={ha} bb={hb}");
+            assert!(ha, "the smaller id wins the tie");
+            assert!(wait(|| b.view.lock().unwrap().host_id == "aa", 3000).await);
+            assert!(wait(|| a.view.lock().unwrap().members.len() == 2, 3000).await, "the loser is in the winner's room");
+        });
+    }
+
+    #[test]
+    fn previous_goes_back_a_track_and_restarts_when_pressed_late() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-prev", "", &net, "host", true);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            host.tx.send(Cmd::Enqueue(item(2))).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 1, 2000).await);
+            host.tx.send(Cmd::Next).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 2, 2000).await, "second track asked for");
+            host.tx.send(Cmd::Prev).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 3, 2000).await, "previous loads the first track again");
+            assert_eq!(hp.prepared.lock().unwrap().last().cloned(), Some("track1".into()));
+            // and the track that was playing waits in the queue right after it
+            assert_eq!(host.view.lock().unwrap().queue.first().map(|q| q.title.clone()), Some("track2".into()));
         });
     }
 
