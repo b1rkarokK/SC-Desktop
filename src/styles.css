@@ -4050,3 +4050,7 @@ kbd {
 .room-pill:focus-within .room-pop {
   display: block;
 }
+
+.sp-back {
+  margin: 6px 0 14px;
+}

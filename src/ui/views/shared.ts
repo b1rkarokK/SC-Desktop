@@ -308,9 +308,12 @@ export class SharedView implements View {
         const v = prompt(T('Название'), i.title);
         if (v && v.trim()) await invoke('sp_title', { channel: i.channel, title: v.trim() }).catch(fail);
       });
+      actions.append(access, rename);
+    }
+    if (i.can_edit) {
       const look = btn(T('Оформление'), I.edit);
       look.addEventListener('click', () => void this.coverDialog(d));
-      actions.append(access, rename, look);
+      actions.append(look);
     }
     const leave = btn(T('Покинуть'), I.close);
     leave.addEventListener('click', async () => {
@@ -348,7 +351,7 @@ export class SharedView implements View {
       const what = ev.title || T('трек');
       history.append(h('div', { class: 'rm-q' }, h('span', { dir: 'auto', text: `${who} ${ev.removed ? T('убрал(а)') : T('добавил(а)')} «${what}»` })));
     }
-    const out = [h('div', { class: 'row-actions' }, back), ...(strip ? [strip] : []), head, actions, sectionTitle(T('Треки ({0})', d.tracks.length)), tracks, sectionTitle(T('Участники')), members];
+    const out = [h('div', { class: 'row-actions sp-back' }, back), ...(strip ? [strip] : []), head, actions, sectionTitle(T('Треки ({0})', d.tracks.length)), tracks, sectionTitle(T('Участники')), members];
     if (d.history.length) out.push(sectionTitle(T('История')), history);
     return out;
   }

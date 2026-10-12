@@ -13,6 +13,7 @@
 //!   ciphertext, so these checks protect against honest mistakes and casual meddling, not against
 //!   somebody who reads the source: an "open" or "link" playlist is as private as its link.
 
+use crate::shared_playlist::Cover;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -40,7 +41,15 @@ enum PlMsg {
     Edit { edit: Edit },
     /// from the owner: title, access, members
     Settings { settings: Settings, stamp: Stamp },
-    Snapshot { playlist: Playlist, settings: Settings, stamp: Stamp },
+    Snapshot {
+        playlist: Playlist,
+        settings: Settings,
+        stamp: Stamp,
+        #[serde(default)]
+        cover: Option<(Cover, Stamp)>,
+    },
+    /// the look of the playlist (the strip on top): editors may change it, the newest wins
+    Cover { cover: Cover, stamp: Stamp },
     /// "this id is called so": for the nicks next to the tracks
     Name { id: u64, name: String },
 }
@@ -57,6 +66,8 @@ pub struct Stored {
     pub outbox: Vec<Edit>,
     #[serde(default)]
     pub seen_since_snapshot: u32,
+    #[serde(default)]
+    pub cover: Option<(Cover, Stamp)>,
 }
 
 pub trait Store: Send + Sync + 'static {
@@ -285,11 +296,26 @@ impl Pl {
             return Err("картинка слишком большая".into());
         }
         let color = color.filter(|c| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|d| d.is_ascii_hexdigit()));
-        self.change_settings(|s| s.cover = crate::shared_playlist::Cover { color, image })
+        let cover = Cover { color, image };
+        let mut st = self.lock();
+        if !st.settings.as_ref().is_some_and(|s| s.can_edit(Some(self.me))) {
+            return Err("менять оформление могут владелец и редакторы".into());
+        }
+        let stamp = st.playlist.next_stamp(&self.me.to_string());
+        st.cover = Some((cover.clone(), stamp.clone()));
+        let copy = st.clone();
+        drop(st);
+        self.send(&PlMsg::Cover { cover, stamp: stamp.clone() }, format!("cv-{}-{}", stamp.time, stamp.author));
+        self.save_and_tell(&copy);
+        Ok(())
     }
 
-    pub fn cover(&self) -> crate::shared_playlist::Cover {
-        self.lock().settings.as_ref().map(|s| s.cover.clone()).unwrap_or_default()
+    pub fn cover(&self) -> Cover {
+        let st = self.lock();
+        match &st.cover {
+            Some((c, _)) => c.clone(),
+            None => st.settings.as_ref().map(|s| s.cover.clone()).unwrap_or_default(),
+        }
     }
 
     pub fn set_title(&self, title: String) -> Result<(), String> {
@@ -335,12 +361,20 @@ impl Pl {
     fn send_snapshot(&self) {
         let st = self.lock();
         let (Some(settings), Some(stamp)) = (st.settings.clone(), st.settings_stamp.clone()) else { return };
-        let m = PlMsg::Snapshot { playlist: st.playlist.clone(), settings, stamp: stamp.clone() };
+        let m = PlMsg::Snapshot { playlist: st.playlist.clone(), settings, stamp: stamp.clone(), cover: st.cover.clone() };
         drop(st);
         self.send(&m, format!("sn-{}-{}", stamp.time, rand::random::<u16>()));
     }
 
     // ------------------------------------------------------------ incoming
+
+    /// The look: from anyone who may edit, the newest stamp wins.
+    fn take_cover(st: &mut Stored, cover: Cover, stamp: Stamp) {
+        let allowed = st.settings.as_ref().is_some_and(|s| s.can_edit(author_id(&stamp)));
+        if allowed && st.cover.as_ref().is_none_or(|(_, old)| stamp > *old) {
+            st.cover = Some((cover, stamp));
+        }
+    }
 
     /// Takes the new settings if they come from the owner (or found the playlist).
     fn take_settings(st: &mut Stored, settings: Settings, stamp: Stamp) {
@@ -376,8 +410,12 @@ impl Pl {
                 }
             }
             PlMsg::Settings { settings, stamp } => Self::take_settings(&mut st, settings, stamp),
-            PlMsg::Snapshot { playlist, settings, stamp } => {
+            PlMsg::Cover { cover, stamp } => Self::take_cover(&mut st, cover, stamp),
+            PlMsg::Snapshot { playlist, settings, stamp, cover } => {
                 Self::take_settings(&mut st, settings, stamp);
+                if let Some((c, cs)) = cover {
+                    Self::take_cover(&mut st, c, cs);
+                }
                 // a snapshot is taken in if its sender could edit; the entries are merged one by one
                 st.playlist.merge(&playlist);
             }
@@ -429,7 +467,7 @@ impl Pl {
 }
 
 pub fn empty_stored(key_b64: String, mine: bool) -> Stored {
-    Stored { key: key_b64, mine, playlist: Playlist::default(), settings: None, settings_stamp: None, names: BTreeMap::new(), last_seq: 0, outbox: Vec::new(), seen_since_snapshot: 0 }
+    Stored { key: key_b64, mine, playlist: Playlist::default(), settings: None, settings_stamp: None, names: BTreeMap::new(), last_seq: 0, outbox: Vec::new(), seen_since_snapshot: 0, cover: None }
 }
 
 #[cfg(test)]
@@ -530,6 +568,30 @@ mod tests {
             settle().await;
             assert_eq!(tracks(&anna), vec![30, 10]);
             assert_eq!(tracks(&bob), vec![30, 10]);
+        });
+    }
+
+    #[test]
+    fn an_editor_changes_the_look_and_a_viewer_cannot() {
+        tauri::async_runtime::block_on(async {
+            let relay = Arc::new(Relay::default());
+            let key = new_key();
+            let anna = pl(&relay, "chan-cover-playlist-1", &key, 1, "anna", true);
+            anna.found("t".into(), Access::Closed);
+            anna.invite(2, "bob".into(), Role::Editor).unwrap();
+            anna.invite(3, "carol".into(), Role::Viewer).unwrap();
+            settle().await;
+            let bob = pl(&relay, "chan-cover-playlist-1", &key, 2, "bob", false);
+            let carol = pl(&relay, "chan-cover-playlist-1", &key, 3, "carol", false);
+            settle().await;
+            bob.set_cover(Some("#1f2c3f".into()), None).unwrap();
+            settle().await;
+            assert_eq!(anna.cover().color.as_deref(), Some("#1f2c3f"), "the owner sees the editor's colour");
+            assert!(carol.set_cover(Some("#3a1f1f".into()), None).is_err(), "a viewer cannot");
+            anna.set_cover(None, Some("data:image/jpeg;base64,AAAA".into())).unwrap();
+            settle().await;
+            assert!(bob.cover().image.is_some() && bob.cover().color.is_none(), "the newest look wins");
+            assert!(anna.set_cover(None, Some("data:image/jpeg;base64,".to_string() + &"A".repeat(300_000))).is_err(), "too big");
         });
     }
 
