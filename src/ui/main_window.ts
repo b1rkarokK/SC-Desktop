@@ -23,13 +23,13 @@ import { T } from './i18n';
 
 const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
   ['home', T('Главная'), I.home],
-  ['likes', T('Лайки'), I.heart],
+  ['search', T('Поиск'), I.search],
   ['wave', T('Моя волна'), I.wave],
+  ['likes', T('Лайки'), I.heart],
+  ['shared', T('Общие плейлисты'), I.playlist],
+  ['rooms', T('Комнаты'), I.users],
   ['history', T('История'), I.history],
   ['stats', T('Итоги'), I.stats],
-  ['rooms', T('Комнаты'), I.users],
-  ['shared', T('Общие плейлисты'), I.playlist],
-  ['search', T('Поиск'), I.search],
   ['settings', T('Настройки'), I.settings],
 ];
 
