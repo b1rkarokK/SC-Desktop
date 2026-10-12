@@ -561,6 +561,85 @@ mod tests {
         FEATURES.store(F_ARTIST_NAME, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// The same rolling origin, for a "who is nearest" score on the features (Jaccard similarity to the liked
+    /// tracks against the never-liked ones) alone and mixed with the model. SCDB=... cargo test cv_knn -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn cv_knn_on_real_history() {
+        let Ok(path) = std::env::var("SCDB") else { return };
+        let c = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let load = |sql: &str| -> Vec<ScTrack> {
+            let mut st = c.prepare(sql).unwrap();
+            let rows = st.query_map([], |r| r.get::<_, String>(0)).unwrap();
+            rows.filter_map(|r| r.ok()).filter_map(|j| serde_json::from_str::<ScTrack>(&j).ok()).collect()
+        };
+        let likes = load("SELECT t.json FROM likes l JOIN tracks t ON t.id = l.track_id ORDER BY l.position ASC");
+        let unliked = load("SELECT json FROM tracks WHERE id NOT IN (SELECT track_id FROM likes)");
+        FEATURES.store(F_ARTIST_NAME, std::sync::atomic::Ordering::Relaxed);
+        let toks = |t: &ScTrack| -> std::collections::HashSet<usize> { features(t, None, None, None).into_iter().collect() };
+
+        let sim = |a: &std::collections::HashSet<usize>, b: &std::collections::HashSet<usize>| -> f32 {
+            let i = a.intersection(b).count() as f32;
+            i / ((a.len() + b.len()) as f32 - i).max(1.0)
+        };
+        let topk = |sims: &mut Vec<f32>, k: usize| -> f32 {
+            sims.sort_by(|a, b| b.total_cmp(a));
+            sims.iter().take(k).sum::<f32>() / k.min(sims.len()).max(1) as f32
+        };
+        const BLOCKS: usize = 6;
+        let chunk = likes.len() / BLOCKS;
+        let auc = |ps: &[f32], ns: &[f32]| -> f32 {
+            let mut wins = 0.0;
+            for p in ps { for n in ns { wins += if p > n { 1.0 } else if p == n { 0.5 } else { 0.0 }; } }
+            wins / (ps.len() * ns.len()) as f32
+        };
+        let z = |v: &[f32], all: &[f32]| -> Vec<f32> {
+            let m = all.iter().sum::<f32>() / all.len() as f32;
+            let sd = (all.iter().map(|x| (x - m).powi(2)).sum::<f32>() / all.len() as f32).sqrt().max(1e-6);
+            v.iter().map(|x| (x - m) / sd).collect()
+        };
+        let mut rows: Vec<(f32, f32, f32, f32)> = Vec::new();
+        for f in 0..BLOCKS - 1 {
+            let test_pos: Vec<&ScTrack> = likes[f * chunk..(f + 1) * chunk].iter().collect();
+            let train_likes: Vec<&ScTrack> = likes[(f + 1) * chunk..].iter().collect();
+            let (mut test_neg, mut train_neg) = (Vec::new(), Vec::new());
+            for (i, t) in unliked.iter().enumerate() {
+                if i % BLOCKS == f { test_neg.push(t) } else { train_neg.push(t) }
+            }
+            let mut v = Vec::new();
+            for (i, t) in train_likes.iter().enumerate() {
+                v.push(Sample { track: (*t).clone(), positive: true, weight: 1.0 / (1.0 + i as f32 / 200.0), ctx: None });
+            }
+            for t in train_neg.iter().take(1500) { v.push(Sample { track: (*t).clone(), positive: false, weight: 0.5, ctx: None }); }
+            let m = Model::train_with(&v, None, Params::default()).expect("data");
+            let pos_toks: Vec<_> = train_likes.iter().map(|t| toks(t)).collect();
+            let neg_toks: Vec<_> = train_neg.iter().take(600).map(|t| toks(t)).collect();
+            let knn = |t: &ScTrack| -> f32 {
+                let a = toks(t);
+                let mut p: Vec<f32> = pos_toks.iter().map(|b| sim(&a, b)).collect();
+                let mut n: Vec<f32> = neg_toks.iter().map(|b| sim(&a, b)).collect();
+                topk(&mut p, 5) - 0.6 * topk(&mut n, 5)
+            };
+            let fm_p: Vec<f32> = test_pos.iter().map(|t| m.score(t)).collect();
+            let fm_n: Vec<f32> = test_neg.iter().map(|t| m.score(t)).collect();
+            let kn_p: Vec<f32> = test_pos.iter().map(|t| knn(t)).collect();
+            let kn_n: Vec<f32> = test_neg.iter().map(|t| knn(t)).collect();
+            let all_fm: Vec<f32> = fm_p.iter().chain(&fm_n).copied().collect();
+            let all_kn: Vec<f32> = kn_p.iter().chain(&kn_n).copied().collect();
+            let blend = |w: f32| -> (Vec<f32>, Vec<f32>) {
+                let (a, b) = (z(&fm_p, &all_fm), z(&kn_p, &all_kn));
+                let (c, d) = (z(&fm_n, &all_fm), z(&kn_n, &all_kn));
+                (a.iter().zip(&b).map(|(x, y)| (1.0 - w) * x + w * y).collect(), c.iter().zip(&d).map(|(x, y)| (1.0 - w) * x + w * y).collect())
+            };
+            let (b3p, b3n) = blend(0.3);
+            let (b5p, b5n) = blend(0.5);
+            rows.push((auc(&fm_p, &fm_n), auc(&kn_p, &kn_n), auc(&b3p, &b3n), auc(&b5p, &b5n)));
+        }
+        let mean = |i: usize| rows.iter().map(|r| [r.0, r.1, r.2, r.3][i]).sum::<f32>() / rows.len() as f32;
+        for r in &rows { println!("block: model {:.3} knn {:.3} mix30 {:.3} mix50 {:.3}", r.0, r.1, r.2, r.3); }
+        println!("MEAN: model {:.4} knn {:.4} mix30 {:.4} mix50 {:.4}", mean(0), mean(1), mean(2), mean(3));
+    }
+
     /// Offline check on a copy of the real cache: train on older likes, ask
     /// the model to tell the newest likes from tracks that were never liked.
     /// `SCDB=<copy of cache.sqlite3> cargo test eval_on_real_history -- --ignored --nocapture`
