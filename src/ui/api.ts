@@ -265,10 +265,9 @@ export function isAppError(e: unknown): e is AppErrorPayload {
 }
 
 export function errorMessage(e: unknown): string {
-  // messages come from the core in Russian
-  if (isAppError(e)) return tr(e.message);
-  if (e instanceof Error) return tr(e.message);
-  return tr(String(e));
+  // messages come from the core in Russian; a message always starts with a capital letter
+  const text = isAppError(e) ? tr(e.message) : e instanceof Error ? tr(e.message) : tr(String(e));
+  return text.charAt(0).toLocaleUpperCase() + text.slice(1);
 }
 
 export interface PendingLike {
