@@ -1768,6 +1768,29 @@ pub async fn room_join(app: AppHandle, state: State<'_, AppState>, rooms: State<
     Ok(())
 }
 
+/// Our rooms, with who is in them right now.
+#[tauri::command]
+pub async fn rooms_mine(state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>) -> Cmd<Vec<crate::sync::service::MineView>> {
+    Ok(rooms.mine(&state).await)
+}
+
+/// Go into one of our rooms (as its host if nobody is there).
+#[tauri::command]
+pub async fn room_enter(app: AppHandle, state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>, channel: String) -> Cmd<()> {
+    rooms.enter(&app, &state, &channel).await?;
+    Ok(())
+}
+
+/// Take a room off our list (it stays for the others).
+#[tauri::command]
+pub async fn room_forget(state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>, channel: String) -> Cmd<()> {
+    if rooms.view().channel == channel {
+        rooms.leave(&state).await;
+    }
+    crate::sync::service::mine_forget(&state, &channel).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn room_leave(state: State<'_, AppState>, rooms: State<'_, crate::sync::service::Rooms>) -> Cmd<()> {
     rooms.leave(&state).await;
@@ -1784,6 +1807,7 @@ pub fn room_view(rooms: State<'_, crate::sync::service::Rooms>) -> crate::sync::
 pub enum RoomCmd {
     Enqueue { track: TrackDto },
     Next,
+    Prev,
     Play { playing: bool },
     Seek { ms: i64 },
     Kick { id: String },
@@ -1797,6 +1821,7 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
     match cmd {
         RoomCmd::Enqueue { track } => rooms.cmd(C::Enqueue(crate::rooms::QueueItem { track_id: track.id, title: track.title, artist: track.artist, added_by: me })),
         RoomCmd::Next => rooms.cmd(C::Next),
+        RoomCmd::Prev => rooms.cmd(C::Prev),
         RoomCmd::Play { playing } => rooms.cmd(C::Play(playing)),
         RoomCmd::Seek { ms } => rooms.cmd(C::Seek(ms)),
         RoomCmd::Kick { id } => rooms.cmd(C::Kick(id)),
