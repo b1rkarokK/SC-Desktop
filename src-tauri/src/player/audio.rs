@@ -28,7 +28,7 @@ use super::{
 };
 use crate::error::{AppError, AppResult};
 
-const POLL_PLAYING: Duration = Duration::from_millis(250);
+const POLL_PLAYING: Duration = Duration::from_millis(60);
 const POLL_FADING: Duration = Duration::from_millis(50);
 const RELEASE_DEVICE_AFTER: Duration = Duration::from_secs(30);
 /// ticks are 250 ms apart → device check every 2 s while playing

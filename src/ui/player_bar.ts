@@ -211,10 +211,11 @@ export class PlayerBar {
   }
 
   private poll = (): void => {
+    const t0 = performance.now();
     api.position().then(
       (ms) => {
         const s = store.snapshot;
-        clock.set(ms, !!s?.playing && !s.loading);
+        clock.set(ms, !!s?.playing && !s.loading, (performance.now() - t0) / 2);
         this.renderPosition(ms);
       },
       () => undefined,

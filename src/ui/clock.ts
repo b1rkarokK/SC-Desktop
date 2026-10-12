@@ -11,12 +11,18 @@ class Clock {
   private rate = 1;
   private listeners = new Set<Listener>();
 
-  set(ms: number, playing: boolean): void {
-    // ignore tiny backwards jitter from the 250 ms audio-thread tick
+  /** `age`: how long ago the sample was taken (half the round trip of the request), ms. */
+  set(sample: number, playing: boolean, age = 0): void {
+    const ms = playing ? sample + age * this.rate : sample;
     const predicted = this.now();
-    const jump = Math.abs(predicted - ms) > 600 || playing !== this.playing;
-    if (jump || ms > predicted) {
+    const err = ms - predicted;
+    const jump = Math.abs(err) > 600 || playing !== this.playing;
+    if (jump) {
       this.base = ms;
+      this.at = performance.now();
+    } else if (Math.abs(err) > 20) {
+      // drift in either direction: take half of the error each poll, no visible jumps
+      this.base = predicted + err * 0.5;
       this.at = performance.now();
     }
     const changed = playing !== this.playing;
