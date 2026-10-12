@@ -324,7 +324,7 @@ export class RoomsView implements View {
       await navigator.clipboard.writeText(LINK + v.channel).catch(() => undefined);
       toast(T('Ссылка на комнату скопирована'));
     });
-    const leave = btn(T('Выйти'), null);
+    const leave = btn(T('Выйти из комнаты'), null);
     leave.addEventListener('click', async () => {
       await invoke('room_leave').catch(() => undefined);
       room.view = null;
@@ -372,7 +372,7 @@ export class RoomsView implements View {
       h(
         'div',
         { class: 'rm-card-body' },
-        cur ? h('div', {}, h('div', { class: 'strong', dir: 'auto', text: cur.title }), h('div', { class: 'muted', dir: 'auto', text: cur.artist })) : h('div', { class: 'muted', text: v.queue.length ? T('Очередь сохранена. Нажмите «Играть», чтобы продолжить.') : T('Пока ничего не играет. Добавьте трек: правая кнопка по треку - «Добавить в комнату».') }),
+        cur ? h('div', {}, h('div', { class: 'strong', dir: 'auto', text: cur.title }), h('div', { class: 'muted', dir: 'auto', text: cur.artist })) : h('div', { class: 'muted', text: v.queue.length ? T('Очередь сохранена. Нажмите «Играть», чтобы продолжить.') : T('Пока ничего не играет. Добавьте трек: кнопка рядом с треком или «В конец очереди» в меню трека.') }),
         h('div', { class: 'rm-bar' }, bar),
         h('div', { class: 'rm-timerow' }, time, h('span', { class: `small ${loading ? 'rm-warn' : 'rm-ok'}`, text: state })),
         v.host ? h('div', { class: 'rm-ctl' }, prev, pp, next) : h('div', { class: 'muted small', text: T('Музыкой управляет хост') }),

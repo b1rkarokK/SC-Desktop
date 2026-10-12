@@ -90,22 +90,20 @@ const L = {
 };
 
 // where the cursor goes on each screenshot (percent of the picture), measured on the real frames
-const HOT = [
-  [23, 27],
-  [70.4, 16.7],
-  [20, 40],
-  [84.5, 15.2],
-];
+const HOT = {
+  ru: [[23, 27], [70.4, 16.7], [20, 40], [84.5, 15.2]],
+  en: [[22.1, 27.2], [67.6, 16.7], [18.1, 40.1], [84.5, 15.2]],
+};
 const NAMES = ['wave', 'rooms', 'shared', 'lyrics'];
 
 function page(c, prefix, isEn) {
   const a = prefix; // path to docs/ from this page
   const pic = (name, i, cls = '') =>
-    `<picture><source media="(prefers-color-scheme: light)" srcset="${a}assets/${name}-light.webp"><img class="${cls}" src="${a}assets/${name}-dark.webp" width="2000" height="1267" alt="${c.shotAlt[i]}"${i === 0 ? '' : ' loading="lazy"'} decoding="async"></picture>`;
+    `<picture><source media="(prefers-color-scheme: light)" srcset="${a}assets/${isEn ? 'en-' : ''}${name}-light.webp"><img class="${cls}" src="${a}assets/${isEn ? 'en-' : ''}${name}-dark.webp" width="2000" height="1267" alt="${c.shotAlt[i]}"${i === 0 ? '' : ' loading="lazy"'} decoding="async"></picture>`;
   const caps = c.steps
     .map(([t, d], i) => `<li class="cap${i === 0 ? ' is-on' : ''}" data-step="${i}"><span class="step-no">${i + 1} ${c.of} ${c.steps.length}</span><h3>${t}</h3><p>${d}</p></li>`)
     .join('\n          ');
-  const shots = NAMES.map((n, i) => `<div class="shot${i === 0 ? ' is-on' : ''}" data-step="${i}" data-x="${HOT[i][0]}" data-y="${HOT[i][1]}">${pic(n, i)}</div>`).join('\n            ');
+  const shots = NAMES.map((n, i) => `<div class="shot${i === 0 ? ' is-on' : ''}" data-step="${i}" data-x="${HOT[c.lang][i][0]}" data-y="${HOT[c.lang][i][1]}">${pic(n, i)}</div>`).join('\n            ');
   const ticks = NAMES.map((_, i) => `<span class="tick${i === 0 ? ' is-on' : ''}"></span>`).join('');
   const feats = c.features.map(([t, d]) => `<li><h3>${t}</h3><p>${d}</p></li>`).join('\n        ');
   const switchLink = isEn ? `<a class="lang" href="${c.otherLangBack[1]}" hreflang="ru" lang="ru">${c.otherLangBack[0]}</a>` : `<a class="lang" href="${c.otherLang[1]}" hreflang="en" lang="en">${c.otherLang[0]}</a>`;
@@ -119,7 +117,7 @@ function page(c, prefix, isEn) {
 <meta name="description" content="${c.description}">
 <meta property="og:title" content="${c.title}">
 <meta property="og:description" content="${c.description}">
-<meta property="og:image" content="${a}assets/rooms-dark.webp">
+<meta property="og:image" content="${a}assets/${isEn ? 'en-' : ''}rooms-dark.webp">
 <link rel="icon" href="${a}assets/favicon.png">
 <link rel="apple-touch-icon" href="${a}assets/icon.png">
 <link rel="stylesheet" href="${a}assets/site.css">

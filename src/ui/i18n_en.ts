@@ -859,4 +859,8 @@ export const EN: Record<string, string> = {
   'Вывод звука': 'Sound output',
   'сейчас: {0}': 'now: {0}',
   'Треки в плеере SoundCloud (защищённые) идут на устройство по умолчанию.': 'Tracks in the SoundCloud player (protected ones) go to the default device.',
+  'проблема со связью': 'connection problem',
+  'Мои комнаты': 'My rooms',
+  'Пока ничего не играет. Добавьте трек: кнопка рядом с треком или «В конец очереди» в меню трека.': 'Nothing is playing yet. Add a track: the button next to a track or "Add to queue" in the track menu.',
+  'Треки ({0})': 'Tracks ({0})',
 };
