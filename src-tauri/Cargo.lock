@@ -4397,7 +4397,7 @@ dependencies = [
 
 [[package]]
 name = "sc-desk"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",

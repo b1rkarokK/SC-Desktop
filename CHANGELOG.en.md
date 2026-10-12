@@ -3,6 +3,13 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.8.1] - 2026-10-12
+
+- Output device picker: a capsule with the device name in the title bar. The list has "Like the system" and all devices, the choice is remembered, and if the device disappears the system one plays. The list opens instantly.
+- After someone is kicked from a room, new members join without trouble, and the kicked one cannot come back or create a room of their own.
+- The room badge and the device capsule follow the dark, light and OLED themes.
+- The app now has a website: https://b1rkarokk.github.io/SC-Desktop/ (Russian and English).
+
 ## [0.8.0] - 2026-10-12
 
 - "Rooms": listen together, one track at everyone's place at once. Audio and chat are not sent, only commands. A room stays in "My rooms" even when nobody is in it: whoever comes first becomes the host, and when the host leaves the music goes on and the next person takes over. Pause, seek, next and previous from the host work for everyone, and a track a member clicks goes to the room's queue. On every tab a "You are in a room" badge in the title bar offers quick actions.
