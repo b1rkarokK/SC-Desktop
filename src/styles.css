@@ -3907,3 +3907,7 @@ kbd {
     letter-spacing: 0.02em;
   }
 }
+
+.rm-plus {
+  padding: 0;
+}
