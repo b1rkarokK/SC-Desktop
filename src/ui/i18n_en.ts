@@ -790,4 +790,9 @@ export const EN: Record<string, string> = {
   'Уведомлять об открытых комнатах друзей': 'Notify when friends open a room',
   'Уведомление Windows, когда кто-то из подписок открыл комнату. Проверка раз в полторы минуты.': 'A Windows notification when somebody you follow opens a room. Checked every minute and a half.',
   'новых: {0}': 'new: {0}',
+  'Кто-то': 'Somebody',
+  'убрал(а)': 'removed',
+  'добавил(а)': 'added',
+  'Играть вместе': 'Play together',
+  'В плейлисте нет треков, которые можно включить': 'There are no playable tracks in the playlist',
 };

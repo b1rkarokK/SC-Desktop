@@ -72,9 +72,17 @@ pub struct SpTrack {
 }
 
 #[derive(Serialize)]
+pub struct SpEvent {
+    pub removed: bool,
+    pub who: String,
+    pub title: String,
+}
+
+#[derive(Serialize)]
 pub struct SpDetail {
     pub info: SpInfo,
     pub tracks: Vec<SpTrack>,
+    pub history: Vec<SpEvent>,
     pub link: String,
 }
 
@@ -212,10 +220,14 @@ impl SharedPlaylists {
         let pl = self.pl(channel)?;
         let rows = pl.rows();
         let state = app.state::<AppState>();
-        let ids: Vec<u64> = rows.iter().map(|r| r.track_id).collect();
+        let past = pl.history(30);
+        let ids: Vec<u64> = rows.iter().map(|r| r.track_id).chain(past.iter().map(|e| e.2)).collect();
         let mut have: HashMap<u64, TrackDto> = state.db.tracks_by_ids(ids.clone()).await?.iter().map(|t| (t.id, TrackDto::from(t))).collect();
         // tracks nobody here has seen yet: asked from SoundCloud, a few at a time
-        let missing: Vec<u64> = ids.iter().copied().filter(|id| !have.contains_key(id)).take(40).collect();
+        let mut missing: Vec<u64> = ids.iter().copied().filter(|id| !have.contains_key(id)).collect();
+        missing.sort_unstable();
+        missing.dedup();
+        missing.truncate(40);
         if !missing.is_empty() {
             if let Ok(sc) = state.sc() {
                 let mut got = Vec::new();
@@ -237,7 +249,11 @@ impl SharedPlaylists {
             seen.insert(channel.to_owned(), i.count);
             let _ = state.db.kv_put("sp:seen", &seen).await;
         }
-        Ok(SpDetail { info: i, tracks, link })
+        let history = past
+            .into_iter()
+            .map(|(removed, who, track)| SpEvent { removed, who, title: have.get(&track).map(|t| format!("{} - {}", t.title, t.artist)).unwrap_or_default() })
+            .collect();
+        Ok(SpDetail { info: i, tracks, history, link })
     }
 
     pub fn add(&self, channel: &str, track_id: u64) -> AppResult<()> {

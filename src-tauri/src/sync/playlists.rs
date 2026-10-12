@@ -172,6 +172,19 @@ impl Pl {
             .collect()
     }
 
+    /// The last `limit` changes: (removed?, who, track id), newest first.
+    pub fn history(&self, limit: usize) -> Vec<(bool, String, u64)> {
+        let st = self.lock();
+        st.playlist
+            .history(limit)
+            .into_iter()
+            .map(|e| {
+                let id: u64 = e.author.parse().unwrap_or(0);
+                (e.removed, st.names.get(&id).cloned().unwrap_or_default(), e.track_id)
+            })
+            .collect()
+    }
+
     pub fn members(&self) -> Vec<Member> {
         let st = self.lock();
         let Some(s) = &st.settings else { return Vec::new() };

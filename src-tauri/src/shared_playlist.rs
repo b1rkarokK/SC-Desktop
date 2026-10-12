@@ -97,10 +97,22 @@ struct Entry {
     /// who put it in (SoundCloud user id as text)
     #[serde(default)]
     added_by: String,
+    /// Lamport time of the adding (0 for entries made before this was kept)
+    #[serde(default)]
+    added_at: u64,
     pos: f64,
     pos_stamp: Stamp,
     removed: bool,
     removed_stamp: Stamp,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Event {
+    pub time: u64,
+    pub removed: bool,
+    /// SoundCloud user id as text
+    pub author: String,
+    pub track_id: u64,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,6 +133,7 @@ impl Playlist {
                 self.entries.entry(entry.clone()).or_insert_with(|| Entry {
                     track_id: *track_id,
                     added_by: stamp.author.clone(),
+                    added_at: stamp.time,
                     pos: *pos,
                     pos_stamp: stamp.clone(),
                     removed: false,
@@ -156,6 +169,9 @@ impl Playlist {
                     self.entries.insert(id.clone(), o.clone());
                 }
                 Some(e) => {
+                    if e.added_at == 0 {
+                        e.added_at = o.added_at;
+                    }
                     if o.pos_stamp > e.pos_stamp {
                         e.pos = o.pos;
                         e.pos_stamp = o.pos_stamp.clone();
@@ -167,6 +183,23 @@ impl Playlist {
                 }
             }
         }
+    }
+
+    /// What happened, newest first: who added which track, who took which out (Lamport order, there
+    /// is no wall clock in an edit). Moves are not listed.
+    pub fn history(&self, limit: usize) -> Vec<Event> {
+        let mut v: Vec<Event> = Vec::new();
+        for e in self.entries.values() {
+            if e.added_at > 0 {
+                v.push(Event { time: e.added_at, removed: false, author: e.added_by.clone(), track_id: e.track_id });
+            }
+            if e.removed && e.removed_stamp.time > 0 {
+                v.push(Event { time: e.removed_stamp.time, removed: true, author: e.removed_stamp.author.clone(), track_id: e.track_id });
+            }
+        }
+        v.sort_by(|a, b| b.time.cmp(&a.time));
+        v.truncate(limit);
+        v
     }
 
     /// Visible entries in order with who added them: (entry id, track id, added by).
@@ -354,6 +387,20 @@ mod tests {
         p.apply(&add("a", 1, 0.0, st(1, "anna")));
         p.apply(&Edit::Move { entry: "a".into(), pos: 9.0, stamp: st(2, "bob") });
         assert_eq!(p.rows()[0].2, "anna");
+    }
+
+    #[test]
+    fn history_lists_adds_and_removals_newest_first() {
+        let mut p = Playlist::default();
+        p.apply(&add("a", 10, 1.0, st(1, "7")));
+        p.apply(&add("b", 20, 2.0, st(2, "8")));
+        p.apply(&Edit::Remove { entry: "a".into(), stamp: st(3, "8") });
+        let h = p.history(10);
+        assert_eq!(h.len(), 3);
+        assert!(h[0].removed && h[0].author == "8" && h[0].track_id == 10);
+        assert!(!h[1].removed && h[1].author == "8" && h[1].track_id == 20);
+        assert!(!h[2].removed && h[2].author == "7");
+        assert_eq!(p.history(2).len(), 2);
     }
 
     #[test]

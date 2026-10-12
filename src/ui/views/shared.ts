@@ -39,9 +39,16 @@ interface SharedTrack {
   added_by_name: string;
 }
 
+interface SharedEvent {
+  removed: boolean;
+  who: string;
+  title: string;
+}
+
 interface SharedDetail {
   info: SharedInfo;
   tracks: SharedTrack[];
+  history: SharedEvent[];
   link: string;
 }
 
@@ -198,12 +205,14 @@ export class SharedView implements View {
 
     const play = btn(T('Играть'), I.play, true);
     play.addEventListener('click', () => void invoke('sp_play', { channel: i.channel, index: 0, shuffle: false }).catch(fail));
+    const together = btn(T('Играть вместе'), I.users);
+    together.addEventListener('click', () => void this.playTogether(d));
     const copy = btn(T('Скопировать ссылку'), I.link);
     copy.addEventListener('click', async () => {
       await navigator.clipboard.writeText(d.link).catch(() => undefined);
       toast(T('Ссылка скопирована'));
     });
-    const actions = h('div', { class: 'row-actions' }, play, copy);
+    const actions = h('div', { class: 'row-actions' }, play, together, copy);
     if (i.role === 'owner') {
       const access = btn(T('Доступ'), I.users);
       access.addEventListener('click', () => this.accessDialog(d));
@@ -244,7 +253,33 @@ export class SharedView implements View {
     const members = h('div', { class: 'rm-members' });
     for (const m of i.members) members.append(h('div', { class: 'rm-member' }, h('span', { class: 'rm-name', dir: 'auto', text: m.name }), h('span', { class: 'muted small', text: ROLE_TEXT[m.role] })));
 
-    return [h('div', { class: 'row-actions' }, back), head, actions, sectionTitle(T('Треки ({0})', d.tracks.length)), tracks, sectionTitle(T('Участники')), members];
+    const history = h('div', { class: 'rm-queue' });
+    for (const ev of d.history) {
+      const who = ev.who || T('Кто-то');
+      const what = ev.title || T('трек');
+      history.append(h('div', { class: 'rm-q' }, h('span', { dir: 'auto', text: `${who} ${ev.removed ? T('убрал(а)') : T('добавил(а)')} «${what}»` })));
+    }
+    const out = [h('div', { class: 'row-actions' }, back), head, actions, sectionTitle(T('Треки ({0})', d.tracks.length)), tracks, sectionTitle(T('Участники')), members];
+    if (d.history.length) out.push(sectionTitle(T('История')), history);
+    return out;
+  }
+
+  /** A room with this playlist's tracks in its queue; the invitation link goes to the clipboard. */
+  private async playTogether(d: SharedDetail): Promise<void> {
+    const tracks = d.tracks.map((t) => t.track).filter((t): t is Track => !!t);
+    if (!tracks.length) {
+      toast(T('В плейлисте нет треков, которые можно включить'), 'error');
+      return;
+    }
+    try {
+      const r = await invoke<{ link: string }>('room_create', { room: { name: d.info.title, password: '', access: 'link', queue_everyone: true } });
+      for (const t of tracks) await invoke('room_cmd', { cmd: { cmd: 'enqueue', track: t } });
+      await navigator.clipboard.writeText(r.link).catch(() => undefined);
+      toast(T('Комната создана, ссылка скопирована'));
+      router.go({ name: 'rooms' });
+    } catch (e) {
+      fail(e);
+    }
   }
 
   // ------------------------------------------------------------ access dialog
