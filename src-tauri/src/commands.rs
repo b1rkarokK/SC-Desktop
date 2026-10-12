@@ -1773,6 +1773,12 @@ pub async fn room_join(app: AppHandle, state: State<'_, AppState>, rooms: State<
     Ok(())
 }
 
+/// A `scdesk://` link that arrived before the window was ready.
+#[tauri::command]
+pub fn deeplink_take() -> Option<String> {
+    crate::deeplink::take()
+}
+
 /// The section the window is on (for the Discord status).
 #[tauri::command]
 pub fn discord_section(player: State<'_, Arc<Player>>, section: String) {

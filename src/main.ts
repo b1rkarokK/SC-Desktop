@@ -11,6 +11,7 @@ import { MainWindow } from './ui/main_window';
 import { PlayerBar } from './ui/player_bar';
 import { loadPrefs, prefs, updatePrefs } from './ui/prefs';
 import { invoke } from '@tauri-apps/api/core';
+import { initDeepLinks } from './ui/deeplink';
 import { router } from './ui/router';
 import { store } from './ui/store';
 import { TitleBar } from './ui/titlebar';
@@ -67,6 +68,7 @@ async function boot(): Promise<void> {
   void updates.listen();
   initHotkeys(openPalette);
   initRoomEvents();
+  initDeepLinks();
   // where we are, for the Discord status
   const sayWhere = () => void invoke('discord_section', { section: router.current.name }).catch(() => undefined);
   router.on(sayWhere);

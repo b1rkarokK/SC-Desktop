@@ -7,6 +7,7 @@ mod bridge;
 mod charts;
 mod commands;
 mod config;
+mod deeplink;
 mod db;
 mod dedupe;
 mod discord;
@@ -58,7 +59,13 @@ fn main() {
     let mut builder = tauri::Builder::default();
     if secrets::profile().is_none() {
         // second launch (e.g. from the Start menu while running in the tray) → show the window
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // a link (scdesk://…) goes to the running program; a plain second launch shows the window
+            match deeplink::from_args(args) {
+                Some(url) => deeplink::handle(app, url),
+                None => tray::show_main(app),
+            }
+        }));
     }
     let app = builder
         .plugin(tauri_plugin_opener::init())
@@ -70,6 +77,10 @@ fn main() {
         .register_asynchronous_uri_scheme_protocol("cover", db::covers::protocol_handler)
         .setup(|app| {
             let handle = app.handle().clone();
+            deeplink::register();
+            if let Some(url) = deeplink::from_args(std::env::args()) {
+                deeplink::handle(&handle, url);
+            }
             app.manage(sync::service::Rooms::default());
             app.manage(sync::shared::SharedPlaylists::default());
             let guard = logging::init(&app.path().app_log_dir()?)?;
@@ -258,6 +269,7 @@ fn main() {
             commands::room_create,
             commands::room_join,
             commands::room_leave,
+            commands::deeplink_take,
             commands::discord_section,
             commands::rooms_mine,
             commands::room_enter,
