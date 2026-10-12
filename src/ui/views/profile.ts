@@ -179,13 +179,17 @@ export class ProfileView implements View {
     this.friendRows.clear();
 
     if (v.incoming.length) {
+      // who you follow on SoundCloud is a hint that the request is from the person it says
+      const following = new Set((await api.libraryArtists(false).catch(() => [])).map((x) => x.id));
       parts.push(head(T('Запросы в друзья · {0}', v.incoming.length)));
+      parts.push(h('p', { class: 'muted small profile-note', text: T('Имя и аватар берутся с SoundCloud, но запрос мог отправить кто угодно. Принимайте тех, кого знаете.') }));
       for (const u of v.incoming) {
         const yes = btn(T('Принять'), I.check, true);
         yes.addEventListener('click', () => void api.friendAccept(u.id).then(() => this.render(), fail));
         const no = btn(T('Отклонить'), null);
         no.addEventListener('click', () => void api.friendDecline(u.id).then(() => this.render(), fail));
-        parts.push(person(u, u.rekey ? T('просит добавить заново (новая установка)') : T('хочет дружить'), yes, no));
+        const known = following.has(u.id) ? ' · ' + T('вы подписаны на него') : '';
+        parts.push(person(u, (u.rekey ? T('просит добавить заново (новая установка)') : T('хочет дружить')) + known, yes, no));
       }
     }
 

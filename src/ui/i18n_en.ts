@@ -515,6 +515,8 @@ export const EN: Record<string, string> = {
   'Подстраивать текст по звуку': 'Match the lyrics to the sound',
   'Если слова появляются раньше или позже голоса, программа сама сдвигает текст по записи. Свой сдвиг (кнопки +/− под текстом) запоминается для каждого трека.': 'If the words show up before or after the voice, the app moves the text to the recording by itself. Your own shift (the +/- buttons under the text) is remembered for each track.',
   'тайминги оригинала пересчитаны под темп: ×{0}': 'timings of the original recalculated for the tempo: ×{0}',
+  'Имя и аватар берутся с SoundCloud, но запрос мог отправить кто угодно. Принимайте тех, кого знаете.': 'The name and picture come from SoundCloud, but anybody could have sent the request. Accept the people you know.',
+  'вы подписаны на него': 'you follow them',
   'Очистить историю?': 'Clear the history?',
   'Пропадут все прослушанные треки, альбомы и плейлисты, а с ними и «Итоги». Вернуть их будет нельзя.': 'All played tracks, albums and playlists will be gone, and the stats with them. This cannot be undone.',
   'Прозрачность': 'Opacity',
