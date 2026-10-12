@@ -3889,3 +3889,21 @@ kbd {
 .rm-q .icon-btn {
   background: none;
 }
+
+.rm-sidehead span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-plus {
+  flex: none;
+  margin-left: 6px;
+}
+
+@media (max-width: 900px) {
+  .rm-sidehead {
+    letter-spacing: 0.02em;
+  }
+}
