@@ -101,6 +101,23 @@ fn main() {
             updater::start(&handle);
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
+            {
+                // with a proxy the connection pool may have been opened while the proxy program (a VPN client that
+                // starts later than this one) was not there yet: a fresh client a few seconds after the start, twice
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if app.state::<state::AppState>().config.get().active_proxy().is_none() {
+                        return;
+                    }
+                    for wait in [4u64, 20, 60] {
+                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                        match app.state::<state::AppState>().rebuild_http() {
+                            Ok(()) => tracing::info!(after_s = wait, "http client rebuilt (proxy in use)"),
+                            Err(e) => tracing::warn!(error = %e, "http client rebuild failed"),
+                        }
+                    }
+                });
+            }
             news::start(&handle);
             sync::watch::start(&handle);
             geniusweb::init(&handle);

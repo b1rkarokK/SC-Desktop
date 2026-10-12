@@ -93,7 +93,7 @@ export class TrackPageView implements View {
 
 // ----------------------------------------------------------------- artist
 
-type ArtistTab = 'popular' | 'tracks' | 'albums' | 'playlists' | 'reposts';
+type ArtistTab = 'popular' | 'tracks' | 'albums' | 'playlists' | 'reposts' | 'likes' | 'liked_playlists';
 
 export class ArtistPageView implements View {
   el: HTMLElement;
@@ -117,6 +117,8 @@ export class ArtistPageView implements View {
         { key: 'albums', label: T('Альбомы') },
         { key: 'playlists', label: T('Плейлисты') },
         { key: 'reposts', label: T('Репосты') },
+        { key: 'likes', label: T('Лайки') },
+        { key: 'liked_playlists', label: T('Лайкнутые плейлисты') },
       ],
       'popular',
       (k) => void this.load(k),
@@ -144,6 +146,19 @@ export class ArtistPageView implements View {
         (e) => toast(errorMessage(e), 'error'),
       ),
     );
+    // a friend of the app gets a mark and a way to invite them
+    const eyebrow = h('div', { class: 'eyebrow', text: T('Артист') });
+    const friendActions = h('span', { class: 'row-actions' });
+    void api.friendsList().then((v) => {
+      const f = v.friends.find((x) => x.id === u.id);
+      if (!f) {
+        const add = btn(T('Добавить в друзья'), I.users);
+        add.addEventListener('click', () => void api.friendRequest(u).then(() => toast(T('Запрос отправлен: {0}', u.username)), (e) => toast(errorMessage(e), 'error')));
+        friendActions.replaceChildren(add);
+        return;
+      }
+      eyebrow.textContent = T('Друг');
+    }, () => undefined);
     const sub = [u.city, u.followers_count !== null ? T('{0} подписчиков', fmtCount(u.followers_count)) : null,
       u.track_count !== null ? T('{0} {1}', u.track_count, plural(u.track_count, 'трек', 'трека', 'треков')) : null]
       .filter(Boolean)
@@ -154,10 +169,10 @@ export class ArtistPageView implements View {
       {},
       hero(
         coverImg(u.avatar_url, 'hero-cover round'),
-        h('div', { class: 'eyebrow', text: T('Артист') }),
+        eyebrow,
         h('h2', { class: 'hero-title', dir: 'auto', text: u.username }),
         h('div', { class: 'muted small', text: sub }),
-        h('div', { class: 'hero-actions' }, playBtn, follow, wave, ban),
+        h('div', { class: 'hero-actions' }, playBtn, follow, friendActions, wave, ban),
       ),
       h('div', { class: 'tabs-row flush' }, tabs.el),
     );
@@ -171,7 +186,7 @@ export class ArtistPageView implements View {
       if (seq !== this.seq) return;
       if (s.tracks.length) this.content.replaceChildren(staticTrackList(s.tracks));
       else if (s.playlists.length) this.content.replaceChildren(playlistGrid(s.playlists));
-      else this.content.replaceChildren(emptyState(T('Здесь пока пусто.')));
+      else this.content.replaceChildren(emptyState(section === 'likes' || section === 'liked_playlists' ? T('Здесь пока пусто, или человек скрыл свои лайки.') : T('Здесь пока пусто.')));
     } catch (e) {
       if (seq === this.seq) this.content.replaceChildren(emptyState(errorMessage(e)));
     }

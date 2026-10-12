@@ -53,11 +53,19 @@ pub struct DiscordConfig {
     pub hide_on_pause: bool,
     /// show a "join" button for an open room (no password) in the status
     pub room_join: bool,
+    /// the "join" button became on by default (0.9): done once for configs written before (a missing field
+    /// reads as false here, not as the struct default, which is what makes the migration run)
+    #[serde(default = "no")]
+    pub join_default_set: bool,
+}
+
+fn no() -> bool {
+    false
 }
 
 impl Default for DiscordConfig {
     fn default() -> Self {
-        Self { enabled: true, app_id: DISCORD_APP_ID.into(), progress: true, button: true, hide_on_pause: true, room_join: false }
+        Self { enabled: true, app_id: DISCORD_APP_ID.into(), progress: true, button: true, hide_on_pause: true, room_join: true, join_default_set: true }
     }
 }
 
@@ -179,6 +187,12 @@ impl ConfigStore {
             }),
             Err(_) => AppConfig::default(),
         };
+        let mut cfg = cfg;
+        if !cfg.discord.join_default_set {
+            // the join page exists now: the button is on for everybody once (it can be turned off in Settings)
+            cfg.discord.room_join = true;
+            cfg.discord.join_default_set = true;
+        }
         Self { path, inner: RwLock::new(cfg) }
     }
 
@@ -217,4 +231,36 @@ pub const DEFAULT_SYNC_URL: &str = "https://sc-desk-sync.sc-desk-sync.workers.de
 /// `wrangler dev`). Not a user setting: an old saved address is ignored.
 pub fn sync_base(_saved: &str) -> String {
     std::env::var("SCDESK_SYNC_URL").ok().map(|u| u.trim().trim_end_matches('/').to_owned()).filter(|u| !u.is_empty()).unwrap_or_else(|| DEFAULT_SYNC_URL.to_owned())
+}
+
+#[cfg(test)]
+mod join_tests {
+    use super::*;
+
+    fn temp(name: &str, json: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("scdesk-cfg-{name}-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("config.json");
+        fs::write(&p, json).unwrap();
+        p
+    }
+
+    #[test]
+    fn an_old_config_gets_the_join_button_once_and_the_choice_after_that_sticks() {
+        // written before 0.9: the button was off, the marker does not exist
+        let p = temp("old", r#"{"discord":{"enabled":true,"room_join":false}}"#);
+        let store = ConfigStore::load(p.clone());
+        assert!(store.get().discord.room_join, "on after the first start of the new version");
+        // the user turns it off in Settings; the marker is saved with it
+        store.update(|c| c.discord.room_join = false).unwrap();
+        let again = ConfigStore::load(p);
+        assert!(!again.get().discord.room_join, "the choice is kept");
+        assert!(again.get().discord.join_default_set);
+    }
+
+    #[test]
+    fn a_new_config_has_the_button_on() {
+        let p = temp("new", "{}");
+        assert!(ConfigStore::load(p).get().discord.room_join);
+    }
 }

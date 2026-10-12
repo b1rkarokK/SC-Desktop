@@ -3,6 +3,20 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.0] - 2026-10-12
+
+- Friends: the app now has its own friends, not SoundCloud followers. Profile - "Friends": find a person, send a request, they accept and you are friends. You can invite friends to a room (a password included) and to a shared playlist: the invitation arrives in the app as a notification and waits in the tab. Everything is encrypted with the pair's key, an invitation cannot be forged. A dot on the avatar shows a waiting request or invitation. Friends' open rooms show in "Rooms".
+- A person's profile: artists and friends get "Likes" and "Liked playlists" tabs (their playlists were there already), and friends get a "Friend" mark.
+- Own themes: Settings - "Theme" - "Custom theme". Four colours, a light or dark base, extra colours, corner radius, a background picture (dimming, blur, panel opacity) and your own CSS. A theme code can be copied and pasted. A theme is light: the picture is scaled once, there are no filters or animations.
+- Rooms: the room code is shown (it copies), the current track and the queue have a like heart, the host removes tracks from the queue and lets removed members back ("Removed" on the right, "Let back"). The people count in other rooms no longer jumps when a track changes. An "Invite a friend" button.
+- Shared playlists: an "Add track" button (search) and "To a shared playlist" in a track's menu. A friend's invitation reaches them in the app.
+- Hotkeys Slowed (Ctrl+Alt+,) and Sped up (Ctrl+Alt+.): pressing again returns the normal speed.
+- Volume: the left part of the slider is no longer "dead", the sound goes only at the very edge, where the icon turns to "muted".
+- Your own uploaded tracks can be liked (the "My tracks" tab).
+- The equalizer button lights up at once at start if it was on. Primary buttons no longer turn black on hover.
+- Discord: the "Join" button for an open room is on by default (turn it off in Settings). The link from Discord opens the app, or the download page if it is not there.
+- Proxy: a few seconds after start the app reconnects through the proxy (before, after a restart you sometimes had to press "Apply").
+
 ## [0.8.1] - 2026-10-12
 
 - Output device picker: a capsule with the device name in the title bar. The list has "Like the system" and all devices, the choice is remembered, and if the device disappears the system one plays. The list opens instantly.

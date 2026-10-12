@@ -147,6 +147,7 @@ export interface DiscordConfig {
   button: boolean;
   hide_on_pause: boolean;
   room_join: boolean;
+  join_default_set?: boolean;
 }
 
 export interface AppConfig {

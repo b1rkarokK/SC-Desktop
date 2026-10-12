@@ -453,7 +453,7 @@ impl SoundCloud {
         self.get(self.api_url(&format!("/users/{id}"), &[])?).await
     }
 
-    /// Artist page tabs: popular | tracks | albums | playlists | reposts
+    /// Artist page tabs: popular | tracks | albums | playlists | reposts | likes | liked_playlists
     pub async fn user_section(&self, id: u64, section: &str) -> AppResult<UserSection> {
         let q = [("limit", PAGE_SIZE.to_string()), ("linked_partitioning", "1".into())];
         Ok(match section {
@@ -469,6 +469,12 @@ impl SoundCloud {
                     items.into_iter().filter_map(|i| serde_json::from_value::<ScTrack>(i["track"].clone()).ok()).collect(),
                 )
             }
+            // what that person liked (public likes; a person who hides them gives an empty list)
+            "likes" => {
+                let items: Vec<Value> = self.paged(self.api_url(&format!("/users/{id}/track_likes"), &q)?, 6).await?;
+                UserSection::Tracks(items.into_iter().filter_map(|i| serde_json::from_value::<ScTrack>(i["track"].clone()).ok()).collect())
+            }
+            "liked_playlists" => UserSection::Playlists(self.playlist_likes(id).await?),
             other => return Err(AppError::Other(format!("unknown section {other}"))),
         })
     }
