@@ -52,6 +52,8 @@ pub trait Port: Send + Sync + 'static {
 
 pub enum Cmd {
     Enqueue(QueueItem),
+    /// the host plays this track right now (a track the host clicked)
+    PlayNow(QueueItem),
     /// the host skips to the next track
     Next,
     /// restart the track, or go back to the one before it
@@ -411,6 +413,12 @@ impl Engine {
                         self.start_next();
                     }
                 }
+            }
+            Cmd::PlayNow(item) => {
+                if let Some(r) = self.room.as_mut() {
+                    r.queue.push_front(item);
+                }
+                self.start_next();
             }
             Cmd::Next | Cmd::TrackEnded => self.start_next(),
             Cmd::Prev => {
@@ -1210,6 +1218,21 @@ pub(crate) mod tests {
             assert!(ha, "the smaller id wins the tie");
             assert!(wait(|| b.view.lock().unwrap().host_id == "aa", 3000).await);
             assert!(wait(|| a.view.lock().unwrap().members.len() == 2, 3000).await, "the loser is in the winner's room");
+        });
+    }
+
+    #[test]
+    fn a_track_the_host_picks_plays_at_once_and_the_queue_keeps_its_order() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-now", "", &net, "host", true);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            host.tx.send(Cmd::Enqueue(item(2))).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 1, 2000).await);
+            host.tx.send(Cmd::PlayNow(item(9))).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 2, 2000).await, "the picked track is loaded now");
+            assert_eq!(hp.prepared.lock().unwrap().last().cloned(), Some("track9".into()));
+            assert_eq!(host.view.lock().unwrap().queue.first().map(|q| q.title.clone()), Some("track2".into()), "the queue goes on after it");
         });
     }
 

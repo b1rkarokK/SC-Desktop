@@ -206,8 +206,10 @@ pub enum RoomAction {
     Seek(u64),
     Next,
     Prev,
-    /// a track chosen to play or to queue: in a room it goes to the room's queue
+    /// a track put in the queue: in a room it goes to the room's queue
     Enqueue(Vec<TrackDto>),
+    /// a track clicked to play: the host's plays at once, a member's goes to the queue
+    PlayNow(TrackDto),
     /// the wave would replace what the room plays
     NoWave,
 }
@@ -666,7 +668,7 @@ impl Player {
     pub fn play_queue(self: &Arc<Self>, tracks: Vec<TrackDto>, start: usize, source: QueueSource) {
         // in a room the track chosen goes to the room's queue instead of replacing what plays
         if !tracks.is_empty() {
-            let routed = if source == QueueSource::Wave { self.routed(RoomAction::NoWave) } else { self.routed(RoomAction::Enqueue(vec![tracks[start.min(tracks.len() - 1)].clone()])) };
+            let routed = if source == QueueSource::Wave { self.routed(RoomAction::NoWave) } else { self.routed(RoomAction::PlayNow(tracks[start.min(tracks.len() - 1)].clone())) };
             if routed {
                 return;
             }

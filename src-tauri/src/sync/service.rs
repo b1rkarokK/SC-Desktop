@@ -441,6 +441,15 @@ impl Rooms {
                         }
                         notice(crate::lang::pick("Добавлено в очередь комнаты", "Added to the room's queue"));
                     }
+                    A::PlayNow(t) => {
+                        let item = QueueItem { track_id: t.id, title: t.title, artist: t.artist, added_by: me_id.clone() };
+                        if host {
+                            let _ = tx.send(Cmd::PlayNow(item));
+                        } else {
+                            let _ = tx.send(Cmd::Enqueue(item));
+                            notice(crate::lang::pick("Вы не хост комнаты, поэтому трек добавлен в очередь", "You are not the room's host, so the track was added to the queue"));
+                        }
+                    }
                     A::NoWave => notice(crate::lang::pick("В комнате волна недоступна: сначала выйдите из комнаты", "The wave is not available in a room: leave the room first")),
                     _ if !host => notice(crate::lang::pick("Музыкой в комнате управляет хост", "The host controls the music in the room")),
                     A::Play(p) => {
