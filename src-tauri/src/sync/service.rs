@@ -227,11 +227,16 @@ fn server(state: &AppState) -> AppResult<String> {
     Ok(url.trim().trim_end_matches('/').to_owned())
 }
 
+/// The relay's address (an error that says what to do when there is none).
+pub fn server_url(state: &AppState) -> AppResult<String> {
+    server(state)
+}
+
 fn dir_key(hash: &str) -> crypto::Key {
     crypto::room_key(hash, "")
 }
 
-/// Rooms of the people given (the ones you follow) that are live right now.
+/// Rooms of the people given (our friends) that are live right now.
 pub async fn live_rooms(state: &AppState, host_ids: Vec<u64>) -> AppResult<Vec<LiveRoom>> {
     let base = server(state)?;
     let hashes: Vec<(String, u64)> = host_ids.into_iter().take(200).map(|id| (host_hash(id), id)).collect();

@@ -83,6 +83,7 @@ fn main() {
             }
             app.manage(sync::service::Rooms::default());
             app.manage(sync::shared::SharedPlaylists::default());
+            app.manage(sync::friends::Friends::default());
             let guard = logging::init(&app.path().app_log_dir()?)?;
             app.manage(logging::LogGuard(guard));
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
@@ -121,6 +122,7 @@ fn main() {
                         tokio::time::sleep(std::time::Duration::from_secs(4)).await;
                         if app.state::<state::AppState>().me().is_some() {
                             app.state::<sync::shared::SharedPlaylists>().start(&app).await;
+                            app.state::<sync::friends::Friends>().start(&app).await;
                             break;
                         }
                     }
@@ -288,6 +290,18 @@ fn main() {
             commands::room_view,
             commands::room_cmd,
             commands::rooms_live,
+            commands::theme_bg_get,
+            commands::theme_bg_set,
+            commands::theme_bg_delete,
+            commands::friends_list,
+            commands::friend_ids,
+            commands::friend_request,
+            commands::friend_accept,
+            commands::friend_decline,
+            commands::friend_cancel,
+            commands::friend_remove,
+            commands::friend_invite,
+            commands::friend_invite_dismiss,
             commands::autopause_get,
             commands::autopause_set,
             commands::backup_export,

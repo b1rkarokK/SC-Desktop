@@ -64,13 +64,27 @@ export class MainWindow {
     window.setTimeout(dot, 12_000);
     this.user.addEventListener('click', () => {
       // a pending check: straight to the queue, where it is passed
-      router.go({ name: 'profile', tab: this.user.classList.contains('has-alert') ? 'queue' : undefined });
+      router.go({ name: 'profile', tab: this.user.classList.contains('has-captcha') ? 'queue' : this.user.classList.contains('has-alert') ? 'friends' : undefined });
       this.user.blur();
     });
-    const alert = (on: boolean) => {
-      this.user.classList.toggle('has-alert', on);
-      this.user.title = on ? T('SoundCloud просит пройти проверку: лайки ждут в очереди') : T('Профиль: мои треки, скачанные и очередь лайков');
+    let captcha = false;
+    let friendsNew = 0;
+    const paintUser = () => {
+      this.user.classList.toggle('has-alert', captcha || friendsNew > 0);
+      this.user.classList.toggle('has-captcha', captcha);
+      this.user.title = captcha ? T('SoundCloud просит пройти проверку: лайки ждут в очереди') : friendsNew ? T('Запросы в друзья и приглашения ждут вас в профиле') : T('Профиль: мои треки, друзья, скачанные и очередь лайков');
     };
+    const alert = (on: boolean) => {
+      captcha = on;
+      paintUser();
+    };
+    const friendsDot = () =>
+      void api.friendsList().then((v) => {
+        friendsNew = v.incoming.length + v.invites.length;
+        paintUser();
+      }, () => {});
+    void listen('friends:changed', friendsDot);
+    window.setTimeout(friendsDot, 6_000);
     void api.captchaWaiting().then(alert, () => {});
     void listen<boolean>('bridge:captcha', (e) => alert(e.payload));
     nav.append(h('div', { class: 'nav-panel' }, list, this.user));

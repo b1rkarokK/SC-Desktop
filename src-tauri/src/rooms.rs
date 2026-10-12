@@ -352,6 +352,20 @@ impl Room {
         }
     }
 
+    pub fn banned(&self) -> &[String] {
+        &self.banned
+    }
+
+    /// The host lets a removed member come back (they enter again with the link).
+    pub fn unban(&mut self, by: &str, id: &str) -> bool {
+        if by != self.host {
+            return false;
+        }
+        let before = self.banned.len();
+        self.banned.retain(|b| b != id);
+        self.banned.len() != before
+    }
+
     pub fn set_banned(&mut self, banned: Vec<String>) {
         self.banned = banned;
     }

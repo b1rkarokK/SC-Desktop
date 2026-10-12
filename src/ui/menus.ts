@@ -109,6 +109,7 @@ export function artistMenu(e: MouseEvent, u: User): void {
     { label: T('Открыть'), icon: I.user, action: () => openArtist(u.id) },
     { label: T('Волна по артисту'), icon: I.wave, action: () => void api.waveStartFrom(null, u.id).then((n) => toast(T('Волна: {0} треков', n)), fail) },
     { label: following ? T('Отписаться') : T('Подписаться'), icon: following ? I.following : I.plus, on: following, action: () => void store.setFollow(u, !following) },
+    { label: T('Добавить в друзья'), icon: I.users, action: () => void api.friendRequest(u).then(() => toast(T('Запрос отправлен: {0}', u.username)), fail) },
     {
       label: T('Не ставить в волну'),
       icon: I.banArtist,

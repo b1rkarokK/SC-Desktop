@@ -84,6 +84,29 @@ impl Identity {
         B64.encode(self.public)
     }
 
+    /// The secret half, to keep between runs (friends know us by this key).
+    pub fn secret_b64(&self) -> String {
+        B64.encode(self.secret.to_bytes())
+    }
+
+    pub fn from_secret_b64(text: &str) -> Option<Self> {
+        let raw: [u8; 32] = B64.decode(text).ok()?.try_into().ok()?;
+        let secret = StaticSecret::from(raw);
+        let public = PublicKey::from(&secret).to_bytes();
+        Some(Identity { secret, public })
+    }
+
+    /// The key two friends share (each side computes the same one from its own secret and the other's
+    /// public key); only these two can make or read what is sealed with it.
+    pub fn pair_key(&self, other_public_b64: &str) -> Option<Key> {
+        let raw: [u8; 32] = B64.decode(other_public_b64).ok()?.try_into().ok()?;
+        let secret = self.secret.diffie_hellman(&PublicKey::from(raw));
+        let hk = Hkdf::<Sha256>::new(Some(b"scdesk-friends-v1"), secret.as_bytes());
+        let mut key = [0u8; 32];
+        hk.expand(b"friends pair", &mut key).ok()?;
+        Some(key)
+    }
+
     fn shared(&self, other_public_b64: &str) -> Option<Key> {
         let raw: [u8; 32] = B64.decode(other_public_b64).ok()?.try_into().ok()?;
         let secret = self.secret.diffie_hellman(&PublicKey::from(raw));
@@ -162,6 +185,17 @@ mod tests {
         let blob = seal(&new_key, "ch", b"after the kick");
         assert!(open(&room_key("ch", ""), "ch", &blob).is_none());
         assert_eq!(open(&new_key, "ch", &blob).as_deref(), Some(&b"after the kick"[..]));
+    }
+
+    #[test]
+    fn two_friends_get_the_same_pair_key_and_a_stranger_does_not() {
+        let (anna, bob, eve) = (Identity::new(), Identity::new(), Identity::new());
+        let k1 = anna.pair_key(&bob.public_b64()).unwrap();
+        let k2 = bob.pair_key(&anna.public_b64()).unwrap();
+        assert_eq!(k1, k2);
+        assert_ne!(eve.pair_key(&bob.public_b64()).unwrap(), k1);
+        let again = Identity::from_secret_b64(&anna.secret_b64()).unwrap();
+        assert_eq!(again.public, anna.public, "the same key after a restart");
     }
 
     #[test]

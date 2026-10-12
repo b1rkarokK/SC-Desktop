@@ -824,6 +824,11 @@ impl Db {
         .await
     }
 
+    pub async fn kv_delete(&self, key: &str) -> AppResult<()> {
+        let key = key.to_owned();
+        self.run(move |c| c.execute("DELETE FROM kv WHERE key = ?1", params![key]).map(|_| ())).await
+    }
+
     pub async fn disliked_tracks_count(&self) -> AppResult<u64> {
         self.run(|c| c.query_row("SELECT COUNT(*) FROM disliked_tracks", [], |r| r.get::<_, i64>(0)))
             .await

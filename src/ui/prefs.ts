@@ -16,6 +16,20 @@ export interface CustomTheme {
   panel: string;
   text: string;
   accent: string;
+  /** shades normally mixed from the four colours; set here they are used as they are */
+  muted?: string;
+  border?: string;
+  hover?: string;
+  /** corner radius of buttons, cards and fields, 0 … 16 px */
+  radius?: number;
+  /** a background picture is saved for this theme (it lives in the database, see `theme_bg_*`) */
+  image?: boolean;
+  /** darkening (or lightening, on a light base) laid over the picture, 0 … 0.85 */
+  dim?: number;
+  /** how opaque the side bar, title bar, text panel and player are over the picture, 40 … 100 % */
+  shell?: number;
+  /** the user's own CSS, applied on top of everything (no network: see `safeCss`) */
+  css?: string;
 }
 export type FsLayout = 'side' | 'text' | 'cover';
 export type FsBackground = 'theme' | 'cover' | 'oled';
@@ -115,35 +129,84 @@ function readableOn(hex: string): string {
 
 /** CSS of a custom theme; the shades between the four colours are mixed from them. */
 export function customCss(t: CustomTheme, scope = ':root'): string {
-  return `${scope}{--bg:${t.bg};--panel:${t.panel};--text:${t.text};--accent:${t.accent};--on-accent:${readableOn(t.accent)};--strong:${t.base === 'light' ? '#000000' : '#ffffff'};--muted:color-mix(in srgb,${t.text} 62%,${t.bg});--faint:color-mix(in srgb,${t.text} 34%,${t.bg});--border:color-mix(in srgb,${t.text} 16%,${t.bg});--hover:color-mix(in srgb,${t.text} 9%,${t.panel});--tint:color-mix(in srgb,${t.text} 7%,transparent)}`;
+  const muted = t.muted ?? `color-mix(in srgb,${t.text} 62%,${t.bg})`;
+  const border = t.border ?? `color-mix(in srgb,${t.text} 16%,${t.bg})`;
+  const hover = t.hover ?? `color-mix(in srgb,${t.text} 9%,${t.panel})`;
+  const radius = t.radius !== undefined ? `--radius:${Math.min(16, Math.max(0, Math.round(t.radius)))}px;` : '';
+  const shell = `--shell-alpha:${Math.min(100, Math.max(40, Math.round(t.shell ?? 80)))}%;`;
+  return `${scope}{--bg:${t.bg};--panel:${t.panel};--text:${t.text};--accent:${t.accent};--on-accent:${readableOn(t.accent)};--strong:${t.base === 'light' ? '#000000' : '#ffffff'};--muted:${muted};--faint:color-mix(in srgb,${t.text} 34%,${t.bg});--border:${border};--hover:${hover};--tint:color-mix(in srgb,${t.text} 7%,transparent);${radius}${shell}}`;
+}
+
+/** The user's CSS without what could load something from the network (`@import`, `url(http…)`) and capped in size:
+ *  a theme is colours and shapes, it must not call anywhere or weigh on the computer. */
+export function safeCss(css: string): string {
+  return css
+    .slice(0, 30_000)
+    .replace(/@import[^;]*;?/gi, '/* @import is not allowed */')
+    .replace(/url\(\s*(['"]?)\s*(?!data:)[^)]*\)/gi, 'none');
+}
+
+function styleEl(id: string): HTMLStyleElement {
+  let el = document.getElementById(id) as HTMLStyleElement | null;
+  if (!el) {
+    el = document.createElement('style');
+    el.id = id;
+    document.head.append(el);
+  }
+  return el;
+}
+
+/** The picture behind the window: one fixed layer, painted once (no blur or filter at run time; any blur is
+ *  baked into the picture when it is chosen), the shell panels let it through. */
+function setBackdrop(t: CustomTheme | null, image: string | null): void {
+  const root = document.documentElement;
+  let el = document.getElementById('theme-bg');
+  if (!t || !image) {
+    el?.remove();
+    delete root.dataset.bgimg;
+    return;
+  }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'theme-bg';
+    document.body.prepend(el);
+  }
+  const dim = Math.min(0.85, Math.max(0, t.dim ?? 0.35));
+  const veil = t.base === 'light' ? '255,255,255' : '0,0,0';
+  el.style.backgroundImage = `linear-gradient(rgba(${veil},${dim}),rgba(${veil},${dim})),url("${image}")`;
+  root.dataset.bgimg = '1';
+}
+
+let backdropSeq = 0;
+
+/** Shows what `t` looks like with an optional picture override (`undefined`: the saved one, `null`: none). */
+async function paintCustom(t: CustomTheme, image: string | null | undefined): Promise<void> {
+  document.documentElement.dataset.theme = t.base;
+  styleEl('custom-theme').textContent = customCss(t, ':root[data-theme]');
+  styleEl('custom-theme-css').textContent = t.css ? safeCss(t.css) : '';
+  const my = ++backdropSeq;
+  let pic: string | null = null;
+  if (image !== undefined) pic = image;
+  else if (t.image) pic = await api.themeBgGet(t.id).catch(() => null);
+  if (my === backdropSeq) setBackdrop(t, pic);
 }
 
 function applyTheme(): void {
   document.documentElement.dataset.theme = effectiveTheme();
-  let el = document.getElementById('custom-theme');
   const c = activeCustom();
   if (!c) {
-    el?.remove();
+    document.getElementById('custom-theme')?.remove();
+    document.getElementById('custom-theme-css')?.remove();
+    backdropSeq++;
+    setBackdrop(null, null);
     return;
   }
-  if (!el) {
-    el = document.createElement('style');
-    el.id = 'custom-theme';
-    document.head.append(el);
-  }
-  // after the built-in rules, so it wins over `[data-theme]` of equal weight
-  el.textContent = customCss(c, ':root[data-theme]');
+  void paintCustom(c, undefined);
 }
 
-/** Try colours without saving them (the theme editor); `null` goes back to the saved look. */
-export function previewTheme(t: CustomTheme | null): void {
+/** Try a theme without saving it (the theme editor); `null` goes back to the saved look.
+ *  `image`: the picture being tried (`undefined`: the saved one, `null`: none). */
+export function previewTheme(t: CustomTheme | null, image?: string | null): void {
   if (!t) return applyTheme();
-  document.documentElement.dataset.theme = t.base;
-  let el = document.getElementById('custom-theme');
-  if (!el) {
-    el = document.createElement('style');
-    el.id = 'custom-theme';
-    document.head.append(el);
-  }
-  el.textContent = customCss(t, ':root[data-theme]');
+  void paintCustom(t, image);
 }

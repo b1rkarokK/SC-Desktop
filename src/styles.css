@@ -4275,6 +4275,28 @@ kbd {
   fill: currentColor;
 }
 
+/* a theme with a background picture: one fixed layer behind the window, the shell panels are a little see-through */
+#theme-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-position: center;
+  background-size: cover;
+  will-change: transform;
+}
+
+:root[data-bgimg] body {
+  background: transparent;
+}
+
+:root[data-bgimg] #titlebar,
+:root[data-bgimg] .nav-panel,
+:root[data-bgimg] #lyrics,
+:root[data-bgimg] #player {
+  background: color-mix(in srgb, var(--panel) var(--shell-alpha, 80%), transparent);
+}
+
 /* find people */
 .fd {
   display: flex;
@@ -4330,4 +4352,45 @@ kbd {
 
 .te-backdrop {
   background: transparent;
+}
+
+.te {
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.te-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.te-range {
+  width: 150px;
+  accent-color: var(--accent);
+}
+
+.te-val {
+  min-width: 46px;
+  text-align: right;
+}
+
+.te-more summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.te-more[open] summary {
+  margin-bottom: 8px;
+}
+
+.te-css {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.rm-unban {
+  margin-left: auto;
 }

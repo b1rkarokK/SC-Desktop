@@ -329,6 +329,34 @@ export interface PendingFollow {
   follow: boolean;
 }
 
+/** A person in the app's own friend list (not a SoundCloud follower). */
+export interface FriendRow {
+  id: number;
+  name: string;
+  avatar_url: string | null;
+  since: number;
+  /** a friend who asks again with a new key (reinstalled the app) */
+  rekey: boolean;
+}
+
+export interface FriendInvite {
+  id: string;
+  from: number;
+  from_name: string;
+  kind: 'room' | 'playlist';
+  link: string;
+  title: string;
+  password: string;
+  at: number;
+}
+
+export interface FriendsView {
+  friends: FriendRow[];
+  incoming: FriendRow[];
+  outgoing: FriendRow[];
+  invites: FriendInvite[];
+}
+
 export interface Download {
   track: Track;
   path: string;
@@ -445,6 +473,18 @@ export const api = {
   hotkeysApply: (hotkeys: unknown) => invoke<void>('hotkeys_apply', { hotkeys }),
   fxSet: (fx: FxConfig, persist: boolean) => invoke<void>('fx_set', { fx, persist }),
   speedPreset: (action: string) => invoke<void>('speed_preset', { action }),
+  themeBgGet: (id: string) => invoke<string | null>('theme_bg_get', { id }),
+  themeBgSet: (id: string, data: string) => invoke<void>('theme_bg_set', { id, data }),
+  themeBgDelete: (id: string) => invoke<void>('theme_bg_delete', { id }),
+  friendsList: () => invoke<FriendsView>('friends_list'),
+  friendIds: () => invoke<number[]>('friend_ids'),
+  friendRequest: (user: User) => invoke<void>('friend_request', { user }),
+  friendAccept: (id: number) => invoke<void>('friend_accept', { id }),
+  friendDecline: (id: number) => invoke<void>('friend_decline', { id }),
+  friendCancel: (id: number) => invoke<void>('friend_cancel', { id }),
+  friendRemove: (id: number) => invoke<void>('friend_remove', { id }),
+  friendInvite: (id: number, kind: 'room' | 'playlist', link: string, title: string) => invoke<void>('friend_invite', { id, kind, link, title }),
+  friendInviteDismiss: (id: string) => invoke<void>('friend_invite_dismiss', { id }),
   sleepSet: (minutes: number | null, endOfTrack: boolean) => invoke<SleepState>('sleep_set', { minutes, endOfTrack }),
   sleepGet: () => invoke<SleepState>('sleep_get'),
   importPreview: (input: string) => invoke<[string, number]>('import_preview', { input }),

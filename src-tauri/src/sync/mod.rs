@@ -2,6 +2,7 @@
 //! travels is encrypted on the devices (`crypto`), the hub keeps channels (`hub`).
 pub mod crypto;
 pub mod engine;
+pub mod friends;
 pub mod hub;
 pub mod playlists;
 pub mod shared;

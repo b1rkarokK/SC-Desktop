@@ -3,7 +3,7 @@
 // offline reach them later through the relay.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { api, errorMessage, type Track, type User } from '../api';
+import { api, errorMessage, type Track } from '../api';
 import { h, toast } from '../dom';
 import { T } from '../i18n';
 import { icon, I } from '../icons';
@@ -447,19 +447,26 @@ export class SharedView implements View {
     };
     drawModes();
 
-    const people = h('select', { class: 'input' }, h('option', { value: '', text: T('Пригласить из подписок…') }));
+    const people = h('select', { class: 'input' }, h('option', { value: '', text: T('Пригласить друга…') }));
     const roleSel = h('select', { class: 'input' }, h('option', { value: 'editor', text: T('редактор') }), h('option', { value: 'viewer', text: T('зритель') }));
-    let artists: User[] = [];
-    void api.libraryArtistsFresh().then((a) => {
-      artists = a;
-      for (const u of a) people.append(h('option', { value: String(u.id), text: u.username }));
+    let friends: { id: number; name: string }[] = [];
+    void api.friendsList().then((v) => {
+      friends = v.friends;
+      for (const u of v.friends) people.append(h('option', { value: String(u.id), text: u.name }));
+      if (!v.friends.length) people.firstElementChild!.textContent = T('Сначала добавьте друзей (Профиль - Друзья)');
     }, () => undefined);
     const invite = btn(T('Пригласить'), I.plus);
     invite.addEventListener('click', async () => {
-      const u = artists.find((x) => String(x.id) === people.value);
+      const u = friends.find((x) => String(x.id) === people.value);
       if (!u) return;
-      await invoke('sp_invite', { channel: i.channel, userId: u.id, name: u.username, role: roleSel.value }).catch(fail);
-      toast(T('Приглашён: {0}', u.username));
+      try {
+        await invoke('sp_invite', { channel: i.channel, userId: u.id, name: u.name, role: roleSel.value });
+        // the friend gets the invitation in the app (with the link that opens the playlist)
+        await api.friendInvite(u.id, 'playlist', d.link, i.title);
+        toast(T('Приглашён: {0}', u.name));
+      } catch (e) {
+        fail(e);
+      }
     });
 
     const close = h('button', { type: 'button', class: 'btn btn-primary', text: T('Готово') });

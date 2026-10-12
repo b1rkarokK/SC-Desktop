@@ -3,8 +3,9 @@
 // Middle: what plays, the controls, the queue. Right: who is online and what they are doing.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { api, coverUrl, errorMessage, type Track, type User } from '../api';
+import { api, coverUrl, errorMessage, type Track } from '../api';
 import { clock } from '../clock';
+import { openMenu } from '../context_menu';
 import { h, toast } from '../dom';
 import { T } from '../i18n';
 import { icon, I } from '../icons';
@@ -40,6 +41,8 @@ export interface RoomViewState {
   current: RoomQueueItem | null;
   play: { at: number; pos_ms: number; playing: boolean } | null;
   who_can_queue_all: boolean;
+  /** ids of the removed members (the host sees them and can let them back) */
+  banned?: string[];
   connected: boolean;
   ended: string | null;
 }
@@ -149,7 +152,6 @@ function statusText(m: RoomMember): string {
 }
 
 const fail = (e: unknown) => toast(errorMessage(e), 'error');
-let lastFresh = 0;
 const cmd = (c: Record<string, unknown>) => void invoke('room_cmd', { cmd: c }).catch(fail);
 
 /** The room knows a track by id, title and artist; the core fetches the rest when it is liked. */
@@ -246,11 +248,7 @@ export class RoomsView implements View {
 
   private async loadLive(): Promise<void> {
     try {
-      // the list is read from SoundCloud at most every 5 minutes (this runs every 15 s)
-      const stale = Date.now() - lastFresh > 300_000;
-      if (stale) lastFresh = Date.now();
-      const people: User[] = await (stale ? api.libraryArtistsFresh() : api.libraryArtists(false));
-      this.live = await invoke<LiveRoom[]>('rooms_live', { hostIds: people.map((u) => u.id) });
+      this.live = await invoke<LiveRoom[]>('rooms_live', { hostIds: await api.friendIds() });
       this.err = '';
     } catch (e) {
       this.live = [];
@@ -361,6 +359,24 @@ export class RoomsView implements View {
       await navigator.clipboard.writeText(LINK + v.channel).catch(() => undefined);
       toast(T('Ссылка на комнату скопирована'));
     });
+    const callFriend = btn(T('Позвать друга'), I.users);
+    callFriend.addEventListener('click', async (e) => {
+      let friends;
+      try {
+        friends = (await api.friendsList()).friends;
+      } catch (err) {
+        return fail(err);
+      }
+      if (!friends.length) return toast(T('Сначала добавьте друзей: Профиль - Друзья'));
+      openMenu(
+        e,
+        friends.map((f) => ({
+          label: f.name,
+          icon: I.user,
+          action: () => void api.friendInvite(f.id, 'room', LINK + v.channel, v.name || T('Комната')).then(() => toast(T('Приглашение отправлено: {0}', f.name)), fail),
+        })),
+      );
+    });
     const leave = btn(T('Выйти из комнаты'), null);
     leave.addEventListener('click', async () => {
       await invoke('room_leave').catch(() => undefined);
@@ -373,6 +389,7 @@ export class RoomsView implements View {
       { class: 'rm-roomhead' },
       h('div', { class: 'rm-roomtitle' }, h('div', { class: 'rm-title', dir: 'auto', text: v.name || T('Комната') }), code, h('div', { class: 'muted small', text: `${T('{0} слушают', online.length)}${host ? ' · ' + T('хост {0}', host.name) : ''}${v.connected ? '' : ' · ' + T('нет связи с сервером')}${v.has_password ? ' · ' + T('пароль') : ''}` })),
       invite,
+      callFriend,
       leave,
     );
 
@@ -454,7 +471,9 @@ export class RoomsView implements View {
     const known = new Map<string, string>();
     for (const k of this.mine.find((r) => r.channel === v.channel)?.known ?? []) known.set(k.id, k.name);
     for (const m of v.members) if (!known.has(m.id)) known.set(m.id, m.name);
-    const away = [...known].filter(([id]) => !here.has(id)).map(([id, name]) => ({ id, name }));
+    const away = [...known].filter(([id]) => !here.has(id) && !(v.banned ?? []).includes(id)).map(([id, name]) => ({ id, name }));
+    // removed by the host: kept apart, with a way back
+    const removed = v.host ? (v.banned ?? []).map((id) => ({ id, name: known.get(id) ?? T('Участник') })) : [];
     const person = (m: RoomMember) => {
       const text = m.host ? `${T('хост')} · ${statusText(m)}` : statusText(m);
       const kick = v.host && !m.you ? h('button', { type: 'button', class: 'rm-forget', title: T('Убрать из комнаты'), 'aria-label': T('Убрать из комнаты') }, icon(I.close, 12)) : null;
@@ -471,6 +490,19 @@ export class RoomsView implements View {
       h('div', { class: 'rm-sidehead' }, h('span', { text: T('В сети, {0}', online.length) })),
       ...online.map(person),
       ...(away.length ? [h('div', { class: 'rm-sidehead' }, h('span', { text: T('Не в сети, {0}', away.length) })), ...away.map((k) => h('div', { class: 'rm-person is-away' }, h('span', { class: 'rm-pav', text: initial(k.name) }), h('div', { class: 'rm-item-text' }, h('div', { class: 'rm-item-name', dir: 'auto', text: k.name }))))] : []),
+      ...(removed.length
+        ? [
+            h('div', { class: 'rm-sidehead' }, h('span', { text: T('Исключённые, {0}', removed.length) })),
+            ...removed.map((k) => {
+              const back = h('button', { type: 'button', class: 'btn btn-quiet rm-unban', title: T('Разрешить вернуться в комнату'), text: T('Вернуть') });
+              back.addEventListener('click', () => {
+                cmd({ cmd: 'unban', id: k.id });
+                toast(T('{0} снова может зайти в комнату', k.name));
+              });
+              return h('div', { class: 'rm-person is-away' }, h('span', { class: 'rm-pav', text: initial(k.name) }), h('div', { class: 'rm-item-text' }, h('div', { class: 'rm-item-name', dir: 'auto', text: k.name })), back);
+            }),
+          ]
+        : []),
       h('p', { class: 'muted small rm-hint', text: T('Хост передаётся сам: когда он выйдет, им станет следующий по списку.') }),
     );
   }

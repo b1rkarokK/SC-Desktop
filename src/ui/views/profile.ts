@@ -1,11 +1,12 @@
 // «Профиль» (avatar at the bottom of the nav): the user's own uploads,
 // downloaded files and likes waiting to reach SoundCloud.
 import { listen } from '@tauri-apps/api/event';
-import { api, coverUrl, errorMessage, fmtCount, plural, type Track, type User } from '../api';
+import { invoke } from '@tauri-apps/api/core';
+import { api, coverUrl, errorMessage, fmtCount, plural, type FriendRow, type Track, type User } from '../api';
 import { h, toast } from '../dom';
 import { I, iconButton } from '../icons';
 import { findPeople } from '../friends_dialog';
-import { openArtist, type ProfileTab } from '../router';
+import { openArtist, router, type ProfileTab } from '../router';
 import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
 import { confirmDialog } from '../confirm';
@@ -61,13 +62,13 @@ export class ProfileView implements View {
       if (this.el.isConnected) void this.render();
     };
     void listen('likes:queue', refresh);
+    void listen('friends:changed', refresh);
     void listen('bridge:captcha', refresh);
     void listen('downloads:changed', refresh);
   }
 
   show(tab?: ProfileTab): void {
     if (tab) this.tabs.select(tab);
-    this.friendsFresh = true;
     void this.counts();
     void this.render();
   }
@@ -153,51 +154,92 @@ export class ProfileView implements View {
     );
   }
 
-  /** Friends = the people you follow on SoundCloud: find and follow new ones, unfollow, open a profile. */
-  private friendsFresh = true;
-
+  /** Friends of the app: requests to answer, invitations that arrived, the list, requests we sent. */
   private async renderFriends(): Promise<void> {
-    const find = btn(T('Найти людей'), I.plus, true);
+    const find = btn(T('Добавить друга'), I.plus, true);
     find.addEventListener('click', () => findPeople(() => void this.render()));
     this.action.replaceChildren(find);
-    let list: User[];
+    let v;
     try {
-      // from SoundCloud once per visit (somebody you followed on the site shows up), the saved list otherwise
-      list = this.friendsFresh ? await api.libraryArtistsFresh() : await api.libraryArtists(false);
-      this.friendsFresh = false;
+      v = await api.friendsList();
     } catch (e) {
       if (this.tabs.value === 'friends') this.body.replaceChildren(emptyState(errorMessage(e)));
       return;
     }
     if (this.tabs.value !== 'friends') return;
-    store.setFollowing(list);
-    this.tabs.setCount('friends', list.length ? fmtCount(list.length) : '');
-    if (!list.length) {
-      this.body.replaceChildren(emptyState(T('Друзей пока нет. Нажмите «Найти людей»: подписки видны в приглашениях в комнаты и общие плейлисты.')));
-      return;
+    this.tabs.setCount('friends', v.friends.length ? fmtCount(v.friends.length) : '');
+    const fail = (e: unknown) => toast(errorMessage(e), 'error');
+    const person = (u: FriendRow, note: string, ...actions: HTMLElement[]) => {
+      const r = line(u.avatar_url, u.name, note, null, ...actions);
+      r.querySelector('.row-cover')?.classList.add('is-round');
+      return r;
+    };
+    const parts: HTMLElement[] = [];
+    const head = (text: string) => h('div', { class: 'rm-sectiontitle', text });
+
+    if (v.incoming.length) {
+      parts.push(head(T('Запросы в друзья · {0}', v.incoming.length)));
+      for (const u of v.incoming) {
+        const yes = btn(T('Принять'), I.check, true);
+        yes.addEventListener('click', () => void api.friendAccept(u.id).then(() => this.render(), fail));
+        const no = btn(T('Отклонить'), null);
+        no.addEventListener('click', () => void api.friendDecline(u.id).then(() => this.render(), fail));
+        parts.push(person(u, u.rekey ? T('просит добавить заново (новая установка)') : T('хочет дружить'), yes, no));
+      }
     }
-    this.body.replaceChildren(
-      h('p', { class: 'muted small profile-note', text: T('Друзья - это те, на кого вы подписаны на SoundCloud. Их можно приглашать в комнаты и общие плейлисты, а открытые комнаты друзей видны в «Комнатах».') }),
-      ...list.map((u) => {
-        const open = iconButton(I.user, T('Открыть профиль'));
-        open.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openArtist(u.id);
+
+    if (v.invites.length) {
+      parts.push(head(T('Приглашения · {0}', v.invites.length)));
+      for (const inv of v.invites) {
+        const join = btn(T('Присоединиться'), I.link, true);
+        join.addEventListener('click', async () => {
+          try {
+            if (inv.kind === 'room') {
+              await invoke('room_join', { link: inv.link, password: inv.password });
+              router.go({ name: 'rooms' });
+            } else {
+              await invoke('sp_join', { link: inv.link });
+              router.go({ name: 'shared' });
+            }
+            await api.friendInviteDismiss(inv.id);
+          } catch (e) {
+            fail(e);
+          }
         });
-        const rm = iconButton(I.close, T('Отписаться'));
-        rm.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const ok = await confirmDialog(T('Отписаться от «{0}»?', u.username), T('Человек уйдёт из списка друзей. Подписаться снова можно в любой момент.'), T('Отписаться'));
-          if (!ok) return;
-          await store.setFollow(u, false);
-          void this.render();
-        });
-        const r = userRow(u, u.followers_count != null ? T('{0} подписчиков', fmtCount(u.followers_count)) : '');
-        r.querySelector('.profile-actions')?.append(open, rm);
-        r.addEventListener('click', () => openArtist(u.id));
-        return r;
-      }),
-    );
+        const hide = iconButton(I.close, T('Скрыть'));
+        hide.addEventListener('click', () => void api.friendInviteDismiss(inv.id).then(() => this.render(), fail));
+        const row = line(null, inv.title || (inv.kind === 'room' ? T('Комната') : T('Общий плейлист')), `${inv.from_name} · ${inv.kind === 'room' ? T('зовёт в комнату') : T('зовёт в общий плейлист')}`, null, join, hide);
+        row.querySelector('.row-cover')?.classList.add('is-round');
+        parts.push(row);
+      }
+    }
+
+    parts.push(head(T('Друзья · {0}', v.friends.length)));
+    if (!v.friends.length) parts.push(emptyState(T('Друзей пока нет. Нажмите «Добавить друга», найдите человека на SoundCloud и отправьте запрос: когда он согласится, вы сможете звать друг друга в комнаты и общие плейлисты.')));
+    for (const u of v.friends) {
+      const rm = iconButton(I.close, T('Удалить из друзей'));
+      rm.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = await confirmDialog(T('Удалить «{0}» из друзей?', u.name), T('Человек узнает об этом, когда откроет программу. Добавить его снова можно в любой момент.'), T('Удалить'));
+        if (ok) void api.friendRemove(u.id).then(() => this.render(), fail);
+      });
+      const open = iconButton(I.user, T('Открыть профиль'));
+      open.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openArtist(u.id);
+      });
+      parts.push(person(u, T('друг'), open, rm));
+    }
+
+    if (v.outgoing.length) {
+      parts.push(head(T('Отправленные запросы · {0}', v.outgoing.length)));
+      for (const u of v.outgoing) {
+        const cancel = btn(T('Отменить'), null);
+        cancel.addEventListener('click', () => void api.friendCancel(u.id).then(() => this.render(), fail));
+        parts.push(person(u, T('ждёт ответа'), cancel));
+      }
+    }
+    this.body.replaceChildren(...parts);
   }
 
   private async renderDownloads(): Promise<void> {

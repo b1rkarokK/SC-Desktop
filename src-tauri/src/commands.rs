@@ -1870,6 +1870,7 @@ pub enum RoomCmd {
     Seek { ms: i64 },
     Kick { id: String },
     Remove { index: usize, track_id: u64 },
+    Unban { id: String },
     QueueEveryone { on: bool },
 }
 
@@ -1884,6 +1885,7 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
         RoomCmd::Play { playing } => rooms.cmd(C::Play(playing)),
         RoomCmd::Seek { ms } => rooms.cmd(C::Seek(ms)),
         RoomCmd::Kick { id } => rooms.cmd(C::Kick(id)),
+        RoomCmd::Unban { id } => rooms.cmd(C::Unban(id)),
         RoomCmd::Remove { index, track_id } => rooms.cmd(C::Remove { index, track_id }),
         RoomCmd::QueueEveryone { on } => {
             let mut s = rooms.view_settings();
@@ -1894,7 +1896,89 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
     Ok(())
 }
 
-/// Live rooms of the people you follow.
+// ------------------------------------------------------------------ theme picture
+
+/// The background picture of a custom theme (a data URL made by the editor): in the database, not in
+/// config.json, which is rewritten whenever the volume or the equalizer changes.
+const THEME_BG_MAX: usize = 2_000_000;
+
+#[tauri::command]
+pub async fn theme_bg_get(state: State<'_, AppState>, id: String) -> Cmd<Option<String>> {
+    Ok(state.db.kv_get::<String>(&format!("theme:bg:{id}")).await?.map(|(v, _)| v))
+}
+
+#[tauri::command]
+pub async fn theme_bg_set(state: State<'_, AppState>, id: String, data: String) -> Cmd<()> {
+    if data.len() > THEME_BG_MAX || !data.starts_with("data:image/") {
+        return Err(AppError::Config("картинка слишком большая или не картинка".into()));
+    }
+    state.db.kv_put(&format!("theme:bg:{id}"), &data).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn theme_bg_delete(state: State<'_, AppState>, id: String) -> Cmd<()> {
+    state.db.kv_delete(&format!("theme:bg:{id}")).await?;
+    Ok(())
+}
+
+// ------------------------------------------------------------------ friends
+
+#[tauri::command]
+pub fn friends_list(friends: State<'_, crate::sync::friends::Friends>) -> crate::sync::friends::FriendsView {
+    friends.view()
+}
+
+#[tauri::command]
+pub fn friend_ids(friends: State<'_, crate::sync::friends::Friends>) -> Vec<u64> {
+    friends.ids()
+}
+
+#[tauri::command]
+pub async fn friend_request(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>, user: UserDto) -> Cmd<()> {
+    Ok(friends.request(&app, user.id, user.username, user.avatar_url).await?)
+}
+
+#[tauri::command]
+pub async fn friend_accept(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>, id: u64) -> Cmd<()> {
+    Ok(friends.accept(&app, id).await?)
+}
+
+#[tauri::command]
+pub fn friend_decline(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>, id: u64) {
+    friends.decline(&app, id);
+}
+
+#[tauri::command]
+pub fn friend_cancel(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>, id: u64) {
+    friends.cancel(&app, id);
+}
+
+#[tauri::command]
+pub async fn friend_remove(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>, id: u64) -> Cmd<()> {
+    Ok(friends.remove(&app, id).await?)
+}
+
+/// A friend is invited to a room (`kind` "room", `link` the room link; its password comes from our list) or to a
+/// shared playlist (`kind` "playlist", the link with its key).
+#[tauri::command]
+pub async fn friend_invite(app: AppHandle, state: State<'_, AppState>, friends: State<'_, crate::sync::friends::Friends>, id: u64, kind: String, link: String, title: String) -> Cmd<()> {
+    let mut password = String::new();
+    if kind == "room" {
+        let channel = link.rsplit('/').next().unwrap_or_default();
+        if let Some(r) = crate::sync::service::mine_load(&state).await.into_iter().find(|r| r.channel == channel) {
+            password = r.password;
+        }
+    }
+    Ok(friends.invite(&app, id, &kind, link, title, password).await?)
+}
+
+#[tauri::command]
+pub fn friend_invite_dismiss(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>, id: String) {
+    friends.dismiss(&app, &id);
+}
+
+/// Live rooms of our friends.
 #[tauri::command]
 pub async fn rooms_live(state: State<'_, AppState>, host_ids: Vec<u64>) -> Cmd<Vec<crate::sync::service::LiveRoom>> {
     // a raw network error would show the server address: say what it means instead

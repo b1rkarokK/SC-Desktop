@@ -61,6 +61,8 @@ pub enum Cmd {
     Play(bool),
     Seek(i64),
     Kick(String),
+    /// the host lets a removed member back in
+    Unban(String),
     /// the host takes a track out of the queue ( guards against a queue that moved meanwhile)
     Remove { index: usize, track_id: u64 },
     Settings(Settings),
@@ -96,6 +98,8 @@ pub struct RoomView {
     pub current: Option<QueueItem>,
     pub play: Option<PlayState>,
     pub who_can_queue_all: bool,
+    /// ids of the members the host removed (host only)
+    pub banned: Vec<String>,
     pub connected: bool,
     /// set when the room is over for us: "kicked", "closed", "no answer"
     pub ended: Option<String>,
@@ -255,6 +259,8 @@ impl Engine {
         v.queue = queue;
         v.current = current;
         v.play = play;
+        // only the host manages the list of the removed
+        v.banned = self.room.as_ref().map(|r| r.banned().to_vec()).unwrap_or_default();
         {
             let mut g = self.view.lock().unwrap_or_else(|e| e.into_inner());
             v.ended = g.ended.clone();
@@ -510,6 +516,12 @@ impl Engine {
                 self.publish();
             }
             Cmd::Kick(id) => self.kick(&id),
+            Cmd::Unban(id) => {
+                let me = self.p.me.id.clone();
+                if self.room.as_mut().is_some_and(|r| r.unban(&me, &id)) {
+                    self.roster();
+                }
+            }
             Cmd::Settings(s) => {
                 if let Some(r) = self.room.as_mut() {
                     r.settings = s;
@@ -1383,6 +1395,15 @@ pub(crate) mod tests {
             let (anna2, _ap2) = room("chan-kick", "pw", &net, "anna", false);
             assert!(wait(|| anna2.view.lock().unwrap().ended.as_deref() == Some("kicked"), 4000).await, "anna is refused again");
             assert!(!anna2.view.lock().unwrap().host);
+
+            // the host lets her back: the list shows her, and she comes in
+            assert_eq!(host.view.lock().unwrap().banned, vec!["anna".to_string()]);
+            host.tx.send(Cmd::Unban("anna".into())).unwrap();
+            assert!(wait(|| host.view.lock().unwrap().banned.is_empty(), 3000).await, "the list is empty again");
+            let (anna3, _ap3) = room("chan-kick", "pw", &net, "anna", false);
+            assert!(wait(|| anna3.view.lock().unwrap().members.len() == 4, 6000).await, "anna is back in the room");
+            assert!(!anna3.view.lock().unwrap().host);
+            assert_eq!(anna3.view.lock().unwrap().ended, None);
         });
     }
 

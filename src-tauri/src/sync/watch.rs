@@ -1,7 +1,6 @@
 //! "A friend opened a room": a quiet notification.
 //!
-//! Every 90 s one request to the relay's directory with the people you follow (their list is the one
-//! the Library already keeps). The first look only remembers who is live, so opening the app
+//! Every 90 s one request to the relay's directory with our friends. The first look only remembers who is live, so opening the app
 //! does not announce rooms that were open for hours.
 
 use std::{collections::HashSet, time::Duration};
@@ -9,7 +8,7 @@ use std::{collections::HashSet, time::Duration};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::{lang::pick, models::UserDto, state::AppState};
+use crate::{lang::pick, state::AppState};
 
 const FIRST: Duration = Duration::from_secs(60);
 const EVERY: Duration = Duration::from_secs(90);
@@ -22,7 +21,7 @@ pub fn start(app: &AppHandle) {
         loop {
             let state = app.state::<AppState>();
             if state.config.get().notify_rooms && state.credentials().is_some() {
-                match look(&state).await {
+                match look(&app, &state).await {
                     Ok(rooms) => {
                         let now: HashSet<String> = rooms.iter().map(|r| r.channel.clone()).collect();
                         if let Some(before) = &seen {
@@ -42,9 +41,8 @@ pub fn start(app: &AppHandle) {
     });
 }
 
-async fn look(state: &AppState) -> crate::error::AppResult<Vec<super::service::LiveRoom>> {
-    let people = state.db.kv_get::<Vec<UserDto>>("lib:artists").await?.map(|(v, _)| v).unwrap_or_default();
-    let me = state.me().map(|m| m.id);
-    let ids: Vec<u64> = people.iter().map(|u| u.id).filter(|id| Some(*id) != me).collect();
+async fn look(app: &AppHandle, state: &AppState) -> crate::error::AppResult<Vec<super::service::LiveRoom>> {
+    // our friends (the people of the app's own friend list, not the ones followed on SoundCloud)
+    let ids = app.state::<super::friends::Friends>().ids();
     super::service::live_rooms(state, ids).await
 }
