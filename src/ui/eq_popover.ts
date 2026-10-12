@@ -144,6 +144,11 @@ export class EqPopover {
       void this.refreshDevice();
     });
     void listen('eq:device', () => void this.refreshDevice());
+    // a speed hotkey changed the effects behind our back
+    void listen<FxConfig>('fx:changed', (e) => {
+      this.fx = { ...e.payload };
+      this.renderFx();
+    });
     void this.refreshDevice();
     store.on('player', () => (this.note.hidden = !store.snapshot?.widget));
     document.addEventListener('keydown', (e) => e.key === 'Escape' && this.open && this.setOpen(false));
@@ -155,6 +160,8 @@ export class EqPopover {
     if (fx) this.fx = { ...fx };
     this.onToggle = onToggle;
     this.render();
+    // the button lights up at once when the equalizer was on at the last exit
+    onToggle(this.open, this.eq.enabled);
   }
 
   toggle(): void {

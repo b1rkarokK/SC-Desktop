@@ -2,9 +2,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, coverUrl, errorMessage, type AppConfig, type DiscordConfig, type NetMode } from '../api';
+import { confirmDialog } from '../confirm';
 import { h, toast } from '../dom';
 import { icon, I } from '../icons';
-import { onPrefs, prefs, updatePrefs, type Theme } from '../prefs';
+import { customThemes, onPrefs, prefs, updatePrefs, type Theme } from '../prefs';
+import { deleteTheme, editTheme, importTheme } from '../theme_editor';
 import { store } from '../store';
 import { lyricsData } from '../lyrics_data';
 import { updates } from '../update_dialog';
@@ -183,6 +185,41 @@ export class SettingsView implements View {
       card.addEventListener('click', () => updatePrefs((x) => (x.theme = t)));
       cards.append(card);
     }
+    // the user's own themes: a card each, drawn in their colours
+    for (const c of customThemes()) {
+      const active = p.theme === `custom:${c.id}`;
+      const card = h(
+        'button',
+        { type: 'button', class: `theme-card${active ? ' is-active' : ''}` },
+        h(
+          'span',
+          { class: 'tc-preview', style: `background:${c.bg}` },
+          h('span', { class: 'tc-nav', style: `background:${c.panel}` }),
+          h('span', { class: 'tc-l1', style: `background:${c.text}` }),
+          h('span', { class: 'tc-l2', style: `background:color-mix(in srgb,${c.text} 34%,${c.bg})` }),
+          h('span', { class: 'tc-play', style: `background:${c.accent}` }),
+        ),
+        h('span', { class: 'tc-label', dir: 'auto', text: c.name }),
+      );
+      card.addEventListener('click', () => updatePrefs((x) => (x.theme = `custom:${c.id}`)));
+      cards.append(card);
+    }
+    const actions = h('div', { class: 'row-actions' });
+    const add = btn(T('Своя тема'), I.plus);
+    add.addEventListener('click', () => editTheme());
+    const paste = btn(T('Вставить код темы'), I.link);
+    paste.addEventListener('click', () => void importTheme());
+    actions.append(add, paste);
+    const current = customThemes().find((c) => p.theme === `custom:${c.id}`);
+    if (current && !p.themeSystem) {
+      const edit = btn(T('Изменить'), I.edit);
+      edit.addEventListener('click', () => editTheme(current));
+      const del = btn(T('Удалить'), I.trash);
+      del.addEventListener('click', async () => {
+        if (await confirmDialog(T('Удалить тему «{0}»?', current.name), T('Тема пропадёт из списка.'), T('Удалить'))) deleteTheme(current.id);
+      });
+      actions.append(edit, del);
+    }
     // language: both names in their own language, so either reader finds it
     const langs = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Язык / Language' });
     for (const [l, label] of [['ru', 'Русский'], ['en', 'English']] as [Lang, string][]) {
@@ -198,7 +235,7 @@ export class SettingsView implements View {
       langs.append(b);
     }
     this.themeBox.replaceChildren(
-      group(T('Тема'), cards, row(T('Как в системе'), toggle(p.themeSystem, (v) => updatePrefs((x) => (x.themeSystem = v))), T('светлая днём, тёмная/OLED ночью'))),
+      group(T('Тема'), cards, actions, row(T('Как в системе'), toggle(p.themeSystem, (v) => updatePrefs((x) => (x.themeSystem = v))), T('светлая днём, тёмная/OLED ночью'))),
     );
     this.langBox.replaceChildren(group('Язык / Language', row(T('Язык интерфейса'), langs, T('Тексты песен не переводятся'))));
   }

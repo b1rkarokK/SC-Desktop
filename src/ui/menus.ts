@@ -2,7 +2,7 @@
 import { api, errorMessage, type Playlist, type Track, type User } from './api';
 import { clock } from './clock';
 import { openMenu, type MenuItem } from './context_menu';
-import { addToPlaylistMenu } from './playlist_picker';
+import { addToPlaylistMenu, addToSharedMenu } from './playlist_picker';
 import { toast } from './dom';
 import { I } from './icons';
 import { openArtist, openPlaylist, openTrack, openTrackArtist } from './router';
@@ -34,6 +34,7 @@ export function trackMenu(e: MouseEvent, t: Track, play?: () => void): void {
     { label: T('Играть следующим'), icon: I.queueNext, action: () => void api.enqueue(t, true).then(() => !room.active() && toast(T('Будет следующим')), fail) },
     { label: T('В конец очереди'), icon: I.queueEnd, action: () => void api.enqueue(t, false).then(() => !room.active() && toast(T('Добавлен в очередь')), fail) },
     { label: T('Добавить в плейлист'), icon: I.playlistAdd, action: () => void addToPlaylistMenu(e, t) },
+    { label: T('В общий плейлист'), icon: I.users, action: () => void addToSharedMenu(e, t) },
     'separator',
     { label: liked ? T('Убрать из лайков') : T('Лайкнуть'), icon: I.heart, on: liked, action: () => void store.setLiked(t, !liked) },
     { label: disliked ? T('Снова рекомендовать') : T('Не рекомендовать'), icon: I.dislike, on: disliked, action: () => void store.setDisliked(t, !disliked) },

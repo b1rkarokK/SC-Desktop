@@ -149,7 +149,30 @@ function statusText(m: RoomMember): string {
 }
 
 const fail = (e: unknown) => toast(errorMessage(e), 'error');
+let lastFresh = 0;
 const cmd = (c: Record<string, unknown>) => void invoke('room_cmd', { cmd: c }).catch(fail);
+
+/** The room knows a track by id, title and artist; the core fetches the rest when it is liked. */
+function asTrack(q: { track_id: number; title: string; artist: string }): Track {
+  return { id: q.track_id, title: q.title, artist: q.artist, user_id: 0, duration_ms: 0, artwork_url: null, permalink_url: null, genre: null };
+}
+
+/** A heart that likes the track from the room (the same likes as everywhere). */
+function likeButton(q: { track_id: number; title: string; artist: string }): HTMLButtonElement {
+  const b = h('button', { type: 'button', class: 'rm-like', title: T('Лайк'), 'aria-label': T('Лайк') }, icon(I.heart, 14));
+  const paint = () => {
+    const on = store.liked.has(q.track_id);
+    b.classList.toggle('is-on', on);
+    b.title = on ? T('Убрать из лайков') : T('Лайкнуть');
+  };
+  paint();
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await store.setLiked(asTrack(q), !store.liked.has(q.track_id));
+    paint();
+  });
+  return b;
+}
 
 function fmt(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -193,10 +216,16 @@ export class RoomsView implements View {
     this.timer = window.setInterval(() => (this.isShown() ? void this.refresh() : window.clearInterval(this.timer)), 15_000);
   }
 
+  private shownChannel = '';
+
   private onRoomChange(): void {
     this.renderAll();
-    // a room we just opened or left changes the list
-    void this.loadMine();
+    // a room we just opened or left changes the list; a new track or a pause does not
+    const now = room.view?.active ? room.view.channel : '';
+    if (now !== this.shownChannel) {
+      this.shownChannel = now;
+      void this.loadMine();
+    }
   }
 
   // ------------------------------------------------------------------- data
@@ -217,7 +246,10 @@ export class RoomsView implements View {
 
   private async loadLive(): Promise<void> {
     try {
-      const people: User[] = await api.libraryArtists(false);
+      // the list is read from SoundCloud at most every 5 minutes (this runs every 15 s)
+      const stale = Date.now() - lastFresh > 300_000;
+      if (stale) lastFresh = Date.now();
+      const people: User[] = await (stale ? api.libraryArtistsFresh() : api.libraryArtists(false));
       this.live = await invoke<LiveRoom[]>('rooms_live', { hostIds: people.map((u) => u.id) });
       this.err = '';
     } catch (e) {
@@ -319,6 +351,11 @@ export class RoomsView implements View {
 
     const online = v.members.filter((m) => m.status !== 'connecting' || m.you);
     const host = v.members.find((m) => m.id === v.host_id) ?? v.members.find((m) => m.host);
+    const code = h('button', { type: 'button', class: 'rm-code', title: T('Скопировать код комнаты'), 'aria-label': T('Скопировать код комнаты') }, h('span', { class: 'muted small', text: T('Код') }), h('code', { text: v.channel }));
+    code.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(v.channel).catch(() => undefined);
+      toast(T('Код комнаты скопирован'));
+    });
     const invite = btn(T('Пригласить'), I.link, true);
     invite.addEventListener('click', async () => {
       await navigator.clipboard.writeText(LINK + v.channel).catch(() => undefined);
@@ -334,7 +371,7 @@ export class RoomsView implements View {
     const head = h(
       'div',
       { class: 'rm-roomhead' },
-      h('div', { class: 'rm-roomtitle' }, h('div', { class: 'rm-title', dir: 'auto', text: v.name || T('Комната') }), h('div', { class: 'muted small', text: `${T('{0} слушают', online.length)}${host ? ' · ' + T('хост {0}', host.name) : ''}${v.connected ? '' : ' · ' + T('нет связи с сервером')}${v.has_password ? ' · ' + T('пароль') : ''}` })),
+      h('div', { class: 'rm-roomtitle' }, h('div', { class: 'rm-title', dir: 'auto', text: v.name || T('Комната') }), code, h('div', { class: 'muted small', text: `${T('{0} слушают', online.length)}${host ? ' · ' + T('хост {0}', host.name) : ''}${v.connected ? '' : ' · ' + T('нет связи с сервером')}${v.has_password ? ' · ' + T('пароль') : ''}` })),
       invite,
       leave,
     );
@@ -372,7 +409,7 @@ export class RoomsView implements View {
       h(
         'div',
         { class: 'rm-card-body' },
-        cur ? h('div', {}, h('div', { class: 'strong', dir: 'auto', text: cur.title }), h('div', { class: 'muted', dir: 'auto', text: cur.artist })) : h('div', { class: 'muted', text: v.queue.length ? T('Очередь сохранена. Нажмите «Играть», чтобы продолжить.') : T('Пока ничего не играет. Добавьте трек: кнопка рядом с треком или «В конец очереди» в меню трека.') }),
+        cur ? h('div', { class: 'rm-now' }, h('div', {}, h('div', { class: 'strong', dir: 'auto', text: cur.title }), h('div', { class: 'muted', dir: 'auto', text: cur.artist })), likeButton(cur)) : h('div', { class: 'muted', text: v.queue.length ? T('Очередь сохранена. Нажмите «Играть», чтобы продолжить.') : T('Пока ничего не играет. Добавьте трек: кнопка рядом с треком или «В конец очереди» в меню трека.') }),
         h('div', { class: 'rm-bar' }, bar),
         h('div', { class: 'rm-timerow' }, time, h('span', { class: `small ${loading ? 'rm-warn' : 'rm-ok'}`, text: state })),
         v.host ? h('div', { class: 'rm-ctl' }, prev, pp, next) : h('div', { class: 'muted small', text: T('Музыкой управляет хост') }),
@@ -381,7 +418,15 @@ export class RoomsView implements View {
 
     const queue = h('div', { class: 'rm-queue' });
     if (!v.queue.length) queue.append(h('p', { class: 'muted small', text: T('Очередь пуста.') }));
-    v.queue.forEach((q, i) => queue.append(h('div', { class: 'rm-qrow' }, h('span', { class: 'muted small rm-qn', text: String(i + 1) }), h('span', { class: 'rm-qt', dir: 'auto', text: `${q.title} - ${q.artist}` }), h('span', { class: 'muted small', dir: 'auto', text: names.get(q.added_by) ?? '' }))));
+    v.queue.forEach((q, i) => {
+      const row = h('div', { class: 'rm-qrow' }, h('span', { class: 'muted small rm-qn', text: String(i + 1) }), h('span', { class: 'rm-qt', dir: 'auto', text: `${q.title} - ${q.artist}` }), h('span', { class: 'muted small', dir: 'auto', text: names.get(q.added_by) ?? '' }), likeButton(q));
+      if (v.host) {
+        const rm = h('button', { type: 'button', class: 'rm-forget rm-qx', title: T('Убрать из очереди'), 'aria-label': T('Убрать из очереди') }, icon(I.close, 12));
+        rm.addEventListener('click', () => cmd({ cmd: 'remove', index: i, track_id: q.track_id }));
+        row.append(rm);
+      }
+      queue.append(row);
+    });
 
     const extra: HTMLElement[] = [];
     if (v.host) {

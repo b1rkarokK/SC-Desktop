@@ -554,6 +554,10 @@ impl Player {
         }
     }
 
+    pub fn speed_locked(&self) -> bool {
+        self.fx.locked()
+    }
+
     pub fn discord_room(&self, room: Option<crate::discord::RoomInfo>) {
         self.discord.set_room(room);
     }

@@ -222,6 +222,7 @@ fn main() {
             commands::playlist_create,
             commands::captcha_waiting,
             commands::fx_set,
+            commands::speed_preset,
             commands::sleep_set,
             commands::sleep_get,
             commands::queue_get,

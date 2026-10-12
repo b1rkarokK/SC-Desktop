@@ -119,7 +119,13 @@ async fn peers_in(base: &str, channel: &str) -> Option<u64> {
 #[derive(Default)]
 pub struct Rooms {
     session: Mutex<Option<Session>>,
+    /// last count of people seen in the rooms we are not in: a look at the relay that fails or comes
+    /// while somebody else is looking too must not make the number jump
+    counts: Mutex<std::collections::HashMap<String, (std::time::Instant, u64)>>,
 }
+
+/// A look at a room is repeated no sooner than this.
+const LOOK_EVERY: Duration = Duration::from_secs(8);
 
 // ------------------------------------------------------------------- port
 
@@ -305,7 +311,20 @@ impl Rooms {
             async move {
                 match (&here, base) {
                     (Some((c, n)), _) if *c == channel => *n,
-                    (_, Some(base)) => peers_in(&base, &channel).await.unwrap_or(0),
+                    (_, Some(base)) => {
+                        let cached = self.counts.lock().unwrap_or_else(|e| e.into_inner()).get(&channel).copied();
+                        match cached {
+                            Some((at, n)) if at.elapsed() < LOOK_EVERY => n,
+                            _ => match peers_in(&base, &channel).await {
+                                Some(n) => {
+                                    self.counts.lock().unwrap_or_else(|e| e.into_inner()).insert(channel.clone(), (std::time::Instant::now(), n));
+                                    n
+                                }
+                                // no answer: keep what we knew
+                                None => cached.map(|(_, n)| n).unwrap_or(0),
+                            },
+                        }
+                    }
                     _ => 0,
                 }
             }

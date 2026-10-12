@@ -4,10 +4,12 @@ import { listen } from '@tauri-apps/api/event';
 import { api, coverUrl, errorMessage, fmtCount, plural, type Track, type User } from '../api';
 import { h, toast } from '../dom';
 import { I, iconButton } from '../icons';
-import type { ProfileTab } from '../router';
+import { findPeople } from '../friends_dialog';
+import { openArtist, type ProfileTab } from '../router';
 import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
 import { confirmDialog } from '../confirm';
+import { trackMenu } from '../menus';
 import { uploadTrack } from '../upload_dialog';
 import { btn, emptyState, viewHead, type View } from './common';
 import { T } from '../i18n';
@@ -46,6 +48,7 @@ export class ProfileView implements View {
     this.tabs = new SegTabs<ProfileTab>(
       [
         { key: 'mine', label: T('Мои треки') },
+        { key: 'friends', label: T('Друзья') },
         { key: 'downloads', label: T('Скачанные') },
         { key: 'queue', label: T('В очереди') },
       ],
@@ -64,6 +67,7 @@ export class ProfileView implements View {
 
   show(tab?: ProfileTab): void {
     if (tab) this.tabs.select(tab);
+    this.friendsFresh = true;
     void this.counts();
     void this.render();
   }
@@ -81,6 +85,7 @@ export class ProfileView implements View {
 
   private async render(): Promise<void> {
     if (this.tabs.value === 'mine') await this.renderMine();
+    else if (this.tabs.value === 'friends') await this.renderFriends();
     else if (this.tabs.value === 'downloads') await this.renderDownloads();
     else await this.renderQueue();
   }
@@ -108,6 +113,19 @@ export class ProfileView implements View {
         const note = [m.private ? T('закрытый') : null, T('{0} {1}', fmtCount(m.plays), plural(m.plays, 'прослушивание', 'прослушивания', 'прослушиваний'))]
           .filter(Boolean)
           .join(' · ');
+        // your own tracks can be liked like any other
+        const like = iconButton(I.heart, T('Лайк'), 'btn-icon pf-like');
+        const paint = () => {
+          const on = store.liked.has(m.track.id);
+          like.classList.toggle('is-on', on);
+          like.title = on ? T('Убрать из лайков') : T('Лайкнуть');
+        };
+        paint();
+        like.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await store.setLiked(m.track, !store.liked.has(m.track.id));
+          paint();
+        });
         const ext = iconButton(I.external, T('Открыть на SoundCloud'));
         ext.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -126,9 +144,57 @@ export class ProfileView implements View {
             toast(errorMessage(err), 'error');
           }
         });
-        const r = row(m.track, note, ext, rm);
+        const r = row(m.track, note, like, ext, rm);
+        r.addEventListener('contextmenu', (e) => trackMenu(e, m.track, () => r.click()));
         r.classList.toggle('is-current', store.currentId() === m.track.id);
         r.addEventListener('click', () => void api.playTracks(tracks, i).catch((err) => toast(errorMessage(err), 'error')));
+        return r;
+      }),
+    );
+  }
+
+  /** Friends = the people you follow on SoundCloud: find and follow new ones, unfollow, open a profile. */
+  private friendsFresh = true;
+
+  private async renderFriends(): Promise<void> {
+    const find = btn(T('Найти людей'), I.plus, true);
+    find.addEventListener('click', () => findPeople(() => void this.render()));
+    this.action.replaceChildren(find);
+    let list: User[];
+    try {
+      // from SoundCloud once per visit (somebody you followed on the site shows up), the saved list otherwise
+      list = this.friendsFresh ? await api.libraryArtistsFresh() : await api.libraryArtists(false);
+      this.friendsFresh = false;
+    } catch (e) {
+      if (this.tabs.value === 'friends') this.body.replaceChildren(emptyState(errorMessage(e)));
+      return;
+    }
+    if (this.tabs.value !== 'friends') return;
+    store.setFollowing(list);
+    this.tabs.setCount('friends', list.length ? fmtCount(list.length) : '');
+    if (!list.length) {
+      this.body.replaceChildren(emptyState(T('Друзей пока нет. Нажмите «Найти людей»: подписки видны в приглашениях в комнаты и общие плейлисты.')));
+      return;
+    }
+    this.body.replaceChildren(
+      h('p', { class: 'muted small profile-note', text: T('Друзья - это те, на кого вы подписаны на SoundCloud. Их можно приглашать в комнаты и общие плейлисты, а открытые комнаты друзей видны в «Комнатах».') }),
+      ...list.map((u) => {
+        const open = iconButton(I.user, T('Открыть профиль'));
+        open.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openArtist(u.id);
+        });
+        const rm = iconButton(I.close, T('Отписаться'));
+        rm.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const ok = await confirmDialog(T('Отписаться от «{0}»?', u.username), T('Человек уйдёт из списка друзей. Подписаться снова можно в любой момент.'), T('Отписаться'));
+          if (!ok) return;
+          await store.setFollow(u, false);
+          void this.render();
+        });
+        const r = userRow(u, u.followers_count != null ? T('{0} подписчиков', fmtCount(u.followers_count)) : '');
+        r.querySelector('.profile-actions')?.append(open, rm);
+        r.addEventListener('click', () => openArtist(u.id));
         return r;
       }),
     );

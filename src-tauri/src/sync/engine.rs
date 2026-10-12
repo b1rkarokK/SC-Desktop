@@ -61,6 +61,8 @@ pub enum Cmd {
     Play(bool),
     Seek(i64),
     Kick(String),
+    /// the host takes a track out of the queue ( guards against a queue that moved meanwhile)
+    Remove { index: usize, track_id: u64 },
     Settings(Settings),
     /// the local player has the prepared track (or could not get it)
     Loaded { ok: bool },
@@ -442,6 +444,19 @@ impl Engine {
                     r.queue.push_front(item);
                 }
                 self.start_next();
+            }
+            Cmd::Remove { index, track_id } => {
+                let done = self.room.as_mut().is_some_and(|r| {
+                    if r.queue.get(index).is_some_and(|q| q.track_id == track_id) {
+                        r.queue.remove(index);
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if done {
+                    self.roster();
+                }
             }
             Cmd::Next | Cmd::TrackEnded => self.start_next(),
             Cmd::Prev => {
@@ -1280,6 +1295,27 @@ pub(crate) mod tests {
             assert!(wait(|| hp.prepared.lock().unwrap().len() == 2, 2000).await, "the picked track is loaded now");
             assert_eq!(hp.prepared.lock().unwrap().last().cloned(), Some("track9".into()));
             assert_eq!(host.view.lock().unwrap().queue.first().map(|q| q.title.clone()), Some("track2".into()), "the queue goes on after it");
+        });
+    }
+
+    #[test]
+    fn the_host_takes_a_track_out_of_the_queue_and_a_stale_index_changes_nothing() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-remove", "", &net, "host", true);
+            for n in 1..=4 {
+                host.tx.send(Cmd::Enqueue(item(n))).unwrap();
+            }
+            // track 1 starts, tracks 2, 3, 4 wait
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 1 && host.view.lock().unwrap().queue.len() == 3, 2000).await);
+            host.tx.send(Cmd::Remove { index: 1, track_id: 3 }).unwrap();
+            assert!(wait(|| host.view.lock().unwrap().queue.len() == 2, 2000).await, "track 3 is gone");
+            let titles: Vec<String> = host.view.lock().unwrap().queue.iter().map(|q| q.title.clone()).collect();
+            assert_eq!(titles, vec!["track2".to_string(), "track4".to_string()]);
+            // the queue moved under the click: the id does not match, so nothing is removed
+            host.tx.send(Cmd::Remove { index: 0, track_id: 4 }).unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            assert_eq!(host.view.lock().unwrap().queue.len(), 2);
         });
     }
 

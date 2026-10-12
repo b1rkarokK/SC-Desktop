@@ -145,7 +145,10 @@ fn host_script() -> String {
 /// Slider position → widget volume 0..100 (same curve as the native engine).
 fn widget_volume(v: f32) -> u32 {
     let v = v.clamp(0.0, 1.0);
-    (v * v * 100.0).round() as u32
+    if v < 0.02 {
+        return 0;
+    }
+    (v.powf(1.5) * 100.0).round() as u32
 }
 
 impl Widget {

@@ -385,6 +385,8 @@ export const api = {
   uploadDelete: (trackId: number) => invoke<void>('upload_delete', { trackId }),
   myTracks: () => invoke<MyTrack[]>('my_tracks'),
   libraryArtists: (force: boolean) => invoke<User[]>('library_artists', { force }),
+  /** Followings straight from SoundCloud (somebody you just followed on the site shows up), the saved list if it is unreachable. */
+  libraryArtistsFresh: () => invoke<User[]>('library_artists', { force: true }).catch(() => invoke<User[]>('library_artists', { force: false })),
   libraryCounts: () => invoke<LibraryCounts>('library_counts'),
   followSet: (user: User, follow: boolean) => invoke<void>('follow_set', { user, follow }),
   history: (offset: number, limit: number) => invoke<HistoryItem[]>('history_page', { offset, limit }),
@@ -442,6 +444,7 @@ export const api = {
   miniOpen: () => invoke<void>('mini_open'),
   hotkeysApply: (hotkeys: unknown) => invoke<void>('hotkeys_apply', { hotkeys }),
   fxSet: (fx: FxConfig, persist: boolean) => invoke<void>('fx_set', { fx, persist }),
+  speedPreset: (action: string) => invoke<void>('speed_preset', { action }),
   sleepSet: (minutes: number | null, endOfTrack: boolean) => invoke<SleepState>('sleep_set', { minutes, endOfTrack }),
   sleepGet: () => invoke<SleepState>('sleep_get'),
   importPreview: (input: string) => invoke<[string, number]>('import_preview', { input }),

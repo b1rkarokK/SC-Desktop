@@ -506,7 +506,13 @@ fn default_device_name() -> Option<String> {
     rodio::cpal::default_host().default_output_device()?.name().ok()
 }
 
-/// Slider position → amplitude. Quadratic is close enough to perceived loudness.
+/// Slider position → amplitude. A power of 1.5 keeps the low end audible (a square made the left third
+/// of the slider nearly silent); the very first notch is a true zero so the mute icon matches.
 fn perceptual(v: f32) -> f32 {
-    v * v
+    let v = v.clamp(0.0, 1.0);
+    if v < 0.02 {
+        0.0
+    } else {
+        v.powf(1.5)
+    }
 }

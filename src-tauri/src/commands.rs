@@ -292,8 +292,12 @@ async fn send_like(app: &AppHandle, state: &AppState, track_id: u64, liked: bool
 pub async fn like_set(app: AppHandle, state: State<'_, AppState>, track: TrackDto, liked: bool) -> Cmd<()> {
     if liked {
         if state.db.tracks_by_ids(vec![track.id]).await?.is_empty() {
-            let full = state.sc()?.track(track.id).await?;
-            state.db.upsert_tracks(vec![full]).await?;
+            // a private or just uploaded track of your own may not open by id: the like still goes to SoundCloud
+            match state.sc()?.track(track.id).await {
+                Ok(full) => state.db.upsert_tracks(vec![full]).await?,
+                Err(e @ (AppError::AuthExpired | AppError::NotAuthorized)) => return Err(e),
+                Err(e) => tracing::info!(error = %e, track = track.id, "track card not fetched for a like"),
+            }
         }
         state.db.like_add(track.id).await?;
     } else {
@@ -1425,6 +1429,12 @@ pub fn fx_set(state: State<'_, AppState>, player: State<'_, Arc<Player>>, fx: cr
     Ok(())
 }
 
+/// A speed hotkey pressed inside the window (the global ones go through hotkeys.rs).
+#[tauri::command]
+pub fn speed_preset(app: AppHandle, player: State<'_, Arc<Player>>, action: String) {
+    crate::hotkeys::speed_preset(&app, player.inner(), &action);
+}
+
 #[tauri::command]
 pub fn sleep_set(player: State<'_, Arc<Player>>, minutes: Option<u32>, end_of_track: bool) -> crate::player::SleepState {
     player.inner().set_sleep(minutes, end_of_track);
@@ -1859,6 +1869,7 @@ pub enum RoomCmd {
     Play { playing: bool },
     Seek { ms: i64 },
     Kick { id: String },
+    Remove { index: usize, track_id: u64 },
     QueueEveryone { on: bool },
 }
 
@@ -1873,6 +1884,7 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
         RoomCmd::Play { playing } => rooms.cmd(C::Play(playing)),
         RoomCmd::Seek { ms } => rooms.cmd(C::Seek(ms)),
         RoomCmd::Kick { id } => rooms.cmd(C::Kick(id)),
+        RoomCmd::Remove { index, track_id } => rooms.cmd(C::Remove { index, track_id }),
         RoomCmd::QueueEveryone { on } => {
             let mut s = rooms.view_settings();
             s.who_can_queue = if on { crate::rooms::Who::Everyone } else { crate::rooms::Who::HostOnly };

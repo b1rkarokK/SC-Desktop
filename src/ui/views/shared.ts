@@ -7,6 +7,7 @@ import { api, errorMessage, type Track, type User } from '../api';
 import { h, toast } from '../dom';
 import { T } from '../i18n';
 import { icon, I } from '../icons';
+import { openPalette } from '../palette';
 import { router } from '../router';
 import { btn, emptyState, sectionTitle, viewHead, type View } from './common';
 
@@ -311,6 +312,13 @@ export class SharedView implements View {
       actions.append(access, rename);
     }
     if (i.can_edit) {
+      const add = btn(T('Добавить трек'), I.plus);
+      add.addEventListener('click', () =>
+        openPalette(async (t) => {
+          await addToShared(i.channel, i.title, t);
+        }),
+      );
+      play.after(add);
       const look = btn(T('Оформление'), I.edit);
       look.addEventListener('click', () => void this.coverDialog(d));
       actions.append(look);
@@ -325,7 +333,7 @@ export class SharedView implements View {
     actions.append(leave);
 
     const tracks = h('div', { class: 'rm-queue' });
-    if (!d.tracks.length) tracks.append(emptyState(i.can_edit ? T('Пусто. Правая кнопка по треку - «Добавить в общий плейлист».') : T('Пока пусто.')));
+    if (!d.tracks.length) tracks.append(emptyState(i.can_edit ? T('Пусто. Нажмите «Добавить трек» или правая кнопка по любому треку - «В общий плейлист».') : T('Пока пусто.')));
     d.tracks.forEach((t, n) => {
       const label = t.track ? `${t.track.title} - ${t.track.artist}` : T('Трек {0} (загружается)', t.track_id);
       const row = h('div', { class: 'rm-q' }, h('span', { class: 'muted small', text: String(n + 1) }), h('span', { dir: 'auto', style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text: label }), h('span', { class: 'muted small', dir: 'auto', text: t.added_by_name }));
@@ -442,7 +450,7 @@ export class SharedView implements View {
     const people = h('select', { class: 'input' }, h('option', { value: '', text: T('Пригласить из подписок…') }));
     const roleSel = h('select', { class: 'input' }, h('option', { value: 'editor', text: T('редактор') }), h('option', { value: 'viewer', text: T('зритель') }));
     let artists: User[] = [];
-    void api.libraryArtists(false).then((a) => {
+    void api.libraryArtistsFresh().then((a) => {
       artists = a;
       for (const u of a) people.append(h('option', { value: String(u.id), text: u.username }));
     }, () => undefined);

@@ -28,22 +28,24 @@ const FILTERS: [Filter, string][] = [
 
 let open: { close: () => void } | null = null;
 
-export function openPalette(): void {
+/** `pick`: a track picker (add to a shared playlist): only tracks and likes, a click hands the track over and the window stays open. */
+export function openPalette(pick?: (t: Track) => void | Promise<void>): void {
   if (open) {
     open.close();
     return;
   }
   document.dispatchEvent(new Event('sc:close-popovers'));
-  let filter: Filter = 'all';
+  let filter: Filter = pick ? 'tracks' : 'all';
+  const filters = pick ? FILTERS.filter(([k]) => k === 'tracks' || k === 'likes') : FILTERS;
   let hits: Hit[] = [];
   let sel = 0;
   let seq = 0;
   let likes: Track[] | null = null;
 
-  const input = h('input', { type: 'search', class: 'input pal-input', placeholder: T('Треки, артисты, плейлисты…'), 'aria-label': T('Быстрый поиск') });
+  const input = h('input', { type: 'search', class: 'input pal-input', placeholder: pick ? T('Найдите трек для добавления…') : T('Треки, артисты, плейлисты…'), 'aria-label': T('Быстрый поиск') });
   const chips = h('div', { class: 'pal-chips' });
   const list = h('div', { class: 'pal-list', role: 'listbox' });
-  const foot = h('div', { class: 'pal-foot muted small', text: T('Enter - играть · Ctrl+Enter - в очередь · Esc - закрыть') });
+  const foot = h('div', { class: 'pal-foot muted small', text: pick ? T('Enter или клик - добавить · Esc - закрыть') : T('Enter - играть · Ctrl+Enter - в очередь · Esc - закрыть') });
   const box = h('div', { class: 'pal panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': T('Быстрый поиск') }, input, chips, list, foot);
   const backdrop = h('div', { class: 'upd-backdrop pal-backdrop' }, box);
 
@@ -64,7 +66,7 @@ export function openPalette(): void {
 
   const renderChips = () => {
     chips.replaceChildren(
-      ...FILTERS.map(([k, label]) => {
+      ...filters.map(([k, label]) => {
         const b = h('button', { type: 'button', class: 'pal-chip' + (k === filter ? ' is-active' : ''), text: label });
         b.addEventListener('click', () => {
           filter = k;
@@ -116,6 +118,10 @@ export function openPalette(): void {
   };
 
   const go = (x: Hit, queue: boolean) => {
+    if (pick) {
+      if (x.kind === 'track' && x.track) void Promise.resolve(pick(x.track));
+      return;
+    }
     if (x.kind === 'track' && x.track) {
       if (queue) {
         void api.enqueue(x.track, false);

@@ -21,6 +21,8 @@ export const HOTKEY_ACTIONS: HotkeyAction[] = [
   { id: 'volUp', label: T('Громче'), def: 'Ctrl+Alt+ArrowUp' },
   { id: 'volDown', label: T('Тише'), def: 'Ctrl+Alt+ArrowDown' },
   { id: 'mini', label: T('Мини-плеер'), def: 'Ctrl+Alt+KeyM' },
+  { id: 'slowed', label: T('Slowed (медленнее, ещё раз - обычная)'), def: 'Ctrl+Alt+Comma' },
+  { id: 'sped', label: T('Sped up (быстрее, ещё раз - обычная)'), def: 'Ctrl+Alt+Period' },
 ];
 
 export interface HotkeyPrefs {
@@ -151,6 +153,10 @@ function run(id: string): void {
     }
     case 'mini':
       void api.miniOpen();
+      break;
+    case 'slowed':
+    case 'sped':
+      void api.speedPreset(id);
       break;
   }
 }

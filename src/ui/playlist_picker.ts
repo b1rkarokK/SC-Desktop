@@ -43,6 +43,19 @@ export async function addToPlaylistMenu(e: MouseEvent, t: Track): Promise<void> 
   openMenu(e, items);
 }
 
+/** Menu of the shared playlists you can edit. */
+export async function addToSharedMenu(e: MouseEvent, t: Track): Promise<void> {
+  const shared = await editableShared();
+  if (!shared.length) {
+    toast(T('Нет общих плейлистов, в которые можно добавлять. Создайте или присоединитесь в разделе «Общие плейлисты».'));
+    return;
+  }
+  openMenu(
+    e,
+    shared.map((p) => ({ label: p.title, icon: I.users, action: () => void addToShared(p.channel, p.title, t) })),
+  );
+}
+
 async function createPlaylist(t: Track | null): Promise<void> {
   const title = await askName();
   if (!title) return;

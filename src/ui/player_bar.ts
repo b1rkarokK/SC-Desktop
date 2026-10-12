@@ -162,6 +162,8 @@ export class PlayerBar {
   }
 
   private applyVolume(v: number, persist: boolean): void {
+    // the first notch is silence (the engine does the same), so the icon and the sound agree
+    if (v < 0.02) v = 0;
     if (v > 0) this.lastVolume = v;
     if (store.snapshot) store.snapshot.volume = v;
     this.renderMute(v);
@@ -169,7 +171,7 @@ export class PlayerBar {
   }
 
   private renderMute(v: number): void {
-    setIcon(this.muteBtn, v === 0 ? I.mute : v < 0.5 ? I.volLow : I.vol);
+    setIcon(this.muteBtn, v < 0.02 ? I.mute : v < 0.5 ? I.volLow : I.vol);
   }
 
   private render(): void {

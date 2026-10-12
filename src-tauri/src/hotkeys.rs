@@ -13,7 +13,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use crate::{commands, player::Player, state::AppState};
 
 /// (action, default combination)
-pub const DEFAULTS: [(&str, &str); 7] = [
+pub const DEFAULTS: [(&str, &str); 9] = [
     ("toggle", "Ctrl+Alt+KeyP"),
     ("next", "Ctrl+Alt+ArrowRight"),
     ("prev", "Ctrl+Alt+ArrowLeft"),
@@ -21,7 +21,23 @@ pub const DEFAULTS: [(&str, &str); 7] = [
     ("volUp", "Ctrl+Alt+ArrowUp"),
     ("volDown", "Ctrl+Alt+ArrowDown"),
     ("mini", "Ctrl+Alt+KeyM"),
+    ("slowed", "Ctrl+Alt+Comma"),
+    ("sped", "Ctrl+Alt+Period"),
 ];
+
+/// Slowed / sped up from a key: the same key again goes back to normal. Not in a room (speed is locked there).
+pub fn speed_preset(app: &AppHandle, player: &Arc<Player>, action: &str) {
+    if player.speed_locked() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let mut fx = state.config.get().fx;
+    let target = if action == "slowed" { 0.85 } else { 1.2 };
+    fx.speed = if (fx.speed - target).abs() < 0.01 { 1.0 } else { target };
+    player.set_fx(&fx);
+    let _ = state.config.update(|c| c.fx = fx.clone());
+    let _ = tauri::Emitter::emit(app, "fx:changed", &fx);
+}
 
 fn bound() -> &'static Mutex<HashMap<Shortcut, String>> {
     static M: OnceLock<Mutex<HashMap<Shortcut, String>>> = OnceLock::new();
@@ -56,6 +72,7 @@ fn run(app: &AppHandle, player: &Arc<Player>, action: &str) {
             player.set_volume(v);
             let _ = tauri::Emitter::emit(app, "player:state", &player.snapshot());
         }
+        "slowed" | "sped" => speed_preset(app, player, action),
         "mini" => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move { let _ = crate::mini::open(&app).await; });
