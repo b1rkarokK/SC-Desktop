@@ -17,7 +17,7 @@ const L = {
     navDownload: 'Скачать',
     h1a: 'SoundCloud на компьютере.',
     h1b: 'Без рекламы.',
-    sub: 'Волна под ваш вкус, комнаты для совместного прослушивания, общие плейлисты и тексты песен по словам.',
+    sub: 'То, чего нет в самом SoundCloud: волна под ваш вкус, комнаты для совместного прослушивания, общие плейлисты и тексты песен по словам.',
     cta: 'Скачать для Windows',
     src: 'Исходный код',
     meta: 'Бесплатно · Windows 10 и 11',
@@ -31,6 +31,10 @@ const L = {
     of: 'из',
     features: [
       ['Без рекламы', 'Только музыка: никаких вставок между треками.'],
+      ['Эквалайзер и скорость', 'Настройте звук под себя, ускоряйте и замедляйте треки, ставьте таймер сна.'],
+      ['Выбор устройства вывода', 'Колонки, наушники или Bluetooth: переключайтесь прямо в шапке программы.'],
+      ['Статус в Discord', 'Друзья видят, что вы слушаете, и могут зайти к вам в комнату.'],
+      ['Итоги и история', 'Статистика прослушиваний и вся история в одном месте.'],
       ['Всё у вас', 'Лайки, история и настройки хранятся на вашем компьютере. Комнаты и общие плейлисты шифруются на ваших устройствах.'],
       ['Открытый код', 'Код программы можно прочитать и проверить на GitHub.'],
     ],
@@ -56,7 +60,7 @@ const L = {
     navDownload: 'Download',
     h1a: 'SoundCloud on your PC.',
     h1b: 'Without ads.',
-    sub: 'A wave for your taste, rooms to listen together, shared playlists and word-by-word lyrics.',
+    sub: 'What SoundCloud itself does not have: a wave for your taste, rooms to listen together, shared playlists and word-by-word lyrics.',
     cta: 'Download for Windows',
     src: 'Source code',
     meta: 'Free · Windows 10 and 11',
@@ -70,6 +74,10 @@ const L = {
     of: 'of',
     features: [
       ['No ads', 'Only music: nothing between the tracks.'],
+      ['Equalizer and speed', 'Shape the sound, speed tracks up or slow them down, set a sleep timer.'],
+      ['Output device picker', 'Speakers, headphones or Bluetooth: switch right in the app header.'],
+      ['Discord status', 'Friends see what you listen to and can join your room.'],
+      ['Recap and history', 'Listening stats and the full history in one place.'],
       ['Yours alone', 'Likes, history and settings stay on your computer. Rooms and shared playlists are encrypted on your devices.'],
       ['Open source', 'The code can be read and checked on GitHub.'],
     ],
@@ -139,7 +147,6 @@ function page(c, prefix, isEn) {
     </div>
     <p class="meta"><span>${c.meta}</span><span class="meta-size"></span></p>
     <div class="window hero-window">
-      <div class="winbar"><i></i><i></i><i></i></div>
       ${pic('wave', 0)}
     </div>
   </section>
@@ -154,7 +161,6 @@ function page(c, prefix, isEn) {
       </div>
       <div class="stage">
         <div class="window">
-          <div class="winbar"><i></i><i></i><i></i></div>
           <div class="shots">
             ${shots}
             <span class="cursor" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M5 3l14 8-6 1.6L9.6 19z"/></svg></span>
