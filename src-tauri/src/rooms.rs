@@ -34,6 +34,8 @@ pub const SILENT_PROBLEM_MS: Ms = 3_000;
 pub const SILENT_GONE_MS: Ms = 45_000;
 #[cfg(test)]
 pub const SILENT_GONE_MS: Ms = 5_000;
+/// What a removed person is told when they try to come back.
+pub const BANNED: &str = "вас убрали из комнаты";
 /// How long the host waits for everybody to load a track before starting anyway.
 pub const BARRIER_TIMEOUT_MS: Ms = 20_000;
 /// Start is announced this far ahead so every member can still receive it.
@@ -143,7 +145,17 @@ pub enum Msg {
     /// member -> host: let me in
     Hello { member: Member },
     /// host -> member: you are in; the whole room as it is now
-    Welcome { to: String, room: RoomSnapshot, host_now: Ms, host_pub: String, #[serde(default)] host: String },
+    Welcome {
+        to: String,
+        room: RoomSnapshot,
+        host_now: Ms,
+        host_pub: String,
+        #[serde(default)]
+        host: String,
+        /// the current room key wrapped for this member, when it came in with the old (password) key after a kick
+        #[serde(default)]
+        rekey: Option<(u32, String)>,
+    },
     /// host -> member: not let in (room full, kicked)
     Denied { to: String, reason: String },
     /// host -> all (under the old key): the room key changed because somebody was kicked
@@ -185,6 +197,9 @@ pub struct RoomSnapshot {
     pub queue: Vec<QueueItem>,
     pub current: Option<(u64, QueueItem)>,
     pub play: Option<PlayState>,
+    /// who was removed: they stay out, also when the host changes
+    #[serde(default)]
+    pub banned: Vec<String>,
 }
 
 // ------------------------------------------------------------ clock sync
@@ -333,13 +348,18 @@ impl Room {
             queue: self.queue.iter().cloned().collect(),
             current: self.current.clone(),
             play: self.play,
+            banned: self.banned.clone(),
         }
+    }
+
+    pub fn set_banned(&mut self, banned: Vec<String>) {
+        self.banned = banned;
     }
 
     /// Hello: let a member in or say why not. `password_ok`: checked by the caller.
     pub fn join(&mut self, mut member: Member, password_ok: bool, now: Ms) -> Result<(), String> {
         if self.banned.contains(&member.id) {
-            return Err("вас убрали из комнаты".into());
+            return Err(BANNED.into());
         }
         if self.settings.has_password && !password_ok {
             return Err("неверный пароль".into());

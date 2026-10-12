@@ -164,6 +164,10 @@ struct Engine {
     on_view: Arc<dyn Fn(&RoomView) + Send + Sync>,
     key: Key,
     epoch: u32,
+    /// room keys we used before the last change of key (newest first): a newcomer still comes in with the password's
+    old_keys: Vec<Key>,
+    /// set while the host handles a Hello that arrived under an old key: the answer goes under the same one
+    reply_key: Option<Key>,
     identity: Identity,
     t0: Instant,
     host_pub: Option<String>,
@@ -219,6 +223,12 @@ impl Engine {
         self.msg_n += 1;
         let blob = crypto::seal(&self.key, &self.p.channel, &serde_json::to_vec(m).expect("messages serialise"));
         self.transport.send(blob, keep, Some(format!("{}-{}", self.p.me.id, self.msg_n)));
+    }
+
+    fn send_under(&mut self, m: &Msg, key: &Key) {
+        self.msg_n += 1;
+        let blob = crypto::seal(key, &self.p.channel, &serde_json::to_vec(m).expect("messages serialise"));
+        self.transport.send(blob, false, Some(format!("{}-{}", self.p.me.id, self.msg_n)));
     }
 
     fn publish(&self) {
@@ -328,17 +338,30 @@ impl Engine {
         let now = self.now();
         match m {
             Msg::Hello { member } => {
+                let reply_key = self.reply_key;
                 let Some(room) = self.room.as_mut() else { return };
                 let m_id = member.id.clone();
+                let pubkey = member.pubkey.clone();
                 match room.join(member, true, now) {
                     Ok(()) => {
                         let snap = room.snapshot();
                         let host_pub = self.identity.public_b64();
-                        let w = Msg::Welcome { to: m_id, room: snap, host_now: now, host_pub, host: self.p.me.id.clone() };
-                        self.send(&w, false);
+                        // came in with an old key (after a kick the room moved on): hand it the current one
+                        let rekey = reply_key.and_then(|_| pubkey.and_then(|pk| self.identity.wrap_for(&pk, &self.p.channel, &self.key))).map(|w| (self.epoch, w));
+                        let w = Msg::Welcome { to: m_id, room: snap, host_now: now, host_pub, host: self.p.me.id.clone(), rekey };
+                        match reply_key {
+                            Some(k) => self.send_under(&w, &k),
+                            None => self.send(&w, false),
+                        }
                         self.roster();
                     }
-                    Err(reason) => self.send(&Msg::Denied { to: m_id, reason }, false),
+                    Err(reason) => {
+                        let d = Msg::Denied { to: m_id, reason };
+                        match reply_key {
+                            Some(k) => self.send_under(&d, &k),
+                            None => self.send(&d, false),
+                        }
+                    }
                 }
             }
             Msg::Status { id, status } => {
@@ -533,6 +556,7 @@ impl Engine {
         self.epoch += 1;
         let epoch = self.epoch;
         self.send(&Msg::Rekey { epoch, wraps }, false);
+        self.old_keys.insert(0, self.key);
         self.key = new_key; // everything after this is under the new key
         self.roster();
     }
@@ -621,6 +645,7 @@ impl Engine {
                 room.members.push(m);
             }
             room.queue = src.queue.iter().cloned().collect();
+            room.set_banned(src.banned.clone());
             if let Some((_, item)) = &src.current {
                 let carry_on = from_election && !self.awaiting_load && self.last_play.is_some_and(|p| p.playing);
                 if carry_on {
@@ -707,7 +732,14 @@ impl Engine {
     fn member_msg(&mut self, m: Msg) -> bool {
         let me = self.p.me.id.clone();
         match m {
-            Msg::Welcome { to, room, host_now, host_pub, host } if to == me => {
+            Msg::Welcome { to, room, host_now, host_pub, host, rekey } if to == me => {
+                if let Some((epoch, wrap)) = rekey {
+                    if let Some(k) = self.identity.unwrap_from(&host_pub, &self.p.channel, &wrap) {
+                        self.old_keys.insert(0, self.key);
+                        self.key = k;
+                        self.epoch = epoch;
+                    }
+                }
                 self.welcomed = true;
                 self.host_heard = Some(Instant::now());
                 if !host.is_empty() {
@@ -732,7 +764,7 @@ impl Engine {
                 self.publish();
             }
             Msg::Denied { to, reason } if to == me => {
-                self.end(&reason);
+                self.end(if reason == crate::rooms::BANNED { "kicked" } else { &reason });
                 return false;
             }
             Msg::Roster { members, settings } => {
@@ -816,6 +848,7 @@ impl Engine {
             Msg::Rekey { epoch, wraps } => {
                 if let (Some(w), Some(hp)) = (wraps.get(&me), self.host_pub.clone()) {
                     if let Some(k) = self.identity.unwrap_from(&hp, &self.p.channel, w) {
+                        self.old_keys.insert(0, self.key);
                         self.key = k;
                         self.epoch = epoch;
                     }
@@ -868,6 +901,10 @@ impl Engine {
                 return false;
             }
             let restored = self.last_state.clone();
+            if restored.as_ref().is_some_and(|s| s.banned.contains(&self.p.me.id)) {
+                self.end("kicked");
+                return false;
+            }
             self.promote(restored);
             return true;
         }
@@ -927,6 +964,8 @@ pub fn start(
         on_view,
         key,
         epoch: 0,
+        old_keys: Vec::new(),
+        reply_key: None,
         identity,
         t0: Instant::now(),
         host_pub: None,
@@ -983,12 +1022,20 @@ pub fn start(
                         HubEvent::Msg { blob, id, .. } => {
                             // our own message coming back is an acknowledgement, not news
                             if id.as_deref().is_some_and(|i| i.starts_with(&format!("{}-", eng.p.me.id))) { continue; }
-                            let Some(plain) = crypto::open(&eng.key, &eng.p.channel, &blob) else { eng.undecrypted += 1; continue };
+                            // the current key; the host also reads a Hello under an older one (a newcomer after a kick)
+                            let opened = crypto::open(&eng.key, &eng.p.channel, &blob).map(|p| (p, None)).or_else(|| {
+                                if !eng.p.host { return None; }
+                                eng.old_keys.iter().find_map(|k| crypto::open(k, &eng.p.channel, &blob).map(|p| (p, Some(*k))))
+                            });
+                            let Some((plain, old)) = opened else { eng.undecrypted += 1; continue };
                             let Ok(m) = serde_json::from_slice::<Msg>(&plain) else { continue };
+                            // under an old key only a Hello counts: whoever was removed still knows that key
+                            if old.is_some() && !matches!(m, Msg::Hello { .. }) { continue; }
+                            eng.reply_key = old;
                             eng.decrypted += 1;
                             // who is it from? the host needs it for the queue permission
                             let from = match &m { Msg::Enqueue { item } => item.added_by.clone(), _ => String::new() };
-                            if eng.p.host { eng.host_msg(&from, m); } else if !eng.member_msg(m) { break; }
+                            if eng.p.host { eng.host_msg(&from, m); eng.reply_key = None; } else if !eng.member_msg(m) { break; }
                         }
                     }
                 }
@@ -1272,6 +1319,34 @@ pub(crate) mod tests {
             assert!(wait(|| *ap.playing.lock().unwrap(), 6000).await, "anna plays after loading");
             let (h, a) = (hp.position.load(Ordering::SeqCst).max(hp.position_ms().unwrap_or(0)), ap.position_ms().unwrap_or(-1));
             assert!((a - hp.position_ms().unwrap_or(0)).abs() < 400, "anna stands at {a} ms, host at {h} ms");
+        });
+    }
+
+    #[test]
+    fn after_a_kick_newcomers_still_get_in_and_the_kicked_one_cannot_come_back() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, _hp) = room("chan-kick", "pw", &net, "host", true);
+            let (anna, _ap) = room("chan-kick", "pw", &net, "anna", false);
+            let (bob, _bp) = room("chan-kick", "pw", &net, "bob", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 3, 5000).await);
+            host.tx.send(Cmd::Kick("anna".into())).unwrap();
+            assert!(wait(|| anna.view.lock().unwrap().ended.as_deref() == Some("kicked"), 4000).await, "anna is told");
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 3000).await);
+
+            // a newcomer knows only the password's key: the host still reads her hello and hands her the new key
+            let (carol, _cp) = room("chan-kick", "pw", &net, "carol", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 3, 5000).await, "carol came in after the kick");
+            assert!(!carol.view.lock().unwrap().host, "and she did not take the room for herself");
+            assert!(wait(|| carol.view.lock().unwrap().members.len() == 3, 3000).await, "she hears the room under the new key");
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| carol.view.lock().unwrap().current.is_some() || !carol.view.lock().unwrap().queue.is_empty(), 4000).await, "carol follows what the host does");
+            assert!(wait(|| bob.view.lock().unwrap().current.is_some() || !bob.view.lock().unwrap().queue.is_empty(), 4000).await, "bob too");
+
+            // anna comes back with the password: refused, she does not start a room of her own
+            let (anna2, _ap2) = room("chan-kick", "pw", &net, "anna", false);
+            assert!(wait(|| anna2.view.lock().unwrap().ended.as_deref() == Some("kicked"), 4000).await, "anna is refused again");
+            assert!(!anna2.view.lock().unwrap().host);
         });
     }
 
