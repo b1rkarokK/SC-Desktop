@@ -103,7 +103,8 @@ async fn peers_in(base: &str, channel: &str) -> Option<u64> {
     let got = tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(e) = events.recv().await {
             if let hub::HubEvent::Connected { peers, .. } = e {
-                return Some(peers);
+                // the relay counts our own connection too
+                return Some(peers.saturating_sub(1));
             }
         }
         None

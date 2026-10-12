@@ -826,6 +826,9 @@ impl Engine {
                 // a track that was already playing when we came: catch up with the host now
                 if let Some(st) = self.last_play {
                     self.apply_play(st);
+                    if st.playing {
+                        self.send(&Msg::Status { id: self.p.me.id.clone(), status: Status::Playing }, false);
+                    }
                 }
             }
             Cmd::Leave => {
