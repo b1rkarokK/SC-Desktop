@@ -367,6 +367,11 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         weighted.extend(liked.iter().enumerate().map(|(i, t)| (t, like_w * recency_weight(i))));
         Profile::build(&weighted, &signals)
     };
+    if !crate::audio_feat::loaded() {
+        if let Ok(all) = state.db.audio_feat_all().await {
+            crate::audio_feat::load(all);
+        }
+    }
     // how a candidate fits the playlist / album / track itself (not the whole taste)
     let ctx_profile = if ctx_tracks.len() >= 3 {
         let w: Vec<(&ScTrack, f64)> = ctx_tracks.iter().map(|t| (t, 1.0)).collect();
@@ -398,7 +403,7 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         // wave feedback: listened to the end > plain play; an early skip is a no
         for (i, (t, s)) in signals.iter().enumerate() {
             let w = recency_weight(i) as f32;
-            samples.push(Sample { track: t.clone(), positive: *s == LISTENED, weight: if *s == LISTENED { 0.6 * w } else { w }, ctx: None });
+            samples.push(Sample { track: t.clone(), positive: *s == LISTENED, weight: if *s == LISTENED { 0.6 * w } else { 1.3 * w }, ctx: None });
         }
         let disliked: Vec<u64> = disliked_tracks.iter().copied().take(500).collect();
         for t in state.db.tracks_by_ids(disliked).await? {

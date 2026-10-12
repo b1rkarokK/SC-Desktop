@@ -104,6 +104,11 @@ CREATE TABLE IF NOT EXISTS wave_signals (
 );
 CREATE INDEX IF NOT EXISTS wave_signals_at ON wave_signals(at);
 
+CREATE TABLE IF NOT EXISTS audio_feat (
+    track_id INTEGER PRIMARY KEY,
+    v        BLOB    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS stream_log (at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS stream_log_at ON stream_log(at);
 
@@ -769,6 +774,28 @@ impl Db {
                 }
             }
             tx.commit()
+        })
+        .await
+    }
+
+    // ------------------------------------------------------ audio features
+
+    pub async fn audio_feat_put(&self, id: u64, v: crate::audio_feat::Feat) -> AppResult<()> {
+        self.run(move |c| c.execute("INSERT OR REPLACE INTO audio_feat (track_id, v) VALUES (?1, ?2)", params![id as i64, v.to_vec()]).map(|_| ())).await
+    }
+
+    pub async fn audio_feat_all(&self) -> AppResult<std::collections::HashMap<u64, crate::audio_feat::Feat>> {
+        self.run(|c| {
+            let mut st = c.prepare("SELECT track_id, v FROM audio_feat")?;
+            let rows = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+            let mut out = std::collections::HashMap::new();
+            for row in rows {
+                let (id, v) = row?;
+                if let Ok(f) = <crate::audio_feat::Feat>::try_from(v.as_slice()) {
+                    out.insert(id as u64, f);
+                }
+            }
+            Ok(out)
         })
         .await
     }

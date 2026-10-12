@@ -1315,6 +1315,21 @@ impl Player {
         });
     }
 
+    /// Once per track, in the background: what it sounds like, for the wave model.
+    fn analyse_sound(&self, track_id: u64, bytes: &[u8]) {
+        if crate::audio_feat::get(track_id).is_some() {
+            return;
+        }
+        let (app, bytes) = (self.app.clone(), bytes.to_vec());
+        tauri::async_runtime::spawn(async move {
+            let feat = tauri::async_runtime::spawn_blocking(move || crate::audio_feat::compute(&bytes)).await.ok().flatten();
+            if let Some(f) = feat {
+                crate::audio_feat::put(track_id, f);
+                let _ = app.state::<AppState>().db.audio_feat_put(track_id, f).await;
+            }
+        });
+    }
+
     async fn fetch_audio(&self, track_id: u64) -> AppResult<Fetched> {
         let state = self.app.state::<AppState>();
         // downloaded: play the file (offline, no quota, no region blocks)
@@ -1352,6 +1367,9 @@ impl Player {
             Some(bytes) => Ok(bytes),
             None => Box::pin(sc.download_audio(&full)).await,
         };
+        if let Ok(bytes) = &downloaded {
+            self.analyse_sound(track_id, bytes);
+        }
         let data = match downloaded {
             Ok(d) => Fetched::Bytes(d),
             // only DRM streams are actually served: SoundCloud's own player can play them

@@ -200,9 +200,11 @@ fn yes() -> bool {
     true
 }
 
-/// The relay that ships with the app; an empty setting means this one.
+/// The relay that ships with the app.
 pub const DEFAULT_SYNC_URL: &str = "https://sc-desk-sync.sc-desk-sync.workers.dev";
 
-pub fn sync_base(saved: &str) -> String {
-    if saved.trim().is_empty() { DEFAULT_SYNC_URL.to_owned() } else { saved.trim().to_owned() }
+/// Always the built-in relay; `SCDESK_SYNC_URL` points a test build at another one (a local
+/// `wrangler dev`). Not a user setting: an old saved address is ignored.
+pub fn sync_base(_saved: &str) -> String {
+    std::env::var("SCDESK_SYNC_URL").ok().map(|u| u.trim().trim_end_matches('/').to_owned()).filter(|u| !u.is_empty()).unwrap_or_else(|| DEFAULT_SYNC_URL.to_owned())
 }

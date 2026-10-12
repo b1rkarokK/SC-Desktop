@@ -1803,7 +1803,14 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
 /// Live rooms of the people you follow.
 #[tauri::command]
 pub async fn rooms_live(state: State<'_, AppState>, host_ids: Vec<u64>) -> Cmd<Vec<crate::sync::service::LiveRoom>> {
-    crate::sync::service::live_rooms(&state, host_ids).await
+    // a raw network error would show the server address: say what it means instead
+    crate::sync::service::live_rooms(&state, host_ids).await.map_err(|e| {
+        tracing::debug!(error = %e, "live rooms failed");
+        AppError::Network(crate::lang::pick(
+            "Сервер синхронизации сейчас недоступен. Проверьте интернет и попробуйте позже.",
+            "The sync server is unreachable right now. Check your connection and try again later.",
+        ).into())
+    })
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

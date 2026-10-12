@@ -144,6 +144,18 @@ fn features(t: &ScTrack, ctx: Option<u8>) -> Vec<usize> {
     if let Some(s) = script {
         f.push(bucket(&format!("s:{s}")));
     }
+    // how it sounds (only for tracks that were played: see audio_feat.rs)
+    if let Some(a) = crate::audio_feat::get(t.id) {
+        for (i, v) in a.iter().enumerate() {
+            f.push(bucket(&format!("x{i}:{v}")));
+        }
+        // feel of the track: tempo with brightness, loudness with bass
+        f.push(bucket(&format!("xa:{}:{}", a[0], a[1])));
+        f.push(bucket(&format!("xb:{}:{}", a[2], a[4])));
+        if let Some(g) = &genre {
+            f.push(bucket(&format!("xg:{g}:{}", a[1] / 2)));
+        }
+    }
     f.push(bucket(&format!("d:{}", (t.duration / 60_000).min(10))));
     if let Some(n) = t.playback_count {
         // underground vs. everyone knows it, on a log scale

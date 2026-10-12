@@ -85,7 +85,7 @@ pub fn compute_head(bytes: &[u8], secs: u32) -> Option<Vec<u16>> {
 }
 
 /// Downmix to mono and resample to `RATE` by averaging (cheap low-pass).
-fn mono_resampled(src: impl Iterator<Item = f32>, channels: usize, rate: u32, secs: u32) -> Vec<f32> {
+pub(crate) fn mono_resampled(src: impl Iterator<Item = f32>, channels: usize, rate: u32, secs: u32) -> Vec<f32> {
     let step = rate as f64 / RATE as f64;
     let max = (secs * RATE) as usize;
     let mut out = Vec::with_capacity(max.min(4 * 60 * RATE as usize));
