@@ -131,7 +131,7 @@ impl Default for AppConfig {
             discord: DiscordConfig::default(),
             start_minimized: true,
             fast_protected: true,
-            sync_url: String::new(),
+            sync_url: "https://sc-desk-sync.sc-desk-sync.workers.dev".to_owned(),
             auto_pause_call: false,
             auto_pause_game: false,
             eq_per_device: true,
