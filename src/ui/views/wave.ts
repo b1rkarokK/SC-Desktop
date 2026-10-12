@@ -32,7 +32,7 @@ export class WaveView implements View {
   private bansNote = h('div', { class: 'disliked-list' });
   private info: WaveInfo | null = null;
   private lastTrack: number | null = null;
-  private noLikedBtn = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
+  private noLikedBtn = h('button', { type: 'button', class: 'toggle', role: 'switch', 'aria-label': T('Без лайкнутых') }, h('span', { class: 'toggle-knob' }));
   private noLikedRow = h(
     'div',
     { class: 'set-row wave-option' },

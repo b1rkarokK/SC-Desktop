@@ -49,11 +49,17 @@ pub struct Params {
     pub l2: f32,
     /// 0 = plain logistic regression, 1 = with feature interactions
     pub pair: f32,
+    /// models trained on different shuffles / halves of the data, averaged (1 = a single one)
+    pub seeds: usize,
+    /// the share of the samples each of them sees
+    pub bag: f32,
+    /// artist history as features: how much of this artist was kept / skipped
+    pub artist_stats: bool,
 }
 
 impl Default for Params {
     fn default() -> Self {
-        Params { epochs: 30, lr: 0.3, l2: 2e-4, pair: 1.0 }
+        Params { epochs: 30, lr: 0.3, l2: 2e-4, pair: 1.0, seeds: 1, bag: 1.0, artist_stats: false }
     }
 }
 
@@ -65,14 +71,54 @@ pub struct Sample {
     pub ctx: Option<u8>,
 }
 
-pub struct Model {
+/// One trained set of weights; the model averages a few of them.
+struct Core {
     w: Vec<f32>,
     v: Vec<f32>,
     bias: f32,
+}
+
+/// What the training data says about each artist: the weight of the times they were kept / skipped.
+#[derive(Default, Clone)]
+struct ArtistStats {
+    by_artist: std::collections::HashMap<u64, (f32, f32)>,
+}
+
+impl ArtistStats {
+    fn build(samples: &[Sample]) -> Self {
+        let mut by_artist: std::collections::HashMap<u64, (f32, f32)> = std::collections::HashMap::new();
+        for s in samples {
+            let e = by_artist.entry(s.track.artist_id()).or_default();
+            if s.positive {
+                e.0 += s.weight;
+            } else {
+                e.1 += s.weight;
+            }
+        }
+        ArtistStats { by_artist }
+    }
+}
+
+/// A count of kept / skipped as a small bucket: 0, 1, 2, 3, 4-5, 6-9, 10+.
+fn count_bin(x: f32) -> u8 {
+    match x {
+        x if x < 0.5 => 0,
+        x if x < 1.5 => 1,
+        x if x < 2.5 => 2,
+        x if x < 3.5 => 3,
+        x if x < 5.5 => 4,
+        x if x < 9.5 => 5,
+        _ => 6,
+    }
+}
+
+pub struct Model {
+    cores: Vec<Core>,
     /// how many training samples had each feature
     seen: Vec<u16>,
     ctx: Option<u8>,
     pair: f32,
+    stats: Option<ArtistStats>,
 }
 
 fn bucket(s: &str) -> usize {
@@ -94,12 +140,28 @@ const F_ARTIST_NAME: u32 = 2;
 const F_AGE: u32 = 4;
 const F_LIKES: u32 = 8;
 const F_TAGS_ALL: u32 = 16;
+const F_NO_ARTIST_ID: u32 = 32;
+const F_FOLLOW: u32 = 64;
+
+/// SoundCloud ids of the artists the user follows (set by the wave before it trains).
+#[allow(dead_code)] // measured (no gain on real history), kept for the offline eval
+fn following() -> &'static std::sync::RwLock<std::collections::HashSet<u64>> {
+    static F: std::sync::OnceLock<std::sync::RwLock<std::collections::HashSet<u64>>> = std::sync::OnceLock::new();
+    F.get_or_init(Default::default)
+}
+
+#[allow(dead_code)]
+pub fn set_following(ids: std::collections::HashSet<u64>) {
+    *following().write().unwrap_or_else(|e| e.into_inner()) = ids;
+}
 
 fn on(bit: u32) -> bool {
     FEATURES.load(std::sync::atomic::Ordering::Relaxed) & bit != 0
 }
 
-fn features(t: &ScTrack, ctx: Option<u8>) -> Vec<usize> {
+/// stats: the artist history of the training data; own: the sample itself when it is in that data (its
+/// own part is taken out, otherwise a training track would "know" its own label).
+fn features(t: &ScTrack, ctx: Option<u8>, stats: Option<&ArtistStats>, own: Option<(bool, f32)>) -> Vec<usize> {
     let mut f = Vec::with_capacity(32);
     let genre = t.genre.as_deref().map(|g| g.trim().to_lowercase()).filter(|g| !g.is_empty());
     if let Some(g) = &genre {
@@ -108,7 +170,26 @@ fn features(t: &ScTrack, ctx: Option<u8>) -> Vec<usize> {
     for tag in crate::wave::parse_tags(t.tag_list.as_deref().unwrap_or("")).into_iter().take(if on(F_TAGS_ALL) { 25 } else { 10 }) {
         f.push(bucket(&format!("t:{tag}")));
     }
-    f.push(bucket(&format!("a:{}", t.artist_id())));
+    if !on(F_NO_ARTIST_ID) {
+        f.push(bucket(&format!("a:{}", t.artist_id())));
+    }
+    if on(F_FOLLOW) && following().read().unwrap_or_else(|e| e.into_inner()).contains(&t.artist_id()) {
+        f.push(bucket("fo:1"));
+    }
+    if let Some(st) = stats {
+        let (mut kept, mut skipped) = st.by_artist.get(&t.artist_id()).copied().unwrap_or((0.0, 0.0));
+        if let Some((positive, w)) = own {
+            if positive {
+                kept = (kept - w).max(0.0);
+            } else {
+                skipped = (skipped - w).max(0.0);
+            }
+        }
+        let (k, n) = (count_bin(kept), count_bin(skipped));
+        f.push(bucket(&format!("ak:{k}")));
+        f.push(bucket(&format!("an0:{n}")));
+        f.push(bucket(&format!("akn:{k}:{n}")));
+    }
     let title = t.title.to_lowercase();
     for word in title.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
         if TITLE_WORDS.contains(&word) {
@@ -186,6 +267,23 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
+/// Score before the sigmoid, and the per-factor sums the update needs.
+fn forward(core: &Core, pair: f32, x: &[usize]) -> (f32, [f32; K]) {
+    let n = x.len().max(1) as f32;
+    let linear: f32 = x.iter().map(|&j| core.w[j]).sum::<f32>() / n.sqrt();
+    let mut sums = [0.0f32; K];
+    let mut squares = 0.0f32;
+    for &j in x {
+        for f in 0..K {
+            let v = core.v[j * K + f];
+            sums[f] += v;
+            squares += v * v;
+        }
+    }
+    let p = 0.5 * (sums.iter().map(|s| s * s).sum::<f32>() - squares) / n;
+    (linear + pair * p + core.bias, sums)
+}
+
 impl Model {
     /// `None` while there is too little history to say anything.
     /// `now`: the context the wave is built in.
@@ -198,85 +296,77 @@ impl Model {
         if pos < MIN_POSITIVE || samples.len() - pos < MIN_NEGATIVE {
             return None;
         }
-        let feats: Vec<Vec<usize>> = samples.iter().map(|s| features(&s.track, s.ctx)).collect();
+        let stats = par.artist_stats.then(|| ArtistStats::build(samples));
+        let feats: Vec<Vec<usize>> = samples.iter().map(|s| features(&s.track, s.ctx, stats.as_ref(), Some((s.positive, s.weight)))).collect();
         // positives and negatives weigh the same in total, whatever their numbers
         let (wp, wn): (f32, f32) =
             samples.iter().fold((0.0, 0.0), |(p, n), s| if s.positive { (p + s.weight, n) } else { (p, n + s.weight) });
         let (kp, kn) = (if wp > 0.0 { 0.5 / wp } else { 0.0 }, if wn > 0.0 { 0.5 / wn } else { 0.0 });
         let scale = samples.len() as f32;
 
-        let mut rng = StdRng::seed_from_u64(7);
-        let mut m = Model {
-            w: vec![0.0; DIM],
-            v: (0..DIM * K).map(|_| rng.gen_range(-0.05..0.05)).collect(),
-            bias: 0.0,
-            seen: vec![0; DIM],
-            ctx: now,
-            pair: par.pair,
-        };
+        let mut seen = vec![0u16; DIM];
         for x in &feats {
             for &j in x {
-                m.seen[j] = m.seen[j].saturating_add(1);
+                seen[j] = seen[j].saturating_add(1);
             }
         }
-        let mut order: Vec<usize> = (0..samples.len()).collect();
-        for epoch in 0..par.epochs {
-            order.shuffle(&mut rng);
-            let lr = par.lr / (1.0 + epoch as f32 * 0.25);
-            for &i in &order {
-                let s = &samples[i];
-                let x = &feats[i];
-                let y = if s.positive { 1.0 } else { 0.0 };
-                let k = s.weight * if s.positive { kp } else { kn } * scale;
-                let (raw, sums) = m.forward(x);
-                let err = (sigmoid(raw) - y) * k;
-                let n = x.len().max(1) as f32;
-                let (lin_norm, pair_norm) = (1.0 / n.sqrt(), 1.0 / n);
-                for &j in x {
-                    m.w[j] -= lr * (err * lin_norm + par.l2 * m.w[j]);
-                    for f in 0..K {
-                        let vjf = m.v[j * K + f];
-                        let grad = err * pair_norm * par.pair * (sums[f] - vjf);
-                        m.v[j * K + f] -= lr * (grad + par.l2 * vjf);
+        let mut cores = Vec::new();
+        for seed in 0..par.seeds.max(1) {
+            let mut rng = StdRng::seed_from_u64(7 + seed as u64);
+            let mut core = Core { w: vec![0.0; DIM], v: (0..DIM * K).map(|_| rng.gen_range(-0.05..0.05)).collect(), bias: 0.0 };
+            let mut order: Vec<usize> = (0..samples.len()).collect();
+            if par.seeds > 1 && par.bag < 1.0 {
+                // each of them sees a different part of the history
+                order.shuffle(&mut rng);
+                order.truncate(((samples.len() as f32) * par.bag) as usize);
+            }
+            for epoch in 0..par.epochs {
+                order.shuffle(&mut rng);
+                let lr = par.lr / (1.0 + epoch as f32 * 0.25);
+                for &i in &order {
+                    let s = &samples[i];
+                    let x = &feats[i];
+                    let y = if s.positive { 1.0 } else { 0.0 };
+                    let k = s.weight * if s.positive { kp } else { kn } * scale;
+                    let (raw, sums) = forward(&core, par.pair, x);
+                    let err = (sigmoid(raw) - y) * k;
+                    let n = x.len().max(1) as f32;
+                    let (lin_norm, pair_norm) = (1.0 / n.sqrt(), 1.0 / n);
+                    for &j in x {
+                        core.w[j] -= lr * (err * lin_norm + par.l2 * core.w[j]);
+                        for f in 0..K {
+                            let vjf = core.v[j * K + f];
+                            let grad = err * pair_norm * par.pair * (sums[f] - vjf);
+                            core.v[j * K + f] -= lr * (grad + par.l2 * vjf);
+                        }
                     }
+                    core.bias -= lr * err;
                 }
-                m.bias -= lr * err;
             }
+            // a diverged fit must never reach the wave: better no model than NaN scores
+            if !core.bias.is_finite() || core.w.iter().chain(&core.v).any(|x| !x.is_finite()) {
+                tracing::warn!("wave model diverged, ignored");
+                return None;
+            }
+            cores.push(core);
         }
-        // a diverged fit must never reach the wave: better no model than NaN scores
-        if !m.bias.is_finite() || m.w.iter().chain(&m.v).any(|x| !x.is_finite()) {
-            tracing::warn!("wave model diverged, ignored");
-            return None;
-        }
-        Some(m)
+        Some(Model { cores, seen, ctx: now, pair: par.pair, stats })
     }
 
-    /// Score before the sigmoid, and the per-factor sums the update needs.
-    fn forward(&self, x: &[usize]) -> (f32, [f32; K]) {
-        let n = x.len().max(1) as f32;
-        let linear: f32 = x.iter().map(|&j| self.w[j]).sum::<f32>() / n.sqrt();
-        let mut sums = [0.0f32; K];
-        let mut squares = 0.0f32;
-        for &j in x {
-            for f in 0..K {
-                let v = self.v[j * K + f];
-                sums[f] += v;
-                squares += v * v;
-            }
-        }
-        let pair = 0.5 * (sums.iter().map(|s| s * s).sum::<f32>() - squares) / n;
-        (linear + self.pair * pair + self.bias, sums)
+    /// Mean score before the sigmoid.
+    fn logit(&self, x: &[usize]) -> f32 {
+        self.cores.iter().map(|c| forward(c, self.pair, x).0).sum::<f32>() / self.cores.len().max(1) as f32
     }
 
     /// 0 … 1: how much this track looks like what the user keeps (now).
     pub fn score(&self, t: &ScTrack) -> f32 {
-        sigmoid(self.forward(&features(t, self.ctx)).0)
+        sigmoid(self.logit(&features(t, self.ctx, self.stats.as_ref(), None)))
     }
 
     /// 0 … 1: how little of this track the model has seen (unknown artist,
     /// rare tags): the exploration bonus.
     pub fn novelty(&self, t: &ScTrack) -> f32 {
-        let x = features(t, self.ctx);
+        let x = features(t, self.ctx, self.stats.as_ref(), None);
         let sum: f32 = x.iter().map(|&j| 1.0 / (1.0 + self.seen[j] as f32).sqrt()).sum();
         sum / x.len().max(1) as f32
     }
@@ -379,6 +469,96 @@ mod tests {
     fn stays_silent_without_history() {
         let few = vec![sample(track(1, 1, "a", "b"), true, None)];
         assert!(Model::train(&few, None).is_none());
+    }
+
+    /// Rolling origin on the real history: likes newest first, six blocks; each of the five newest blocks is
+    /// the test in turn and the model learns only from the blocks OLDER than it (what happens in life: learn
+    /// from the past, rank what comes next). The score is how well it ranks the held-out likes above tracks
+    /// that were never liked. `SCDB=<copy of cache.sqlite3> cargo test cv_on_real_history -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn cv_on_real_history() {
+        let Ok(path) = std::env::var("SCDB") else { return };
+        let c = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let load = |sql: &str| -> Vec<ScTrack> {
+            let mut st = c.prepare(sql).unwrap();
+            let rows = st.query_map([], |r| r.get::<_, String>(0)).unwrap();
+            rows.filter_map(|r| r.ok()).filter_map(|j| serde_json::from_str::<ScTrack>(&j).ok()).collect()
+        };
+        let likes = load("SELECT t.json FROM likes l JOIN tracks t ON t.id = l.track_id ORDER BY l.position ASC");
+        let unliked = load("SELECT json FROM tracks WHERE id NOT IN (SELECT track_id FROM likes)");
+        let skips = load("SELECT t.json FROM wave_signals w JOIN tracks t ON t.id = w.track_id WHERE w.signal < 0");
+        let listened = load("SELECT t.json FROM wave_signals w JOIN tracks t ON t.id = w.track_id WHERE w.signal > 0");
+        println!("likes {} unliked {} skips {} listened {}", likes.len(), unliked.len(), skips.len(), listened.len());
+        // the follow list (kv "lib:artists": [{"id": …}])
+        let follows: std::collections::HashSet<u64> = c
+            .query_row("SELECT json FROM kv WHERE key = 'lib:artists'", [], |r| r.get::<_, String>(0))
+            .ok()
+            .and_then(|j| serde_json::from_str::<Vec<serde_json::Value>>(&j).ok())
+            .map(|v| v.iter().filter_map(|u| u["id"].as_u64()).collect())
+            .unwrap_or_default();
+        println!("follows {}", follows.len());
+        set_following(follows);
+        const BLOCKS: usize = 6;
+        let chunk = likes.len() / BLOCKS;
+
+        let run_h = |name: &str, par: Params, neg_n: usize, neg_w: f32, flags: u32, half: f32| {
+            FEATURES.store(flags, std::sync::atomic::Ordering::Relaxed);
+            let mut aucs = Vec::new();
+            let started = std::time::Instant::now();
+            for f in 0..BLOCKS - 1 {
+                let test_pos: Vec<&ScTrack> = likes[f * chunk..(f + 1) * chunk].iter().collect();
+                // only the likes older than the test block
+                let train_likes: Vec<&ScTrack> = likes[(f + 1) * chunk..].iter().collect();
+                let (mut test_neg, mut train_neg) = (Vec::new(), Vec::new());
+                for (i, t) in unliked.iter().enumerate() {
+                    if i % BLOCKS == f { test_neg.push(t) } else { train_neg.push(t) }
+                }
+                let mut v = Vec::new();
+                for (i, t) in train_likes.iter().enumerate() {
+                    v.push(Sample { track: (*t).clone(), positive: true, weight: if half > 0.0 { 1.0 / (1.0 + i as f32 / half) } else { 1.0 }, ctx: None });
+                }
+                for t in &listened { v.push(Sample { track: t.clone(), positive: true, weight: 0.6, ctx: None }); }
+                for t in &skips { v.push(Sample { track: t.clone(), positive: false, weight: 1.3, ctx: None }); }
+                for t in train_neg.iter().take(neg_n) { v.push(Sample { track: (*t).clone(), positive: false, weight: neg_w, ctx: None }); }
+                let m = Model::train_with(&v, None, par).expect("data");
+                let ps: Vec<f32> = test_pos.iter().map(|t| m.score(t)).collect();
+                let ns: Vec<f32> = test_neg.iter().map(|t| m.score(t)).collect();
+                let mut wins = 0.0;
+                for p in &ps { for n in &ns { wins += if p > n { 1.0 } else if p == n { 0.5 } else { 0.0 }; } }
+                aucs.push(wins / (ps.len() * ns.len()) as f32);
+            }
+            let mean = aucs.iter().sum::<f32>() / aucs.len() as f32;
+            let sd = (aucs.iter().map(|a| (a - mean).powi(2)).sum::<f32>() / aucs.len() as f32).sqrt();
+            let each: Vec<String> = aucs.iter().map(|a| format!("{a:.3}")).collect();
+            println!("{name:34} AUC {mean:.4} +- {sd:.3}  [{}]  {} ms", each.join(" "), started.elapsed().as_millis());
+        };
+
+        let run = |name: &str, par: Params, neg_n: usize, neg_w: f32, flags: u32| run_h(name, par, neg_n, neg_w, flags, 200.0);
+        let now = F_ARTIST_NAME;
+        let d = Params::default();
+        run("baseline (400 neg)", d, 400, 0.5, now);
+        run("neg 1500", d, 1500, 0.5, now);
+        run("neg 4000", d, 4000, 0.5, now);
+        run("artist stats", Params { artist_stats: true, ..d }, 400, 0.5, now);
+        run("5 models, 80% each", Params { seeds: 5, bag: 0.8, ..d }, 400, 0.5, now);
+        run("no exact artist id", d, 400, 0.5, now | F_NO_ARTIST_ID);
+        run("title words", d, 400, 0.5, now | F_TITLE);
+        run("title words, no artist id", d, 400, 0.5, now | F_TITLE | F_NO_ARTIST_ID);
+        run_h("neg 1500, no decay", d, 1500, 0.5, now, 0.0);
+        run_h("neg 1500, half-life 80", d, 1500, 0.5, now, 80.0);
+        run_h("neg 1500, half-life 500", d, 1500, 0.5, now, 500.0);
+        run("neg 1500, neg weight 0.25", d, 1500, 0.25, now);
+        run("neg 1500, neg weight 1.0", d, 1500, 1.0, now);
+        run("neg 800", d, 800, 0.5, now);
+        run("neg 2500", d, 2500, 0.5, now);
+        run("follows", d, 400, 0.5, now | F_FOLLOW);
+        run("follows + neg 1500", d, 1500, 0.5, now | F_FOLLOW);
+        run("follows + neg 1500 + title", d, 1500, 0.5, now | F_FOLLOW | F_TITLE);
+        run("epochs 60", Params { epochs: 60, ..d }, 400, 0.5, now);
+        run("l2 1e-3", Params { l2: 1e-3, ..d }, 400, 0.5, now);
+        run("pair 0.5", Params { pair: 0.5, ..d }, 400, 0.5, now);
+        FEATURES.store(F_ARTIST_NAME, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Offline check on a copy of the real cache: train on older likes, ask

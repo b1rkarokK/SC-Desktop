@@ -409,7 +409,7 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         for t in state.db.tracks_by_ids(disliked).await? {
             samples.push(Sample { track: t, positive: false, weight: 1.0, ctx: None });
         }
-        for t in state.db.sample_unliked(400).await? {
+        for t in state.db.sample_unliked(1500).await? {
             if !liked_ids.contains(&t.id) {
                 samples.push(Sample { track: t, positive: false, weight: 0.5, ctx: None });
             }

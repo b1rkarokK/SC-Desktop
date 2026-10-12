@@ -21,7 +21,7 @@ export function shareDialog(t: Track): void {
   const at = playing ? clock.now() : 0;
   let withTime = playing && at >= 1000;
 
-  const sw = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
+  const sw = h('button', { type: 'button', class: 'toggle', role: 'switch', 'aria-label': T('Начать с {0}', fmtTime(at)) }, h('span', { class: 'toggle-knob' }));
   const field = h('input', { class: 'input', readOnly: true, 'aria-label': T('Ссылка') });
   const render = () => {
     sw.classList.toggle('is-on', withTime);

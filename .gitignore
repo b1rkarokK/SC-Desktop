@@ -10,3 +10,4 @@ HANDOFF.md
 # signing keys must never be committed
 *.key
 переписка.txt
+scripts/ui-smoke-out/

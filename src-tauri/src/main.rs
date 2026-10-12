@@ -35,6 +35,7 @@ mod tray;
 mod updater;
 mod import;
 mod lang;
+mod lyrics_align;
 mod mini;
 mod smtc;
 mod news;

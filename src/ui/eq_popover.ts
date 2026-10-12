@@ -30,7 +30,7 @@ const toPos = (db: number) => (db + 12) / 24;
 
 export class EqPopover {
   readonly el: HTMLDivElement;
-  private deviceBtn = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
+  private deviceBtn = h('button', { type: 'button', class: 'toggle', role: 'switch', 'aria-label': T('Свой для каждого устройства') }, h('span', { class: 'toggle-knob' }));
   private deviceName = h('span', { class: 'muted small' });
   private deviceRow = h('div', { class: 'eq-device small' });
   private note = h('div', { class: 'eq-note small', text: T('Этот трек играет в плеере SoundCloud: эквалайзер и эффекты на него не действуют.') });
@@ -56,7 +56,7 @@ export class EqPopover {
   private onToggle?: (open: boolean, enabled: boolean) => void;
 
   constructor() {
-    this.enabledBtn = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
+    this.enabledBtn = h('button', { type: 'button', class: 'toggle', role: 'switch', 'aria-label': T('Эквалайзер') }, h('span', { class: 'toggle-knob' }));
     this.enabledBtn.addEventListener('click', () => {
       this.eq.enabled = !this.eq.enabled;
       this.commit(true);
@@ -94,7 +94,7 @@ export class EqPopover {
     this.speedSlider = new Slider(T('Скорость'), (v) => this.setFx({ speed: speedOf(v) }, false), (v) => this.setFx({ speed: speedOf(v) }, true));
     this.reverbSlider = new Slider('Reverb', (v) => this.setFx({ reverb: Math.round(v * 100) / 100 }, false), (v) => this.setFx({ reverb: Math.round(v * 100) / 100 }, true));
     this.crossSlider = new Slider(T('Кроссфейд'), (v) => this.setFx({ crossfade: Math.round(v * 12) }, false), (v) => this.setFx({ crossfade: Math.round(v * 12) }, true));
-    this.normBtn = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
+    this.normBtn = h('button', { type: 'button', class: 'toggle', role: 'switch', 'aria-label': T('Выравнивать громкость треков') }, h('span', { class: 'toggle-knob' }));
     this.normBtn.addEventListener('click', () => this.setFx({ normalize: !this.fx.normalize }, true));
     const chips = h('div', { class: 'fx-chips' });
     for (const [label, speed] of [['Slowed', 0.85], [T('Обычно'), 1], ['Sped up', 1.2]] as [string, number][]) {

@@ -30,6 +30,8 @@ function toggle(on: boolean, onChange: (v: boolean) => void): HTMLButtonElement 
 }
 
 function row(label: string, control: HTMLElement, hint?: string): HTMLElement {
+  // a switch is named by the row it sits in
+  if (control.classList.contains('toggle') && !control.getAttribute('aria-label')) control.setAttribute('aria-label', label);
   return h('div', { class: 'set-row' }, h('div', { class: 'set-label' }, h('div', { text: label }), hint ? h('div', { class: 'muted small', text: hint }) : null), control);
 }
 
