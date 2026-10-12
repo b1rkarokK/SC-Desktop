@@ -146,6 +146,7 @@ export interface DiscordConfig {
   progress: boolean;
   button: boolean;
   hide_on_pause: boolean;
+  room_join: boolean;
 }
 
 export interface AppConfig {

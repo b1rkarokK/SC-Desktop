@@ -847,4 +847,10 @@ export const EN: Record<string, string> = {
   'Открыть комнату': 'Open the room',
   'Выйти из комнаты': 'Leave the room',
   'Вы в комнате': 'You are in a room',
+  'Кнопка «Присоединиться» для открытой комнаты': '"Join" button for an open room',
+  'В статусе появится кнопка для комнат без пароля. Друг, нажав её, попадёт на страницу, которая откроет комнату в SC Desk или предложит скачать программу. Код комнаты будет виден всем, кто смотрит ваш профиль.': 'A button appears in the status for rooms without a password. A friend who presses it lands on a page that opens the room in SC Desk or offers to download the app. The room code will be visible to everyone who looks at your profile.',
+  'Присоединиться к комнате по ссылке?': 'Join the room from the link?',
+  'Присоединиться к общему плейлисту по ссылке?': 'Join the shared playlist from the link?',
+  'Вы зайдёте в комнату, где слушают вместе.': 'You will enter a room where people listen together.',
+  'Плейлист появится в разделе «Общие плейлисты».': 'The playlist will appear in "Shared playlists".',
 };

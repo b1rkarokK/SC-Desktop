@@ -51,11 +51,13 @@ pub struct DiscordConfig {
     pub progress: bool,
     pub button: bool,
     pub hide_on_pause: bool,
+    /// show a "join" button for an open room (no password) in the status
+    pub room_join: bool,
 }
 
 impl Default for DiscordConfig {
     fn default() -> Self {
-        Self { enabled: true, app_id: DISCORD_APP_ID.into(), progress: true, button: true, hide_on_pause: true }
+        Self { enabled: true, app_id: DISCORD_APP_ID.into(), progress: true, button: true, hide_on_pause: true, room_join: false }
     }
 }
 

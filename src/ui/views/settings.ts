@@ -214,6 +214,7 @@ export class SettingsView implements View {
         row(T('Показывать, что я слушаю'), toggle(d.enabled, (v) => ((d.enabled = v), void save()))),
         row(T('Полоса прогресса'), toggle(d.progress, (v) => ((d.progress = v), void save())), T('тип «Слушает» с таймером трека')),
         row(T('Кнопка «Слушать на SoundCloud»'), toggle(d.button, (v) => ((d.button = v), void save()))),
+        row(T('Кнопка «Присоединиться» для открытой комнаты'), toggle(d.room_join, (v) => ((d.room_join = v), void save())), T('В статусе появится кнопка для комнат без пароля. Друг, нажав её, попадёт на страницу, которая откроет комнату в SC Desk или предложит скачать программу. Код комнаты будет виден всем, кто смотрит ваш профиль.')),
         row(T('На паузе — скрывать статус'), toggle(d.hide_on_pause, (v) => ((d.hide_on_pause = v), void save())), T('иначе «на паузе» без таймера')),
         h('p', { class: 'muted small', text: T('Нужен только запущенный Discord на этом компьютере.') }),
       ),

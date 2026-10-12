@@ -41,9 +41,9 @@ pub struct RoomInfo {
     pub channel: String,
 }
 
-/// A page that opens `scdesk://room/<channel>` or offers to download the app. Empty until it is published:
-/// without it the status carries no "join" button.
-pub const JOIN_PAGE: &str = "";
+/// A page that opens `scdesk://room/<channel>` or offers to download the app (docs/join in the repository,
+/// served by GitHub Pages). The button is shown only for an open room and only if the user turned it on.
+pub const JOIN_PAGE: &str = "https://b1rkarokk.github.io/SC-Desktop/join/";
 
 enum Cmd {
     Set(Option<Presence>),
@@ -283,9 +283,9 @@ impl Worker {
         }
         // an open room, with the page that opens it (or sends to the download): a join button
         let join;
-        if !JOIN_PAGE.is_empty() {
+        if !JOIN_PAGE.is_empty() && self.cfg.room_join {
             if let Some(r) = self.room.as_ref().filter(|r| r.open) {
-                join = format!("{JOIN_PAGE}#{}", r.channel);
+                join = format!("{JOIN_PAGE}#room/{}", r.channel);
                 activity = activity.buttons(vec![Button::new(crate::lang::pick("Присоединиться", "Join"), &join)]);
             }
         }
