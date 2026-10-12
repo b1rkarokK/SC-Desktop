@@ -112,8 +112,14 @@ fn main() {
                 // the shared playlists we are in: reopened once the sign-in is known
                 let app = handle.clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-                    app.state::<sync::shared::SharedPlaylists>().start(&app).await;
+                    // the sign-in is not known right at the start (or there is no network yet): try again for a while
+                    for _ in 0..40 {
+                        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                        if app.state::<state::AppState>().me().is_some() {
+                            app.state::<sync::shared::SharedPlaylists>().start(&app).await;
+                            break;
+                        }
+                    }
                 });
             }
             {

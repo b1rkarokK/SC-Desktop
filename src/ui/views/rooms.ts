@@ -3,7 +3,7 @@
 // Middle: what plays, the controls, the queue. Right: who is online and what they are doing.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { api, errorMessage, type Track, type User } from '../api';
+import { api, coverUrl, errorMessage, type Track, type User } from '../api';
 import { clock } from '../clock';
 import { h, toast } from '../dom';
 import { T } from '../i18n';
@@ -356,10 +356,19 @@ export class RoomsView implements View {
     next.addEventListener('click', () => cmd({ cmd: 'next' }));
     const loading = v.members.some((m) => m.status === 'loading');
     const state = cur ? (loading ? T('ждём, пока загрузится у всех') : v.play?.playing ? T('играет у всех · вместе') : T('на паузе')) : '';
+    // the cover of what plays: the local player follows the room, so it knows the artwork
+    const cover = h('div', { class: 'rm-cover' }, icon(I.queue, 30));
+    const art = cur && store.snapshot?.track?.id === cur.track_id ? coverUrl(store.snapshot.track.artwork_url, 't500x500') : null;
+    if (art) {
+      cover.replaceChildren();
+      cover.style.backgroundImage = `url("${art}")`;
+      cover.style.backgroundSize = 'cover';
+      cover.style.backgroundPosition = 'center';
+    }
     const card = h(
       'div',
       { class: 'rm-card' },
-      h('div', { class: 'rm-cover' }, icon(I.queue, 30)),
+      cover,
       h(
         'div',
         { class: 'rm-card-body' },
