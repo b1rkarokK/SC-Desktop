@@ -100,9 +100,18 @@ export class RoomsView implements View {
   private body = h('div', { class: 'view-scroll pad' });
   private live: LiveRoom[] = [];
   private err = '';
+  private count = h('span', { class: 'muted small rm-count' });
 
   constructor() {
-    this.el = h('section', { class: 'view' }, viewHead(T('Комнаты')), this.body);
+    const refresh = h('button', { type: 'button', class: 'icon-btn', title: T('Обновить'), 'aria-label': T('Обновить') }, icon(I.refresh));
+    refresh.addEventListener('click', () => void this.loadLive());
+    const join = btn(T('Присоединиться'), null);
+    join.addEventListener('click', () => void this.joinDialog());
+    const create = btn(T('Создать'), I.plus, true);
+    create.addEventListener('click', () => void this.createDialog());
+    const head = viewHead(T('Комнаты'), refresh, join, create);
+    head.querySelector('h1')?.after(this.count);
+    this.el = h('section', { class: 'view' }, head, this.body);
     onRoom(() => this.isShown() && this.render());
   }
 
@@ -144,55 +153,110 @@ export class RoomsView implements View {
   }
 
   private lobby(): HTMLElement[] {
-    const link = h('input', { class: 'input', placeholder: T('Ссылка или код комнаты'), spellcheck: 'false' });
-    const pw = h('input', { class: 'input', type: 'password', placeholder: T('Пароль (если есть)'), autocomplete: 'off' });
-    const join = btn(T('Войти'), null, true);
-    join.addEventListener('click', () => void this.join(link.value, pw.value));
-    link.addEventListener('keydown', (e) => e.key === 'Enter' && join.click());
-
-    const name = h('input', { class: 'input', placeholder: T('Название комнаты'), maxlength: '40' });
-    const pass = h('input', { class: 'input', type: 'password', placeholder: T('Пароль (необязательно)'), autocomplete: 'off' });
-    const everyone = h('input', { type: 'checkbox' });
-    everyone.checked = true;
-    const create = btn(T('Создать комнату'), I.plus);
-    create.addEventListener('click', async () => {
-      try {
-        const r = await invoke<{ link: string }>('room_create', { room: { name: name.value, password: pass.value, access: 'link', queue_everyone: everyone.checked } });
-        await navigator.clipboard.writeText(r.link).catch(() => undefined);
-        toast(T('Комната создана, ссылка скопирована'));
-      } catch (e) {
-        toast(errorMessage(e), 'error');
-      }
-    });
-
-    const friends = h('div', { class: 'rm-list' });
-    if (this.err) friends.append(h('p', { class: 'muted small', text: this.err }));
-    else if (!this.live.length) friends.append(h('p', { class: 'muted small', text: T('Сейчас ни у кого из тех, на кого вы подписаны, нет открытой комнаты.') }));
-    for (const r of this.live) {
-      const row = h(
-        'div',
-        { class: 'rm-live' },
-        h('div', { class: 'rm-live-text' }, h('div', { class: 'strong', dir: 'auto', text: r.name }), h('div', { class: 'muted small', text: `${r.host_name} · ${T('{0} в комнате', r.members)}${r.has_password ? ' · ' + T('пароль') : ''}` })),
-        (() => {
-          const b = btn(T('Войти'), null);
-          b.addEventListener('click', () => void this.join(r.channel, r.has_password ? (prompt(T('Пароль комнаты')) ?? '') : ''));
-          return b;
-        })(),
-      );
-      friends.append(row);
+    this.count.textContent = this.live.length ? `· ${T('открыто у друзей: {0}', this.live.length)}` : '';
+    if (this.err) return [h('p', { class: 'muted small', text: this.err })];
+    if (!this.live.length) {
+      return [
+        h('div', { class: 'rm-empty' }, icon(I.users, 28), h('div', { class: 'strong', text: T('Сейчас ни у кого из подписок нет открытой комнаты') }), h('div', { class: 'muted small', text: T('Создайте свою или присоединитесь по ссылке: кнопки справа вверху.') })),
+        h('p', { class: 'muted small', text: T('Все слушают один трек одновременно. Если у кого-то трек ещё грузится, остальные ждут. Звук и переписка не передаются, только команды.') }),
+      ];
     }
-    const refresh = btn(T('Обновить'), I.refresh);
-    refresh.addEventListener('click', () => void this.loadLive());
+    const rows = h('div', { class: 'rm-list' });
+    for (const r of this.live) {
+      const go = btn(T('Войти'), null);
+      go.addEventListener('click', () => void this.enter(r));
+      rows.append(
+        h(
+          'div',
+          { class: 'rm-row' },
+          h('span', { class: 'rm-dot is-playing' }),
+          h('div', { class: 'rm-live-text' }, h('div', { class: 'strong', dir: 'auto', text: r.name }), h('div', { class: 'muted small', text: `${r.host_name} · ${T('{0} в комнате', r.members)}${r.has_password ? ' · ' + T('пароль') : ''}` })),
+          go,
+        ),
+      );
+    }
+    return [rows];
+  }
 
-    return [
-      sectionTitle(T('Войти в комнату')),
-      h('div', { class: 'rm-form' }, link, pw, join),
-      sectionTitle(T('Открытые комнаты друзей'), refresh),
-      friends,
-      sectionTitle(T('Своя комната')),
-      h('div', { class: 'rm-form' }, name, pass, h('label', { class: 'rm-check' }, everyone, h('span', { text: T('Добавлять треки может каждый') })), create),
-      h('p', { class: 'muted small', text: T('Все слушают один трек одновременно. Если у кого-то трек ещё грузится, остальные ждут. Звук и переписка не передаются, только команды.') }),
-    ];
+  /** Friend's room; a password is asked in a dialog only when it has one. */
+  private async enter(r: LiveRoom): Promise<void> {
+    let password = '';
+    if (r.has_password) {
+      const v = await this.dialog(T('Пароль комнаты'), r.name, [{ key: 'password', placeholder: T('Пароль'), type: 'password' }], T('Войти'));
+      if (!v) return;
+      password = v.password ?? '';
+    }
+    await this.join(r.channel, password);
+  }
+
+  /** A small dialog: text fields and one optional checkbox. null when cancelled. */
+  private dialog(title: string, hint: string, fields: { key: string; placeholder: string; type?: string; maxlength?: string }[], okLabel: string, check?: { key: string; label: string }): Promise<Record<string, string> | null> {
+    return new Promise((done) => {
+      const inputs = fields.map((f) => h('input', { class: 'input', placeholder: f.placeholder, type: f.type ?? 'text', maxlength: f.maxlength ?? '400', spellcheck: 'false', autocomplete: 'off' }));
+      const box = h('input', { type: 'checkbox' });
+      box.checked = true;
+      const cancel = h('button', { type: 'button', class: 'btn', text: T('Отмена') });
+      const ok = h('button', { type: 'button', class: 'btn btn-primary', text: okLabel });
+      const card = h(
+        'div',
+        { class: 'upd panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+        h('div', { class: 'upd-title', text: title }),
+        hint ? h('div', { class: 'muted small', text: hint }) : null,
+        ...inputs,
+        check ? h('label', { class: 'rm-check' }, box, h('span', { text: check.label })) : null,
+        h('div', { class: 'upd-actions' }, cancel, ok),
+      );
+      const backdrop = h('div', { class: 'upd-backdrop' }, card);
+      const close = (v: Record<string, string> | null) => {
+        backdrop.remove();
+        done(v);
+      };
+      const submit = () => {
+        const out: Record<string, string> = {};
+        fields.forEach((f, i) => (out[f.key] = inputs[i]!.value.trim()));
+        if (check) out[check.key] = box.checked ? '1' : '';
+        // the first field is the main one
+        if (fields[0] && fields[0].key !== 'password' && fields[0].key !== 'name' && !out[fields[0].key]) {
+          inputs[0]!.focus();
+          return;
+        }
+        close(out);
+      };
+      cancel.addEventListener('click', () => close(null));
+      ok.addEventListener('click', submit);
+      backdrop.addEventListener('pointerdown', (ev) => ev.target === backdrop && close(null));
+      for (const i of inputs) {
+        i.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') submit();
+          else if (ev.key === 'Escape') close(null);
+        });
+      }
+      document.body.append(backdrop);
+      inputs[0]?.focus();
+    });
+  }
+
+  private async joinDialog(): Promise<void> {
+    const v = await this.dialog(T('Присоединиться'), T('Ссылка или код комнаты, которую вам прислали.'), [{ key: 'link', placeholder: T('Ссылка или код комнаты') }, { key: 'password', placeholder: T('Пароль (если есть)'), type: 'password' }], T('Войти'));
+    if (v) await this.join(v.link ?? '', v.password ?? '');
+  }
+
+  private async createDialog(): Promise<void> {
+    const v = await this.dialog(
+      T('Новая комната'),
+      T('Все слушают один трек одновременно. Звук и переписка не передаются, только команды.'),
+      [{ key: 'name', placeholder: T('Название комнаты'), maxlength: '40' }, { key: 'password', placeholder: T('Пароль (необязательно)'), type: 'password' }],
+      T('Создать комнату'),
+      { key: 'everyone', label: T('Добавлять треки может каждый') },
+    );
+    if (!v) return;
+    try {
+      const r = await invoke<{ link: string }>('room_create', { room: { name: v.name ?? '', password: v.password ?? '', access: 'link', queue_everyone: !!v.everyone } });
+      await navigator.clipboard.writeText(r.link).catch(() => undefined);
+      toast(T('Комната создана, ссылка скопирована'));
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
   }
 
   private async join(link: string, password: string): Promise<void> {

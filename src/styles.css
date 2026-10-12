@@ -3398,3 +3398,31 @@ kbd {
   border-radius: 50%;
   background: var(--accent, #ff5500);
 }
+
+.rm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rm-row .rm-dot {
+  flex: none;
+}
+
+.rm-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 24px 0 16px;
+  padding: 28px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--muted);
+}
+
+.rm-count {
+  margin-left: 8px;
+}

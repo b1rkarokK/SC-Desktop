@@ -798,4 +798,11 @@ export const EN: Record<string, string> = {
   'Пока нет общих плейлистов. Создайте свой или присоединитесь по ссылке: кнопки справа вверху.': 'No shared playlists yet. Create your own or join by link: the buttons at the top right.',
   'Вставьте ссылку на общий плейлист, которую вам прислали.': 'Paste the shared playlist link you were sent.',
   'Все меняют один и тот же список. Ссылку для друзей можно скопировать на его странице.': 'Everyone edits the same list. You can copy the link for friends on its page.',
+  'открыто у друзей: {0}': 'open at friends: {0}',
+  'Сейчас ни у кого из подписок нет открытой комнаты': 'None of the people you follow has an open room right now',
+  'Создайте свою или присоединитесь по ссылке: кнопки справа вверху.': 'Create your own or join by link: the buttons at the top right.',
+  'Пароль': 'Password',
+  'Ссылка или код комнаты, которую вам прислали.': 'The room link or code you were sent.',
+  'Новая комната': 'New room',
+  'Все слушают один трек одновременно. Звук и переписка не передаются, только команды.': 'Everyone listens to one track at once. Audio and chat are not sent, only commands.',
 };
