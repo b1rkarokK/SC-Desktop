@@ -45,28 +45,70 @@ pub fn take() -> Option<String> {
 }
 
 /// `scdesk://` → this program, for the current user. Released builds only: a development build
-/// must not steal the links from the program that is installed.
+/// must not steal the links from the program that is installed. Written through the registry API
+/// (no helper programs are started, which security software dislikes).
 #[cfg(windows)]
 pub fn register() {
-    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegCreateKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    };
     if cfg!(debug_assertions) || crate::secrets::profile().is_some() {
         return;
     }
     let Ok(exe) = std::env::current_exe() else { return };
     let command = format!("\"{}\" \"%1\"", exe.display());
-    let run = |args: &[&str]| {
-        let _ = std::process::Command::new("reg").args(args).creation_flags(0x0800_0000).output();
-    };
-    // nothing to do when it already points here
-    let key = r"HKCU\Software\Classes\scdesk\shell\open\command";
-    if let Ok(out) = std::process::Command::new("reg").args(["query", key, "/ve"]).creation_flags(0x0800_0000).output() {
-        if String::from_utf8_lossy(&out.stdout).contains(&command) {
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+    // the default value of the key (name = null) or a named one
+    fn read(path: &str, name: Option<&str>) -> Option<String> {
+        let mut key: HKEY = std::ptr::null_mut();
+        // SAFETY: opens a key of the current user for reading; closed below.
+        if unsafe { RegCreateKeyExW(HKEY_CURRENT_USER, wide(path).as_ptr(), 0, std::ptr::null(), REG_OPTION_NON_VOLATILE, KEY_READ, std::ptr::null(), &mut key, std::ptr::null_mut()) } != 0 {
+            return None;
+        }
+        let n = name.map(wide);
+        let mut size = 0u32;
+        let name_ptr = n.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
+        // SAFETY: asks for the size, then reads into a buffer of that size.
+        let ok = unsafe { RegQueryValueExW(key, name_ptr, std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut(), &mut size) } == 0;
+        let mut out = None;
+        if ok && size > 0 {
+            let mut buf = vec![0u16; (size as usize).div_ceil(2)];
+            // SAFETY: `buf` holds `size` bytes.
+            if unsafe { RegQueryValueExW(key, name_ptr, std::ptr::null(), std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut size) } == 0 {
+                out = Some(String::from_utf16_lossy(&buf).trim_end_matches('\0').to_owned());
+            }
+        }
+        // SAFETY: `key` was opened above.
+        unsafe { RegCloseKey(key) };
+        out
+    }
+    fn write(path: &str, name: Option<&str>, value: &str) {
+        let mut key: HKEY = std::ptr::null_mut();
+        // SAFETY: creates / opens a key of the current user for writing; closed below.
+        if unsafe { RegCreateKeyExW(HKEY_CURRENT_USER, wide(path).as_ptr(), 0, std::ptr::null(), REG_OPTION_NON_VOLATILE, KEY_WRITE, std::ptr::null(), &mut key, std::ptr::null_mut()) } != 0 {
             return;
         }
+        let n = name.map(wide);
+        let v = wide(value);
+        let name_ptr = n.as_ref().map_or(std::ptr::null(), |x| x.as_ptr());
+        // SAFETY: `v` is a NUL-terminated UTF-16 string of `len * 2` bytes.
+        unsafe {
+            RegSetValueExW(key, name_ptr, 0, REG_SZ, v.as_ptr().cast(), (v.len() * 2) as u32);
+            RegCloseKey(key);
+        }
     }
-    run(&["add", r"HKCU\Software\Classes\scdesk", "/ve", "/d", "URL:SC Desk", "/f"]);
-    run(&["add", r"HKCU\Software\Classes\scdesk", "/v", "URL Protocol", "/d", "", "/f"]);
-    run(&["add", key, "/ve", "/d", &command, "/f"]);
+
+    let open = r"Software\Classes\scdesk\shell\open\command";
+    // nothing to do when it already points here
+    if read(open, None).as_deref() == Some(command.as_str()) {
+        return;
+    }
+    write(r"Software\Classes\scdesk", None, "URL:SC Desk");
+    write(r"Software\Classes\scdesk", Some("URL Protocol"), "");
+    write(open, None, &command);
 }
 
 #[cfg(not(windows))]
