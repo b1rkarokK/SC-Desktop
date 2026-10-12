@@ -506,11 +506,13 @@ impl Friends {
     }
 
     pub async fn remove(&self, app: &AppHandle, id: u64) -> AppResult<()> {
-        let tell = self.lock().book.remove(id);
+        // the key is taken before the record goes: the message to them is sealed with it
+        let key = self.lock().book.find(id).filter(|f| f.state == State::Friend).map(|f| f.pubkey.clone());
+        self.lock().book.remove(id);
         self.save(app);
-        if tell {
+        if let Some(pubkey) = key {
             // best effort: they learn it the next time they are online
-            let _ = self.send_direct_to(app, id, Direct::Remove).await;
+            let _ = self.send_direct(app, id, &pubkey, Direct::Remove).await;
         }
         Ok(())
     }
@@ -528,7 +530,7 @@ impl Friends {
     }
 
     async fn send_direct_to(&self, app: &AppHandle, to: u64, d: Direct) -> AppResult<()> {
-        let (ident, me, _, _) = self.identity()?;
+        self.identity()?;
         let pubkey = {
             let g = self.lock();
             g.book.find(to).filter(|f| f.state == State::Friend).map(|f| f.pubkey.clone())
@@ -536,7 +538,12 @@ impl Friends {
         let Some(pubkey) = pubkey else {
             return Err(AppError::Other(pick("Этого человека нет в друзьях", "This person is not your friend").into()));
         };
-        let key = ident.pair_key(&pubkey).ok_or_else(|| AppError::Other("bad key".into()))?;
+        self.send_direct(app, to, &pubkey, d).await
+    }
+
+    async fn send_direct(&self, app: &AppHandle, to: u64, pubkey: &str, d: Direct) -> AppResult<()> {
+        let (ident, me, _, _) = self.identity()?;
+        let key = ident.pair_key(pubkey).ok_or_else(|| AppError::Other("bad key".into()))?;
         let blob = crypto::seal(&key, &direct_aad(me, to), &serde_json::to_vec(&d)?);
         deliver(app, to, &Wire::Direct { from: me, blob }).await
     }
