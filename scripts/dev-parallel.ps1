@@ -16,3 +16,5 @@ if (-not (Test-Path (Join-Path $dst 'config.json'))) {
 Set-Location (Split-Path -Parent $PSScriptRoot)
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9223'
 npm run tauri dev -- --config src-tauri/tauri.dev.conf.json
+
+# Second test copy (another SoundCloud account): scripts/dev-profile.ps1

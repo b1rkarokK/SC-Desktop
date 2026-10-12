@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppResult;
 
 const SERVICE: &str = "dev.scdesk.app";
+
+/// A second copy for tests (env `SCDESK_PROFILE`, e.g. a second account) lives apart: own keyring entry.
+pub fn profile() -> Option<String> {
+    std::env::var("SCDESK_PROFILE").ok().map(|p| p.trim().to_owned()).filter(|p| !p.is_empty())
+}
 const ACCOUNT: &str = "credentials";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -29,7 +34,11 @@ impl fmt::Debug for Credentials {
 }
 
 fn entry() -> AppResult<keyring::Entry> {
-    Ok(keyring::Entry::new(SERVICE, ACCOUNT)?)
+    let service = match profile() {
+        Some(p) => format!("{SERVICE}.{p}"),
+        None => SERVICE.to_owned(),
+    };
+    Ok(keyring::Entry::new(&service, ACCOUNT)?)
 }
 
 pub fn load() -> AppResult<Option<Credentials>> {

@@ -54,9 +54,12 @@ fn main() {
     unsafe {
         let _ = windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(windows::core::w!("dev.scdesk.app"));
     }
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    if secrets::profile().is_none() {
         // second launch (e.g. from the Start menu while running in the tray) → show the window
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)));
+    }
+    let app = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())

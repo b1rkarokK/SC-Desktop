@@ -40,9 +40,15 @@ fn write<T>(lock: &RwLock<T>, value: T) {
 impl AppState {
     pub fn init(app: &AppHandle) -> AppResult<Self> {
         let paths = app.path();
-        let data_dir = paths.app_data_dir()?;
-        let cache_dir = paths.app_cache_dir()?;
-        let config_dir = paths.app_config_dir()?;
+        let mut data_dir = paths.app_data_dir()?;
+        let mut cache_dir = paths.app_cache_dir()?;
+        let mut config_dir = paths.app_config_dir()?;
+        if let Some(p) = crate::secrets::profile() {
+            for d in [&mut data_dir, &mut cache_dir, &mut config_dir] {
+                let name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                *d = d.with_file_name(format!("{name}.{p}"));
+            }
+        }
         for d in [&data_dir, &cache_dir, &config_dir] {
             std::fs::create_dir_all(d)?;
         }
