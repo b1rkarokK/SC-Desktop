@@ -32,7 +32,7 @@
   <p id="text"></p>
   <div class="row">
     <a class="btn primary" id="open" href="#"></a>
-    <a class="btn" id="get" href="https://github.com/b1rkarokK/SC-Desktop/releases/latest"></a>
+    <a class="btn" id="get" href="../#download"></a>
   </div>
   <small id="note"></small>
 </main>
@@ -40,8 +40,8 @@
 (function () {
   var ru = /^ru|^uk|^be/i.test(navigator.language || '');
   var T = ru
-    ? { room: 'Вас зовут в комнату', list: 'Вас зовут в общий плейлист', opening: 'Открываем SC Desk. Если окно не появилось, нажмите кнопку.', open: 'Открыть в SC Desk', get: 'У меня нет программы: скачать', note: 'SC Desk - бесплатный клиент SoundCloud для Windows. Слушать вместе можно только в программе.', bad: 'Ссылка не распознана', badText: 'Попросите прислать приглашение ещё раз или скачайте программу.' }
-    : { room: 'You are invited to a room', list: 'You are invited to a shared playlist', opening: 'Opening SC Desk. If no window appeared, press the button.', open: 'Open in SC Desk', get: 'I do not have the app: download', note: 'SC Desk is a free SoundCloud client for Windows. Listening together works only in the app.', bad: 'The link is not recognised', badText: 'Ask for the invitation again or download the app.' };
+    ? { room: 'Вас зовут в комнату', list: 'Вас зовут в общий плейлист', opening: 'Открываем SC Desk. Если окно не появилось, нажмите кнопку.', open: 'Открыть в SC Desk', get: 'У меня нет программы: скачать', missing: 'Программа не нашлась. Ведём на страницу скачивания…', stay: 'Остаться здесь', note: 'SC Desk - бесплатный клиент SoundCloud для Windows. Слушать вместе можно только в программе.', bad: 'Ссылка не распознана', badText: 'Попросите прислать приглашение ещё раз или скачайте программу.' }
+    : { room: 'You are invited to a room', list: 'You are invited to a shared playlist', opening: 'Opening SC Desk. If no window appeared, press the button.', open: 'Open in SC Desk', get: 'I do not have the app: download', missing: 'The app was not found. Taking you to the download page…', stay: 'Stay here', note: 'SC Desk is a free SoundCloud client for Windows. Listening together works only in the app.', bad: 'The link is not recognised', badText: 'Ask for the invitation again or download the app.' };
   document.documentElement.lang = ru ? 'ru' : 'en';
   document.title = 'SC Desk';
   var $ = function (id) { return document.getElementById(id); };
@@ -60,8 +60,29 @@
   $('text').textContent = T.opening;
   var link = 'scdesk://' + m[1] + '/' + m[2] + (m[3] ? '#' + m[3] : '');
   $('open').href = link;
-  // a moment for the page to show, then hand the link to Windows (nothing happens if the program is not there)
+  // the download page of the site (the same language as this page)
+  var site = ru ? '../#download' : '../en/#download';
+  $('get').href = site;
+  // a moment for the page to show, then hand the link to Windows
   setTimeout(function () { location.href = link; }, 500);
+  // When the program takes the link, the browser loses the focus (the program comes up, or the browser asks
+  // "open SC Desk?"). If the page is still in front 4 seconds after that, there is no program: go to the download.
+  var left = false;
+  var gone = function () { left = true; };
+  window.addEventListener('blur', gone);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) gone(); });
+  setTimeout(function () {
+    if (left || document.hidden) return;
+    $('text').textContent = T.missing;
+    var stay = document.createElement('a');
+    stay.className = 'btn';
+    stay.href = '#';
+    stay.textContent = T.stay;
+    var cancelled = false;
+    stay.addEventListener('click', function (e) { e.preventDefault(); cancelled = true; $('text').textContent = T.opening; stay.remove(); });
+    document.querySelector('.row').appendChild(stay);
+    setTimeout(function () { if (!cancelled && !left && !document.hidden) location.href = site; }, 2500);
+  }, 4500);
 })();
 </script>
 </body>
