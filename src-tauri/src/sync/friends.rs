@@ -41,6 +41,10 @@ const OWNER: &str = "friends:owner";
 const NOW_FRESH_MS: i64 = 4 * 60 * 1000;
 const MAX_INVITES: usize = 50;
 const MAX_PEOPLE: usize = 500;
+/// requests waiting for an answer: anybody can write to an inbox, so the pile has a limit
+const MAX_INCOMING: usize = 50;
+/// notifications of this app about friends, at most this many a minute
+const NOTES_PER_MINUTE: usize = 3;
 
 pub fn inbox_channel(user_id: u64) -> String {
     format!("fi-{}", hex::encode(&Sha256::digest(format!("scdesk-inbox|{user_id}").as_bytes())[..16]))
@@ -206,7 +210,7 @@ impl Book {
                 let notify = |text: &str| Effect::Notify { title: title.clone(), body: text.to_owned() };
                 match self.find_mut(from).map(|f| (f.state, f.pubkey == pubkey)) {
                     None => {
-                        if self.people.len() >= MAX_PEOPLE {
+                        if self.people.len() >= MAX_PEOPLE || self.people.iter().filter(|p| p.state == State::Incoming).count() >= MAX_INCOMING {
                             return (false, vec![]);
                         }
                         self.people.push(Friend { id: from, name: name.clone(), avatar_url: avatar, pubkey, state: State::Incoming, since: now, new_key: None, pkey: String::new(), key_sent: false });
@@ -430,6 +434,8 @@ struct Inner {
     my_pkey: String,
     /// what was last published (track id, playing) and when
     last_pub: Option<(u64, bool, std::time::Instant)>,
+    /// when the last notifications were shown (to keep them from becoming a flood)
+    notes: Vec<std::time::Instant>,
 }
 
 #[derive(Default)]
@@ -670,7 +676,18 @@ impl Friends {
                     });
                 }
                 Effect::Notify { title, body } => {
-                    let _ = app.notification().builder().title(title).body(body).show();
+                    let allowed = {
+                        let mut g = self.lock();
+                        g.notes.retain(|t| t.elapsed() < Duration::from_secs(60));
+                        let ok = g.notes.len() < NOTES_PER_MINUTE;
+                        if ok {
+                            g.notes.push(std::time::Instant::now());
+                        }
+                        ok
+                    };
+                    if allowed {
+                        let _ = app.notification().builder().title(title).body(body).show();
+                    }
                 }
             }
         }
@@ -1052,6 +1069,27 @@ mod tests {
         assert!(b.accept(1, 41));
         let f = b.find(1).unwrap();
         assert!(f.pkey.is_empty() && !f.key_sent, "the old key is gone, ours goes out again");
+    }
+
+    #[test]
+    fn a_flood_of_requests_stops_at_a_limit_and_known_people_still_get_through() {
+        let me = Identity::new();
+        let mut book = Book::default();
+        for id in 100..100 + MAX_INCOMING as u64 + 20 {
+            let from = Identity::new();
+            book.handle(&me, 1, req(id, "x", &from), 1);
+        }
+        assert_eq!(book.view().incoming.len(), MAX_INCOMING, "the pile is capped");
+        // a request from somebody already on the list is still handled (an answer to ours must not be lost)
+        let (ia, _ib, mut a, _b) = befriend();
+        for id in 100..100 + MAX_INCOMING as u64 {
+            let from = Identity::new();
+            a.handle(&ia, 1, req(id, "x", &from), 1);
+        }
+        let again = Identity::new();
+        a.people.push(Friend { id: 7, name: "seven".into(), avatar_url: None, pubkey: String::new(), state: State::Outgoing, since: 1, new_key: None, pkey: String::new(), key_sent: false });
+        let (changed, _) = a.handle(&ia, 1, accept_wire(7, "seven", &again), 2);
+        assert!(changed, "the answer to our own request comes through even when the pile is full");
     }
 
     #[test]
