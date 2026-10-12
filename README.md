@@ -46,3 +46,7 @@ npm run tauri build
 ---
 
 SC Desk is an unofficial app and isn't affiliated with SoundCloud.
+
+## Лицензия
+
+Все права защищены, подробности в файле [LICENSE](LICENSE). Код открыт для чтения, копировать и распространять его без разрешения автора нельзя.
