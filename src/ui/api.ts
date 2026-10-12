@@ -184,6 +184,8 @@ export interface Lyrics {
   cached: boolean;
   /** the original song's text over a changed version (slowed …) */
   original?: boolean;
+  /** timings made for a recording this many ms longer / shorter than this track */
+  length_off_ms?: number | null;
 }
 
 export interface SearchPage {

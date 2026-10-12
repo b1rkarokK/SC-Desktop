@@ -786,4 +786,5 @@ export const EN: Record<string, string> = {
   'Трек {0} (загружается)': 'Track {0} (loading)',
   'Пригласить из подписок…': 'Invite from following…',
   'Приглашён: {0}': 'Invited: {0}',
+  'тайминги могут быть сдвинуты: версия отличается на {0} с': 'timings may be shifted: this version differs by {0} s',
 };

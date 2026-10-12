@@ -78,6 +78,7 @@ export class LyricsPanel {
         this.url = l.url;
         this.extBtn.hidden = !l.url;
         this.footer.textContent = T('Источник: {0}{1}', SOURCE_NAMES[l.source ?? ''] ?? l.source, l.original ? T(' · текст оригинала') : l.word_level ? T(' · по словам') : l.synced ? T(' · по строкам') : '');
+        if (l.synced && !l.original && l.length_off_ms) this.footer.textContent += ' · ' + T('тайминги могут быть сдвинуты: версия отличается на {0} с', Math.round(l.length_off_ms / 1000));
       }
     }
   }

@@ -46,7 +46,13 @@ pub struct Lyrics {
     /// the original song's text shown for a changed version (slowed, sped up …)
     #[serde(default)]
     pub original: bool,
+    /// how far (ms) the length of the recording these timings were made for is from ours; set only when it is large
+    #[serde(default)]
+    pub length_off_ms: Option<u64>,
 }
+
+/// Timings of a version whose length differs more than this are likely shifted: warn.
+const WARN_OFF_MS: u64 = 3_000;
 
 impl Lyrics {
     fn new(source: &str, lines: Vec<Line>, url: Option<String>) -> Option<Self> {
@@ -56,7 +62,7 @@ impl Lyrics {
         }
         let synced = lines.iter().any(|l| l.start_ms.is_some());
         let word_level = lines.iter().any(|l| !l.words.is_empty());
-        Some(Self { source: source.into(), synced, word_level, lines, url, original: false })
+        Some(Self { source: source.into(), synced, word_level, lines, url, original: false, length_off_ms: None })
     }
 
     /// Timings dropped: the text of the original over a changed version.
@@ -300,14 +306,22 @@ async fn lrclib(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
     let hits: Value = http.get_json_with(url.as_str(), &[("lrclib-client", "SC Desk")]).await?;
     let hits = hits.as_array().cloned().unwrap_or_default();
 
+    let dur = |h: &Value| (h["duration"].as_f64().unwrap_or(0.0) * 1000.0) as u64;
+    let mut cands: Vec<&Value> = hits
+        .iter()
+        .filter(|h| duration_ok(q.duration_ms, dur(h)) && names_match(q, h["artistName"].as_str().unwrap_or(""), h["trackName"].as_str().unwrap_or("")))
+        .collect();
+    // the version made for the recording closest in length to ours goes first
+    cands.sort_by_key(|h| if q.duration_ms == 0 || dur(h) == 0 { u64::MAX / 2 } else { q.duration_ms.abs_diff(dur(h)) });
+
     let mut plain = None;
-    for h in hits.iter().filter(|h| {
-        let d = (h["duration"].as_f64().unwrap_or(0.0) * 1000.0) as u64;
-        duration_ok(q.duration_ms, d)
-            && names_match(q, h["artistName"].as_str().unwrap_or(""), h["trackName"].as_str().unwrap_or(""))
-    }) {
+    for h in cands {
         if let Some(lrc) = h["syncedLyrics"].as_str().filter(|s| !s.trim().is_empty()) {
-            if let Some(l) = Lyrics::new("lrclib", parse_lrc(lrc), None) {
+            if let Some(mut l) = Lyrics::new("lrclib", parse_lrc(lrc), None) {
+                let off = if q.duration_ms > 0 && dur(h) > 0 { q.duration_ms.abs_diff(dur(h)) } else { 0 };
+                if off > WARN_OFF_MS {
+                    l.length_off_ms = Some(off);
+                }
                 return Ok(Some(l));
             }
         }

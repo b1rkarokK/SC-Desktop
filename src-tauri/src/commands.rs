@@ -1305,6 +1305,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             url: l.url,
             cached: false,
             original: l.original,
+            length_off_ms: l.length_off_ms,
         },
         None => LyricsDto {
             track_id: track.id,
@@ -1316,6 +1317,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             url: None,
             cached: false,
             original: false,
+            length_off_ms: None,
         },
     };
     tracing::info!(track = track.id, source = ?dto.source, word = dto.word_level, "lyrics resolved");

@@ -159,6 +159,9 @@ pub struct LyricsDto {
     /// the original song's text shown for a changed version (slowed …)
     #[serde(default)]
     pub original: bool,
+    /// the timings were made for a recording this many ms longer / shorter than ours
+    #[serde(default)]
+    pub length_off_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
