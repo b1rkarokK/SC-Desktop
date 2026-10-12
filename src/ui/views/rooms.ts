@@ -104,10 +104,23 @@ export async function addToRoom(t: Track): Promise<void> {
 const STATUS_TEXT: Record<RoomMember['status'], string> = {
   connecting: T('подключается'),
   loading: T('грузит трек'),
-  ready: T('готов'),
+  ready: T('на связи'),
   playing: T('слушает'),
   problem: T('проблема со связью'),
 };
+
+/** What a member is doing, in words; for yourself the verb is «вы»-form. */
+function statusText(m: RoomMember): string {
+  if (!m.you) return STATUS_TEXT[m.status];
+  const own: Record<RoomMember['status'], string> = {
+    connecting: T('подключаетесь'),
+    loading: T('грузите трек'),
+    ready: T('на связи'),
+    playing: T('слушаете'),
+    problem: T('проблема со связью'),
+  };
+  return own[m.status];
+}
 
 const fail = (e: unknown) => toast(errorMessage(e), 'error');
 const cmd = (c: Record<string, unknown>) => void invoke('room_cmd', { cmd: c }).catch(fail);
@@ -363,7 +376,7 @@ export class RoomsView implements View {
     for (const m of v.members) if (!known.has(m.id)) known.set(m.id, m.name);
     const away = [...known].filter(([id]) => !here.has(id)).map(([id, name]) => ({ id, name }));
     const person = (m: RoomMember) => {
-      const text = m.host ? `${T('хост')} · ${STATUS_TEXT[m.status]}` : STATUS_TEXT[m.status];
+      const text = m.host ? `${T('хост')} · ${statusText(m)}` : statusText(m);
       const kick = v.host && !m.you ? h('button', { type: 'button', class: 'rm-forget', title: T('Убрать из комнаты'), 'aria-label': T('Убрать из комнаты') }, icon(I.close, 12)) : null;
       kick?.addEventListener('click', () => cmd({ cmd: 'kick', id: m.id }));
       return h(

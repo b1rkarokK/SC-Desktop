@@ -717,6 +717,9 @@ impl Engine {
                     self.awaiting_load = true;
                     self.port.prepare(&item);
                     self.send(&Msg::Status { id: me, status: Status::Loading }, false);
+                } else {
+                    // nothing is on: we are simply here, ready (not "connecting" for ever)
+                    self.send(&Msg::Status { id: me, status: Status::Ready }, false);
                 }
                 self.publish();
             }
