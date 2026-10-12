@@ -87,8 +87,34 @@ export function onRoom(cb: () => void): void {
 export function initRoomEvents(): void {
   void listen<RoomViewState>('room:view', (e) => {
     room.view = e.payload;
+    document.body.classList.toggle('in-room', room.active());
     listeners.forEach((cb) => cb());
   });
+  // «Добавлено в очередь комнаты», «Музыкой управляет хост» …
+  void listen<string>('room:notice', (e) => toast(e.payload));
+  void invoke<RoomViewState>('room_view').then((v) => {
+    room.view = v;
+    document.body.classList.toggle('in-room', room.active());
+    listeners.forEach((cb) => cb());
+  });
+}
+
+/** «В комнату» for a whole list (a playlist page). */
+export async function addTracksToRoom(tracks: Track[]): Promise<void> {
+  try {
+    for (const t of tracks.slice(0, 200)) await invoke('room_cmd', { cmd: { cmd: 'enqueue', track: t } });
+    toast(T('Добавлено в очередь комнаты: {0}', Math.min(tracks.length, 200)));
+  } catch (e) {
+    toast(errorMessage(e), 'error');
+  }
+}
+
+/** A button that shows only while we are in a room. */
+export function roomButton(tracks: () => Track[]): HTMLButtonElement {
+  const b = btn(T('В комнату'), I.users);
+  b.classList.add('in-room-only');
+  b.addEventListener('click', () => void addTracksToRoom(tracks()));
+  return b;
 }
 
 /** «Добавить в комнату» from a track menu. */

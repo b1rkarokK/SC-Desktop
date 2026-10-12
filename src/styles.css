@@ -3911,3 +3911,142 @@ kbd {
 .rm-plus {
   padding: 0;
 }
+
+/* ---- room: quick-add buttons, the pill, clearer buttons, quiet crosses */
+.in-room-only {
+  display: none;
+}
+
+.in-room .in-room-only {
+  display: inline-flex;
+}
+
+.row {
+  position: relative;
+}
+
+.row-room {
+  position: absolute;
+  top: 50%;
+  right: 154px;
+  display: none;
+  transform: translateY(-50%);
+}
+
+.in-room .row:hover .row-room {
+  display: grid;
+}
+
+.rm-forget {
+  background: none;
+  border: 0;
+  border-radius: 4px;
+}
+
+.rm-forget:hover {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+  color: var(--text);
+}
+
+.rm-round:hover:not(:disabled) {
+  border-color: var(--accent, #ff5500);
+  background: color-mix(in srgb, var(--accent, #ff5500) 18%, transparent);
+}
+
+.rm-round.is-main:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.rm-round:active,
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.btn:focus-visible,
+.rm-round:focus-visible {
+  outline: 2px solid var(--accent, #ff5500);
+  outline-offset: 2px;
+}
+
+.fx-row.is-locked,
+.fx-head .is-locked {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.room-pill {
+  position: relative;
+  display: none;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  max-width: 260px;
+  margin-right: 8px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, #3ac569 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, #3ac569 14%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.in-room .room-pill {
+  display: inline-flex;
+}
+
+.room-pill-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3ac569;
+}
+
+.room-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-pop {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 50;
+  display: none;
+  min-width: 250px;
+  padding-top: 8px;
+  text-align: left;
+  cursor: default;
+}
+
+.room-pop-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.room-pop-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.room-pill:hover .room-pop,
+.room-pill:focus-within .room-pop {
+  display: block;
+}

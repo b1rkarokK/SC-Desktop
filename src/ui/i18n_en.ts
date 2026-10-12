@@ -839,4 +839,12 @@ export const EN: Record<string, string> = {
   'грузите трек': 'loading the track',
   'на связи': 'connected',
   'слушаете': 'listening',
+  'Добавлено в очередь комнаты: {0}': 'Added to the room queue: {0}',
+  'В комнату': 'To the room',
+  'В очередь комнаты': 'To the room queue',
+  'Скорость недоступна в комнате: у всех она обычная': 'Speed is not available in a room: it is normal for everyone',
+  'В комнате «{0}»': 'In the room "{0}"',
+  'Открыть комнату': 'Open the room',
+  'Выйти из комнаты': 'Leave the room',
+  'Вы в комнате': 'You are in a room',
 };

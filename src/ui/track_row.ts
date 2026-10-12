@@ -3,6 +3,7 @@
 import { coverUrl, fmtTime, type Track } from './api';
 import { icon, I } from './icons';
 import { trackMenu } from './menus';
+import { addToRoom } from './views/rooms';
 import { openTrack, openTrackArtist } from './router';
 import { store } from './store';
 import type { RowRenderer } from './virtual_list';
@@ -20,11 +21,13 @@ export function trackRowRenderer(): RowRenderer<Track> {
       row.innerHTML =
         '<span class="row-idx"><span class="row-num"></span></span><img class="row-cover" alt="" decoding="async" loading="lazy">' +
         '<div class="row-main"><button type="button" class="row-title link"></button><button type="button" class="row-artist link"></button></div>' +
-        '<button type="button" class="btn-icon row-dislike"></button><button type="button" class="btn-icon row-like"></button><span class="row-dur"></span>';
+        '<button type="button" class="btn-icon row-dislike"></button><button type="button" class="btn-icon row-like"></button><span class="row-dur"></span>' +
+        '<button type="button" class="btn-icon row-room"></button>';
       const q = <T extends HTMLElement>(s: string) => row.querySelector(s) as T;
       q('.row-idx').append(icon(I.play));
       row.title = T('Нажмите, чтобы включить');
       q('.row-like').append(icon(I.heart));
+      q('.row-room').append(icon(I.users));
       q('.row-dislike').append(icon(I.dislike));
       const stop = (e: Event) => e.stopPropagation();
       q('.row-like').addEventListener('click', (e) => {
@@ -34,6 +37,10 @@ export function trackRowRenderer(): RowRenderer<Track> {
       q('.row-dislike').addEventListener('click', (e) => {
         stop(e);
         if (row.__track) void store.setDisliked(row.__track, !store.disliked.has(row.__track.id));
+      });
+      q('.row-room').addEventListener('click', (e) => {
+        stop(e);
+        if (row.__track) void addToRoom(row.__track);
       });
       q('.row-title').addEventListener('click', (e) => {
         stop(e);
@@ -85,6 +92,7 @@ export function trackRowRenderer(): RowRenderer<Track> {
 
       const liked = store.liked.has(track.id);
       like.hidden = dislike.hidden = false;
+      (row.querySelector('.row-room') as HTMLButtonElement).title = T('В очередь комнаты');
       like.classList.toggle('is-on', liked);
       like.title = liked ? T('Убрать из лайков') : T('Лайкнуть');
       dislike.classList.toggle('is-on', isDisliked);

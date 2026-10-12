@@ -8,6 +8,7 @@ import { icon, iconButton, I } from '../icons';
 import { openArtist, openTrackArtist } from '../router';
 import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
+import { roomButton } from './rooms';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
 import { T } from '../i18n';
 import { tr } from '../i18n';
@@ -254,7 +255,7 @@ export class PlaylistPageView implements View {
             h('h2', { class: 'hero-title', dir: 'auto', text: p.title }),
             artist,
             h('div', { class: 'muted small', text: sub }),
-            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, wave, saveBtn, editBtn, ext),
+            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, roomButton(() => tracks), wave, saveBtn, editBtn, ext),
           ),
           listBox,
         );

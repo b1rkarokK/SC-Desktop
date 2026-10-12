@@ -8,6 +8,7 @@ import { iconButton, I } from './icons';
 import { Slider } from './slider';
 import { store } from './store';
 import { T } from './i18n';
+import { onRoom, room } from './views/rooms';
 
 const BANDS = ['32', '64', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
 
@@ -45,6 +46,8 @@ export class EqPopover {
   private speedSlider: Slider;
   private speedValue = h('span', { class: 'eq-val' });
   private speedChips: [number, HTMLButtonElement][] = [];
+  private speedRow!: HTMLElement;
+  private speedNote = h('div', { class: 'muted small', text: T('Скорость недоступна в комнате: у всех она обычная') });
   private reverbSlider: Slider;
   private reverbValue = h('span', { class: 'eq-val' });
   private crossSlider: Slider;
@@ -106,7 +109,8 @@ export class EqPopover {
       'div',
       { class: 'fx' },
       h('div', { class: 'fx-head' }, h('span', { class: 'strong', text: T('Эффекты') }), chips),
-      fxRow(T('Скорость'), this.speedSlider.el, this.speedValue),
+      (this.speedRow = fxRow(T('Скорость'), this.speedSlider.el, this.speedValue)),
+      this.speedNote,
       fxRow('Reverb', this.reverbSlider.el, this.reverbValue),
       fxRow(T('Кроссфейд'), this.crossSlider.el, this.crossValue),
       h('div', { class: 'fx-row fx-norm' }, h('span', { class: 'muted small', text: T('Выравнивать громкость треков') }), this.normBtn),
@@ -143,6 +147,7 @@ export class EqPopover {
     void this.refreshDevice();
     store.on('player', () => (this.note.hidden = !store.snapshot?.widget));
     document.addEventListener('keydown', (e) => e.key === 'Escape' && this.open && this.setOpen(false));
+    onRoom(() => this.renderFx());
   }
 
   init(eq: EqConfig, fx: FxConfig | undefined, onToggle: (open: boolean, enabled: boolean) => void): void {
@@ -184,6 +189,8 @@ export class EqPopover {
   }
 
   private setFx(patch: Partial<FxConfig>, persist: boolean): void {
+    // in a room the speed stays normal for everybody
+    if (room.active() && 'speed' in patch) return;
     this.fx = { ...this.fx, ...patch };
     this.renderFx();
     api.fxSet(this.fx, persist).catch((e) => toast(errorMessage(e), 'error'));
@@ -191,6 +198,10 @@ export class EqPopover {
 
   private renderFx(): void {
     const f = this.fx;
+    const locked = room.active();
+    this.speedRow?.classList.toggle('is-locked', locked);
+    for (const [, b] of this.speedChips) b.classList.toggle('is-locked', locked);
+    this.speedNote.hidden = !locked;
     this.speedSlider.set((f.speed - 0.7) / 0.6);
     this.speedValue.textContent = `${f.speed.toFixed(2).replace('.', ',')}×`;
     for (const [speed, b] of this.speedChips) b.classList.toggle('is-active', Math.abs(f.speed - speed) < 0.005);

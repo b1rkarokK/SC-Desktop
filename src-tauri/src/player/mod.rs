@@ -199,6 +199,19 @@ enum Fetched {
     Widget(u64),
 }
 
+/// What the user asked of the player, for a room to take over.
+#[derive(Debug, Clone)]
+pub enum RoomAction {
+    Play(bool),
+    Seek(u64),
+    Next,
+    Prev,
+    /// a track chosen to play or to queue: in a room it goes to the room's queue
+    Enqueue(Vec<TrackDto>),
+    /// the wave would replace what the room plays
+    NoWave,
+}
+
 pub struct Player {
     app: AppHandle,
     audio: AudioHandle,
@@ -206,6 +219,9 @@ pub struct Player {
     widget: widget::Widget,
     /// the current track plays in the widget, not natively
     external: std::sync::atomic::AtomicBool,
+    /// while we are in a room the room decides: the play / seek / next / previous that come from the
+    /// window, the keys, the media panel and the tray are handed to it (true = handled)
+    room_route: Mutex<Option<Arc<dyn Fn(RoomAction) -> bool + Send + Sync>>>,
     /// tracks known to be DRM-only: go straight to the widget (kv "drm_only")
     drm_only: Mutex<HashSet<u64>>,
     /// a Go+ preview played through someone else's upload: (track id, seconds the
@@ -266,6 +282,7 @@ impl Player {
             crossfade: Mutex::new(cfg.fx.crossfade.clamp(0.0, 12.0)),
             sleep: Mutex::new(SleepTimer::default()),
             discord: Discord::start(cfg.discord.clone()),
+            room_route: Mutex::new(None),
             smtc,
             st: Mutex::new(State {
                 queue: Vec::new(),
@@ -527,6 +544,14 @@ impl Player {
         self.discord.set_section(key);
     }
 
+    /// In a room the speed effect is off for everybody (it would pull the tracks apart).
+    pub fn set_speed_lock(&self, locked: bool) {
+        if self.fx.locked() != locked {
+            self.fx.set_locked(locked);
+            self.emit();
+        }
+    }
+
     pub fn discord_room(&self, room: Option<crate::discord::RoomInfo>) {
         self.discord.set_room(room);
     }
@@ -601,7 +626,7 @@ impl Player {
             self.out(AudioCmd::Volume(volume * i as f32 / 20.0));
             tokio::time::sleep(Duration::from_millis(400)).await;
         }
-        self.pause();
+        self.pause_raw();
         self.out(AudioCmd::Volume(volume));
         self.clear_sleep();
         tracing::info!("sleep timer: paused");
@@ -639,6 +664,17 @@ impl Player {
     // ------------------------------------------------------------ queue
 
     pub fn play_queue(self: &Arc<Self>, tracks: Vec<TrackDto>, start: usize, source: QueueSource) {
+        // in a room the track chosen goes to the room's queue instead of replacing what plays
+        if !tracks.is_empty() {
+            let routed = if source == QueueSource::Wave { self.routed(RoomAction::NoWave) } else { self.routed(RoomAction::Enqueue(vec![tracks[start.min(tracks.len() - 1)].clone()])) };
+            if routed {
+                return;
+            }
+        }
+        self.play_queue_raw(tracks, start, source);
+    }
+
+    fn play_queue_raw(self: &Arc<Self>, tracks: Vec<TrackDto>, start: usize, source: QueueSource) {
         let smart = {
             let mut s = self.lock();
             if tracks.is_empty() {
@@ -834,6 +870,9 @@ impl Player {
     /// "Играть следующим" (next = true) / "В конец очереди". With an empty
     /// queue the track simply starts playing.
     pub fn enqueue(self: &Arc<Self>, track: TrackDto, next: bool) {
+        if self.routed(RoomAction::Enqueue(vec![track.clone()])) {
+            return;
+        }
         {
             let mut s = self.lock();
             if s.active && !s.queue.is_empty() {
@@ -846,7 +885,7 @@ impl Player {
                 return;
             }
         }
-        self.play_queue(vec![track], 0, QueueSource::List);
+        self.play_queue_raw(vec![track], 0, QueueSource::List);
     }
 
     // --------------------------------------------------------- controls
@@ -856,6 +895,9 @@ impl Player {
             let s = self.lock();
             (s.active, s.playing, s.loading)
         };
+        if active && self.routed(RoomAction::Play(!playing)) {
+            return;
+        }
         if loading {
             return;
         }
@@ -879,13 +921,41 @@ impl Player {
             return;
         }
         if playing {
-            self.pause();
+            self.pause_raw();
         } else {
-            self.resume();
+            self.resume_raw();
         }
     }
 
+    /// Hand an action to the room we are in, if any; true when the room took it.
+    fn routed(&self, a: RoomAction) -> bool {
+        let hook = self.room_route.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        hook.is_some_and(|f| f(a))
+    }
+
+    pub fn set_room_route(&self, hook: Option<Arc<dyn Fn(RoomAction) -> bool + Send + Sync>>) {
+        *self.room_route.lock().unwrap_or_else(|e| e.into_inner()) = hook;
+    }
+
     pub fn resume(&self) {
+        if !self.routed(RoomAction::Play(true)) {
+            self.resume_raw();
+        }
+    }
+
+    pub fn pause(&self) {
+        if !self.routed(RoomAction::Play(false)) {
+            self.pause_raw();
+        }
+    }
+
+    pub fn seek(&self, ms: u64) {
+        if !self.routed(RoomAction::Seek(ms)) {
+            self.seek_raw(ms);
+        }
+    }
+
+    pub fn resume_raw(&self) {
         let mut s = self.lock();
         if s.active && !s.loading {
             self.out(AudioCmd::Play);
@@ -895,7 +965,7 @@ impl Player {
         }
     }
 
-    pub fn pause(&self) {
+    pub fn pause_raw(&self) {
         let mut s = self.lock();
         if s.playing {
             self.out(AudioCmd::Pause);
@@ -905,7 +975,7 @@ impl Player {
         }
     }
 
-    pub fn seek(&self, ms: u64) {
+    pub fn seek_raw(&self, ms: u64) {
         if self.lock().active {
             self.out(AudioCmd::Seek(Duration::from_millis(ms)));
             let snap = self.snapshot();
@@ -944,13 +1014,19 @@ impl Player {
     }
 
     pub fn next(self: &Arc<Self>) {
+        if self.routed(RoomAction::Next) {
+            return;
+        }
         self.feedback_on_leave();
         self.advance(false);
     }
 
     pub fn prev(self: &Arc<Self>) {
+        if self.routed(RoomAction::Prev) {
+            return;
+        }
         if self.position_ms() > PREV_RESTART_MS {
-            self.seek(0);
+            self.seek_raw(0);
             return;
         }
         {
@@ -964,7 +1040,7 @@ impl Player {
                 s.pos = s.order.len() - 1;
             } else {
                 drop(s);
-                self.seek(0);
+                self.seek_raw(0);
                 return;
             }
             s.failures = 0;
@@ -1525,7 +1601,7 @@ impl Player {
 
     /// A room: load this track and hold it paused at 0:00 (the room starts it for everybody at once).
     pub fn room_prepare(self: &Arc<Self>, track: TrackDto) {
-        self.play_queue(vec![track], 0, QueueSource::List);
+        self.play_queue_raw(vec![track], 0, QueueSource::List);
         self.hold_gen.store(self.generation.load(Ordering::SeqCst), Ordering::SeqCst);
     }
 

@@ -26,11 +26,13 @@ pub struct FxShared {
     /// playback rate 0.7 … 1.3
     speed: AtomicU32,
     normalize: AtomicU32,
+    /// in a room the speed stays normal for everybody, whatever is set
+    locked: AtomicU32,
 }
 
 impl FxShared {
     pub fn new(reverb: f32, speed: f32, normalize: bool) -> Arc<Self> {
-        let s = Arc::new(Self { reverb: AtomicU32::new(0), speed: AtomicU32::new(0), normalize: AtomicU32::new(0) });
+        let s = Arc::new(Self { reverb: AtomicU32::new(0), speed: AtomicU32::new(0), normalize: AtomicU32::new(0), locked: AtomicU32::new(0) });
         s.set(reverb, speed, normalize);
         s
     }
@@ -46,7 +48,18 @@ impl FxShared {
     }
 
     pub fn speed(&self) -> f32 {
+        if self.locked.load(Ordering::Relaxed) != 0 {
+            return 1.0;
+        }
         f32::from_bits(self.speed.load(Ordering::Relaxed))
+    }
+
+    pub fn set_locked(&self, locked: bool) {
+        self.locked.store(locked as u32, Ordering::Relaxed);
+    }
+
+    pub fn locked(&self) -> bool {
+        self.locked.load(Ordering::Relaxed) != 0
     }
 
     pub fn normalize(&self) -> bool {

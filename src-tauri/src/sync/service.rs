@@ -158,17 +158,17 @@ impl Port for PlayerPort {
         let player = self.player();
         std::thread::spawn(move || {
             std::thread::sleep(delay);
-            player.resume();
+            player.resume_raw();
         });
     }
 
     fn set_playing(&self, playing: bool, pos_ms: i64) {
         let p = self.player();
-        p.seek(pos_ms.max(0) as u64);
+        p.seek_raw(pos_ms.max(0) as u64);
         if playing {
-            p.resume();
+            p.resume_raw();
         } else {
-            p.pause();
+            p.pause_raw();
         }
     }
 
@@ -184,7 +184,7 @@ impl Port for PlayerPort {
 
     fn stop(&self) {
         self.player().room_trim(1.0);
-        self.player().pause();
+        self.player().pause_raw();
     }
 }
 
@@ -341,6 +341,10 @@ impl Rooms {
             for id in &s.listeners {
                 self.app_unlisten(id);
             }
+            if let Some(app) = APP.get() {
+                app.state::<Arc<Player>>().set_room_route(None);
+                app.state::<Arc<Player>>().set_speed_lock(false);
+            }
             let _ = s.handle.tx.send(Cmd::Leave);
             s.announce.store(false, std::sync::atomic::Ordering::SeqCst);
             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -381,6 +385,7 @@ impl Rooms {
                 open: !v.has_password,
                 channel: v.channel.clone(),
             });
+            app_v.state::<Arc<Player>>().set_speed_lock(v.active && v.ended.is_none());
             app_v.state::<Arc<Player>>().discord_room(info);
             if v.ended.is_some() || v.name.is_empty() {
                 return;
@@ -410,6 +415,50 @@ impl Rooms {
         // a room we open is ours from now on, even before it has said its name
         if mine_load(state).await.iter().all(|r| r.channel != channel) {
             mine_upsert(state, MyRoom { channel: channel.clone(), name: settings.name.clone(), password: password.clone(), ..Default::default() }).await;
+        }
+
+        // while we are in the room its play / seek / next / previous come from the room
+        {
+            let (tx, view, app3) = (handle.tx.clone(), handle.view.clone(), app.clone());
+            let me_id = state.me().map(|u| u.id.to_string()).unwrap_or_default();
+            let hook: Arc<dyn Fn(crate::player::RoomAction) -> bool + Send + Sync> = Arc::new(move |a| {
+                use crate::player::RoomAction as A;
+                let (live, host) = {
+                    let v = view.lock().unwrap_or_else(|e| e.into_inner());
+                    (v.active && v.ended.is_none(), v.host)
+                };
+                if !live {
+                    return false;
+                }
+                let notice = |t: &str| {
+                    let _ = app3.emit("room:notice", t);
+                };
+                match a {
+                    // anybody may add a track (the host decides whether members' additions are accepted)
+                    A::Enqueue(tracks) => {
+                        for t in tracks {
+                            let _ = tx.send(Cmd::Enqueue(QueueItem { track_id: t.id, title: t.title, artist: t.artist, added_by: me_id.clone() }));
+                        }
+                        notice(crate::lang::pick("Добавлено в очередь комнаты", "Added to the room's queue"));
+                    }
+                    A::NoWave => notice(crate::lang::pick("В комнате волна недоступна: сначала выйдите из комнаты", "The wave is not available in a room: leave the room first")),
+                    _ if !host => notice(crate::lang::pick("Музыкой в комнате управляет хост", "The host controls the music in the room")),
+                    A::Play(p) => {
+                        let _ = tx.send(Cmd::Play(p));
+                    }
+                    A::Seek(ms) => {
+                        let _ = tx.send(Cmd::Seek(ms as i64));
+                    }
+                    A::Next => {
+                        let _ = tx.send(Cmd::Next);
+                    }
+                    A::Prev => {
+                        let _ = tx.send(Cmd::Prev);
+                    }
+                }
+                true
+            });
+            app.state::<Arc<Player>>().set_room_route(Some(hook));
         }
 
         // what the player reports goes to the engine (for as long as we are in the room)
