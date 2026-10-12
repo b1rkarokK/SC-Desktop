@@ -37,6 +37,14 @@ pub fn room_key(room_id: &str, password: &str) -> Key {
     key
 }
 
+pub fn key_to_b64(k: &Key) -> String {
+    B64.encode(k)
+}
+
+pub fn key_from_b64(text: &str) -> Option<Key> {
+    B64.decode(text).ok()?.try_into().ok()
+}
+
 pub fn random_key() -> Key {
     let mut k = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut k);

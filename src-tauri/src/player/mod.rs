@@ -231,6 +231,8 @@ pub struct Player {
     stand_in: Mutex<Option<(u64, f32)>>,
     /// the next track's audio, fetched while the current one plays (one slot)
     prefetched: Mutex<Option<(u64, Arc<Vec<u8>>, Option<f32>)>>,
+    /// the audio of the track that plays now (for the lyrics alignment, see lyrics_align.rs)
+    last_audio: Mutex<Option<(u64, Arc<Vec<u8>>)>>,
     eq: Arc<EqShared>,
     fx: Arc<FxShared>,
     /// name of the output device the stream plays to
@@ -274,6 +276,7 @@ impl Player {
             drm_only: Mutex::new(HashSet::new()),
             stand_in: Mutex::new(None),
             prefetched: Mutex::new(None),
+            last_audio: Mutex::new(None),
             eq,
             fx,
             device: Mutex::new(None),
@@ -552,6 +555,11 @@ impl Player {
             self.fx.set_locked(locked);
             self.emit();
         }
+    }
+
+    /// The audio of the playing track, if it is this one.
+    pub fn audio_of(&self, track_id: u64) -> Option<Arc<Vec<u8>>> {
+        self.last_audio.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|(id, _)| *id == track_id).map(|(_, d)| d.clone())
     }
 
     pub fn speed_locked(&self) -> bool {
@@ -1346,6 +1354,7 @@ impl Player {
                             if held {
                                 this.out(AudioCmd::Hold(true));
                             }
+                            *this.last_audio.lock().unwrap_or_else(|e| e.into_inner()) = Some((track.id, data.clone()));
                             this.out(AudioCmd::Load { data, generation, gain, duration_ms: track.duration_ms, fade });
                             if held {
                                 this.room_held.store(true, Ordering::SeqCst);

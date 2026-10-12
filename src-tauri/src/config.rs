@@ -129,6 +129,9 @@ pub struct AppConfig {
     /// Windows notification when somebody you follow opens a room
     #[serde(default = "yes")]
     pub notify_rooms: bool,
+    /// friends see what is playing here (a short line, readable only by them)
+    #[serde(default = "yes")]
+    pub share_listening: bool,
     /// autostart was set up once (enabled by default on the first launch)
     pub autostart_initialized: bool,
     /// Frontend-owned preferences (theme, panels, fullscreen view…), stored verbatim.
@@ -156,6 +159,7 @@ impl Default for AppConfig {
             notify_new: true,
             output_device: None,
             notify_rooms: true,
+            share_listening: true,
             autostart_initialized: false,
             ui:serde_json::Value::Object(Default::default()),
         }

@@ -45,6 +45,10 @@ export interface UiPrefs {
   theme: Theme;
   customThemes?: CustomTheme[];
   themeSystem: boolean;
+  /** lyrics are moved to the singing by the sound itself (see lyrics_align.rs), default on */
+  lyricsAuto?: boolean;
+  /** what the user moved the lyrics of a track by, ms (kept per track) */
+  lyricsNudge?: Record<string, number>;
   navCollapsed: boolean;
   lyricsOpen: boolean;
   syncedLyrics: boolean;

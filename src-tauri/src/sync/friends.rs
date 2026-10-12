@@ -35,6 +35,9 @@ use crate::{
 const BOOK: &str = "friends:book";
 const KEY: &str = "friends:key";
 const SINCE: &str = "friends:since";
+const PKEY: &str = "friends:pkey";
+/// what we listen to is shown for this long without a refresh
+const NOW_FRESH_MS: i64 = 4 * 60 * 1000;
 const MAX_INVITES: usize = 50;
 const MAX_PEOPLE: usize = 500;
 
@@ -46,6 +49,32 @@ pub fn inbox_channel(user_id: u64) -> String {
 /// glance, the real secrecy is in the pair keys.
 fn inbox_key(channel: &str) -> crypto::Key {
     crypto::room_key(channel, "")
+}
+
+/// Where "listening now" of a person sits in the relay's directory (readable only with their presence key).
+pub fn now_hash(user_id: u64) -> String {
+    hex::encode(&Sha256::digest(format!("scdesk-now|{user_id}").as_bytes())[..16])
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct NowPlaying {
+    track_id: u64,
+    title: String,
+    artist: String,
+    #[serde(default)]
+    artwork_url: Option<String>,
+    /// ms since epoch when it was published
+    at: i64,
+}
+
+/// A friend who is listening to something right now.
+#[derive(Serialize, Clone, Debug)]
+pub struct Listening {
+    pub id: u64,
+    pub track_id: u64,
+    pub title: String,
+    pub artist: String,
+    pub artwork_url: Option<String>,
 }
 
 fn direct_aad(from: u64, to: u64) -> String {
@@ -79,6 +108,12 @@ pub struct Friend {
     /// a friend asks again with another key (reinstalled?): waits for a yes
     #[serde(default)]
     pub new_key: Option<String>,
+    /// the key this friend reads our "listening now" with is theirs: the one we read theirs with
+    #[serde(default)]
+    pub pkey: String,
+    /// our own key has been handed to this friend (again after every change of it)
+    #[serde(default)]
+    pub key_sent: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -129,6 +164,8 @@ pub enum Direct {
         name: String,
         at: i64,
     },
+    /// the key to read what we are listening to (sent again when it changes)
+    PresenceKey { key: String },
 }
 
 #[derive(Debug, PartialEq)]
@@ -171,7 +208,7 @@ impl Book {
                         if self.people.len() >= MAX_PEOPLE {
                             return (false, vec![]);
                         }
-                        self.people.push(Friend { id: from, name: name.clone(), avatar_url: avatar, pubkey, state: State::Incoming, since: now, new_key: None });
+                        self.people.push(Friend { id: from, name: name.clone(), avatar_url: avatar, pubkey, state: State::Incoming, since: now, new_key: None, pkey: String::new(), key_sent: false });
                         (true, vec![notify(pick("хочет дружить с вами", "wants to be friends"))])
                     }
                     Some((State::Incoming, _)) => {
@@ -224,6 +261,15 @@ impl Book {
                 let Ok(d) = serde_json::from_slice::<Direct>(&plain) else { return (false, vec![]) };
                 let name = f.name.clone();
                 match d {
+                    Direct::PresenceKey { key } => {
+                        if crypto::key_from_b64(&key).is_none() {
+                            return (false, vec![]);
+                        }
+                        if let Some(f) = self.find_mut(from) {
+                            f.pkey = key;
+                        }
+                        (true, vec![])
+                    }
                     Direct::Remove => {
                         self.people.retain(|p| p.id != from);
                         self.invites.retain(|i| i.from != from);
@@ -265,7 +311,7 @@ impl Book {
                 if self.people.len() >= MAX_PEOPLE {
                     return Err(pick("Слишком много друзей и запросов", "Too many friends and requests").into());
                 }
-                self.people.push(Friend { id, name, avatar_url: avatar, pubkey: String::new(), state: State::Outgoing, since: now, new_key: None });
+                self.people.push(Friend { id, name, avatar_url: avatar, pubkey: String::new(), state: State::Outgoing, since: now, new_key: None, pkey: String::new(), key_sent: false });
                 Ok(true)
             }
         }
@@ -282,6 +328,8 @@ impl Book {
             }
             (State::Friend, Some(key)) => {
                 f.pubkey = key;
+                f.pkey.clear();
+                f.key_sent = false;
                 true
             }
             _ => false,
@@ -377,6 +425,10 @@ struct Inner {
     me: u64,
     my_name: String,
     my_avatar: Option<String>,
+    /// the key friends read what we are listening to with
+    my_pkey: String,
+    /// what was last published (track id, playing) and when
+    last_pub: Option<(u64, bool, std::time::Instant)>,
 }
 
 #[derive(Default)]
@@ -402,15 +454,18 @@ impl Friends {
     }
 
     fn save(&self, app: &AppHandle) {
-        let (book, since) = {
+        let (book, since, pkey) = {
             let g = self.lock();
-            (g.book.clone(), g.since)
+            (g.book.clone(), g.since, g.my_pkey.clone())
         };
         let app2 = app.clone();
         tauri::async_runtime::spawn(async move {
             let db = &app2.state::<AppState>().db;
             let _ = db.kv_put(BOOK, &book).await;
             let _ = db.kv_put(SINCE, &since).await;
+            if !pkey.is_empty() {
+                let _ = db.kv_put(PKEY, &pkey).await;
+            }
         });
         let _ = app.emit("friends:changed", ());
     }
@@ -430,6 +485,10 @@ impl Friends {
         };
         let book = state.db.kv_get::<Book>(BOOK).await.ok().flatten().map(|(b, _)| b).unwrap_or_default();
         let since = state.db.kv_get::<u64>(SINCE).await.ok().flatten().map(|(s, _)| s).unwrap_or(0);
+        let pkey = match state.db.kv_get::<String>(PKEY).await.ok().flatten().map(|(k, _)| k).filter(|k| crypto::key_from_b64(k).is_some()) {
+            Some(k) => k,
+            None => crypto::key_to_b64(&crypto::random_key()),
+        };
         let channel = inbox_channel(me.id);
         let (client, events) = hub::connect(base, channel.clone(), since);
         {
@@ -444,6 +503,19 @@ impl Friends {
             g.me = me.id;
             g.my_name = me.username.clone();
             g.my_avatar = me.avatar_url.clone();
+            g.my_pkey = pkey;
+        }
+        self.save(app);
+        // "listening now": our key to the friends, our line to the relay, every few seconds
+        static LOOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !LOOP.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let app4 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                    app4.state::<Friends>().presence_tick(&app4).await;
+                }
+            });
         }
         let _ = app.emit("friends:changed", ());
         let app2 = app.clone();
@@ -508,7 +580,16 @@ impl Friends {
     pub async fn remove(&self, app: &AppHandle, id: u64) -> AppResult<()> {
         // the key is taken before the record goes: the message to them is sealed with it
         let key = self.lock().book.find(id).filter(|f| f.state == State::Friend).map(|f| f.pubkey.clone());
-        self.lock().book.remove(id);
+        {
+            let mut g = self.lock();
+            g.book.remove(id);
+            // the one removed must not keep reading what we listen to: a new key for everybody who stays
+            g.my_pkey = crypto::key_to_b64(&crypto::random_key());
+            for p in g.book.people.iter_mut() {
+                p.key_sent = false;
+            }
+            g.last_pub = None;
+        }
         self.save(app);
         if let Some(pubkey) = key {
             // best effort: they learn it the next time they are online
@@ -605,6 +686,96 @@ impl Friends {
                 friends.save(&app);
             }
         });
+    }
+
+    /// Every few seconds: hand our key to friends who do not have it, publish what we listen to.
+    async fn presence_tick(&self, app: &AppHandle) {
+        let todo: Vec<(u64, String)> = {
+            let g = self.lock();
+            g.book.people.iter().filter(|p| p.state == State::Friend && !p.key_sent && !p.pubkey.is_empty()).map(|p| (p.id, p.pubkey.clone())).collect()
+        };
+        for (id, pubkey) in todo {
+            let key = self.lock().my_pkey.clone();
+            if key.is_empty() {
+                break;
+            }
+            if self.send_direct(app, id, &pubkey, Direct::PresenceKey { key }).await.is_ok() {
+                if let Some(f) = self.lock().book.find_mut(id) {
+                    f.key_sent = true;
+                }
+                self.save(app);
+            }
+        }
+        self.publish_now(app).await;
+    }
+
+    /// Puts what plays now into the relay's directory (sealed with our presence key) or takes it out.
+    pub async fn publish_now(&self, app: &AppHandle) {
+        let state = app.state::<AppState>();
+        let Some(me) = state.me() else { return };
+        let Ok(base) = super::service::server_url(&state) else { return };
+        let (key, has_friends, last) = {
+            let g = self.lock();
+            (g.my_pkey.clone(), !g.book.friend_ids().is_empty(), g.last_pub)
+        };
+        let Some(key) = crypto::key_from_b64(&key) else { return };
+        let snap = app.state::<Arc<crate::player::Player>>().snapshot();
+        let want = state.config.get().share_listening && has_friends && snap.playing && snap.track.is_some();
+        let hash = now_hash(me.id);
+        let Ok(client) = super::service::http() else { return };
+        if want {
+            let t = snap.track.expect("checked above");
+            if matches!(last, Some((id, true, at)) if id == t.id && at.elapsed() < Duration::from_secs(50)) {
+                return;
+            }
+            let body = NowPlaying { track_id: t.id, title: t.title, artist: t.artist, artwork_url: t.artwork_url, at: now_ms() };
+            let blob = crypto::seal(&key, &hash, &serde_json::to_vec(&body).unwrap_or_default());
+            if client.put(format!("{base}/dir/{hash}")).body(blob).send().await.is_ok() {
+                self.lock().last_pub = Some((t.id, true, std::time::Instant::now()));
+            }
+        } else if matches!(last, Some((_, true, _))) {
+            let _ = client.delete(format!("{base}/dir/{hash}")).send().await;
+            self.lock().last_pub = None;
+        }
+    }
+
+    /// What the friends who share it are listening to right now.
+    pub async fn listening(&self, app: &AppHandle) -> AppResult<Vec<Listening>> {
+        let state = app.state::<AppState>();
+        let base = super::service::server_url(&state)?;
+        let who: Vec<(String, u64, crypto::Key)> = {
+            let g = self.lock();
+            g.book
+                .people
+                .iter()
+                .filter(|p| p.state == State::Friend)
+                .filter_map(|p| Some((now_hash(p.id), p.id, crypto::key_from_b64(&p.pkey)?)))
+                .collect()
+        };
+        if who.is_empty() {
+            return Ok(Vec::new());
+        }
+        let hosts = who.iter().map(|(h, ..)| h.as_str()).collect::<Vec<_>>().join(",");
+        let text = super::service::http()?
+            .get(format!("{base}/dir?hosts={hosts}"))
+            .send()
+            .await
+            .map_err(|e| AppError::Network(e.to_string()))?
+            .text()
+            .await
+            .map_err(|e| AppError::Network(e.to_string()))?;
+        let list: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|e| AppError::Other(e.to_string()))?;
+        let mut out = Vec::new();
+        for e in list {
+            let (Some(host), Some(blob)) = (e["host"].as_str(), e["blob"].as_str()) else { continue };
+            let Some((_, id, key)) = who.iter().find(|(h, ..)| h == host) else { continue };
+            let Some(plain) = crypto::open(key, host, blob) else { continue };
+            let Ok(n) = serde_json::from_slice::<NowPlaying>(&plain) else { continue };
+            if now_ms() - n.at <= NOW_FRESH_MS {
+                out.push(Listening { id: *id, track_id: n.track_id, title: n.title, artist: n.artist, artwork_url: n.artwork_url });
+            }
+        }
+        Ok(out)
     }
 
     fn advance(&self, seq: u64) {
@@ -836,6 +1007,38 @@ mod tests {
         let (_ia, _ib, mut a, _b) = befriend();
         assert!(a.request(1, "me".into(), None, 1, 1).is_err());
         assert!(a.request(2, "bob".into(), None, 1, 1).is_err());
+    }
+
+    #[test]
+    fn a_friend_hands_over_the_key_to_read_what_they_listen_to_and_a_stranger_cannot() {
+        let (ia, ib, _a, mut b) = befriend();
+        let key = crypto::key_to_b64(&crypto::random_key());
+        let w = direct(&ia, 1, &ib.public_b64(), 2, &Direct::PresenceKey { key: key.clone() });
+        let (changed, _) = b.handle(&ib, 2, w, 30);
+        assert!(changed);
+        assert_eq!(b.find(1).unwrap().pkey, key);
+        // not a key at all: ignored
+        let bad = direct(&ia, 1, &ib.public_b64(), 2, &Direct::PresenceKey { key: "nope".into() });
+        assert!(!b.handle(&ib, 2, bad, 31).0);
+        assert_eq!(b.find(1).unwrap().pkey, key);
+        // a stranger's key does not replace it
+        let eve = Identity::new();
+        let forged = direct(&eve, 1, &ib.public_b64(), 2, &Direct::PresenceKey { key: crypto::key_to_b64(&crypto::random_key()) });
+        assert!(!b.handle(&ib, 2, forged, 32).0);
+        assert_eq!(b.find(1).unwrap().pkey, key);
+    }
+
+    #[test]
+    fn a_new_identity_of_a_friend_clears_their_old_presence_key_and_asks_for_ours_again() {
+        let (ia, ib, _a, mut b) = befriend();
+        let key = crypto::key_to_b64(&crypto::random_key());
+        b.handle(&ib, 2, direct(&ia, 1, &ib.public_b64(), 2, &Direct::PresenceKey { key }), 30);
+        b.find_mut(1).unwrap().key_sent = true;
+        let new_anna = Identity::new();
+        b.handle(&ib, 2, req(1, "anna", &new_anna), 40);
+        assert!(b.accept(1, 41));
+        let f = b.find(1).unwrap();
+        assert!(f.pkey.is_empty() && !f.key_sent, "the old key is gone, ours goes out again");
     }
 
     #[test]

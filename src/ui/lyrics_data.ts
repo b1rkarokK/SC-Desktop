@@ -1,5 +1,6 @@
 // Lyrics for the current track, shared by the side panel and the fullscreen view.
 import { api, errorMessage, type Lyrics, type Track } from './api';
+import { prefs, updatePrefs } from './prefs';
 
 export type LyricsState =
   | { kind: 'idle' }
@@ -17,6 +18,49 @@ class LyricsData {
   private listeners = new Set<Listener>();
   /** ms the playing upload is shifted by against the original (Go+ stand-ins) */
   private shifts = new Map<number, number>();
+  /** ms the sound says the lyrics of a track are off by (lyrics_align) */
+  private autos = new Map<number, number>();
+
+  /** Everything the lyrics of a track are moved by: stand-in, the sound, and the user's own nudge. */
+  private total(id: number): number {
+    return (this.shifts.get(id) ?? 0) + (this.autos.get(id) ?? 0) + (prefs().lyricsNudge?.[String(id)] ?? 0);
+  }
+
+  /** What moves the lyrics of a track now, for the panel: by the sound, and by hand. */
+  info(id: number): { auto: number; nudge: number } {
+    return { auto: this.autos.get(id) ?? 0, nudge: prefs().lyricsNudge?.[String(id)] ?? 0 };
+  }
+
+  /** The user moves the lyrics of the playing track by `delta` ms (kept for next time); 0 puts it back. */
+  nudge(id: number, delta: number): void {
+    updatePrefs((p) => {
+      const all = { ...(p.lyricsNudge ?? {}) };
+      const next = delta === 0 ? 0 : Math.max(-15_000, Math.min(15_000, (all[String(id)] ?? 0) + delta));
+      if (next === 0) delete all[String(id)];
+      else all[String(id)] = next;
+      // the newest 300 tracks are remembered
+      const keys = Object.keys(all);
+      for (const k of keys.slice(0, Math.max(0, keys.length - 300))) delete all[k];
+      p.lyricsNudge = all;
+    });
+    if (this.state.kind === 'ready' && this.state.track.id === id) this.set({ ...this.state });
+  }
+
+  /** Asks the sound how far off the timed lyrics are; the audio may not be there yet, so a few tries. */
+  private async align(track: Track): Promise<void> {
+    if (prefs().lyricsAuto === false) return;
+    for (const wait of [3000, 7000, 20000]) {
+      await new Promise((r) => window.setTimeout(r, wait));
+      if (this.track?.id !== track.id) return;
+      const r = await api.lyricsAlign(track.id).catch(() => null);
+      if (r === null) continue;
+      if (r.offset_ms && this.state.kind === 'ready' && this.state.track.id === track.id) {
+        this.autos.set(track.id, r.offset_ms);
+        this.set({ ...this.state });
+      }
+      return;
+    }
+  }
 
   on(cb: Listener): void {
     this.listeners.add(cb);
@@ -57,14 +101,17 @@ class LyricsData {
     this.set({ kind: 'loading', track });
     try {
       const lyrics = await api.lyrics(track, force);
-      if (seq === this.seq) this.set({ kind: 'ready', track, lyrics });
+      if (seq === this.seq) {
+        this.set({ kind: 'ready', track, lyrics });
+        if (lyrics.found && lyrics.synced && !lyrics.original && !this.autos.has(track.id)) void this.align(track);
+      }
     } catch (e) {
       if (seq === this.seq) this.set({ kind: 'error', track, message: errorMessage(e) });
     }
   }
 
   private set(s: LyricsState): void {
-    if (s.kind === 'ready') s = { ...s, lyrics: shifted(s.lyrics, this.shifts.get(s.track.id) ?? 0) };
+    if (s.kind === 'ready') s = { ...s, lyrics: shifted(s.lyrics, this.total(s.track.id)) };
     this.state = s;
     this.listeners.forEach((cb) => cb(s));
   }

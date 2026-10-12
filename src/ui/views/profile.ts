@@ -2,7 +2,7 @@
 // downloaded files and likes waiting to reach SoundCloud.
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { api, coverUrl, errorMessage, fmtCount, plural, type FriendRow, type Track, type User } from '../api';
+import { api, coverUrl, errorMessage, fmtCount, plural, type FriendRow, type Listening, type Track, type User } from '../api';
 import { h, toast } from '../dom';
 import { I, iconButton } from '../icons';
 import { findPeople } from '../friends_dialog';
@@ -176,6 +176,7 @@ export class ProfileView implements View {
     };
     const parts: HTMLElement[] = [];
     const head = (text: string) => h('div', { class: 'rm-sectiontitle', text });
+    this.friendRows.clear();
 
     if (v.incoming.length) {
       parts.push(head(T('Запросы в друзья · {0}', v.incoming.length)));
@@ -228,7 +229,9 @@ export class ProfileView implements View {
         e.stopPropagation();
         openArtist(u.id);
       });
-      parts.push(person(u, T('друг'), open, rm));
+      const row = person(u, T('друг'), open, rm);
+      this.friendRows.set(u.id, row);
+      parts.push(row);
     }
 
     if (v.outgoing.length) {
@@ -240,6 +243,37 @@ export class ProfileView implements View {
       }
     }
     this.body.replaceChildren(...parts);
+    void this.paintListening();
+    // what the friends listen to is looked up again every half a minute while this tab is open
+    if (!this.nowTimer) {
+      this.nowTimer = window.setInterval(() => {
+        if (this.el.isConnected && this.tabs.value === 'friends') void this.paintListening();
+        else {
+          window.clearInterval(this.nowTimer);
+          this.nowTimer = 0;
+        }
+      }, 30_000);
+    }
+  }
+
+  private friendRows = new Map<number, HTMLElement>();
+  private nowTimer = 0;
+
+  /** "listening: …" under the name of each friend who shares what plays. */
+  private async paintListening(): Promise<void> {
+    let list: Listening[] = [];
+    try {
+      list = await api.friendsListening();
+    } catch {
+      return; // the relay is not reachable: the rows stay as they are
+    }
+    for (const [id, row] of this.friendRows) {
+      const sub = row.querySelector('.row-artist');
+      if (!sub) continue;
+      const now = list.find((x) => x.id === id);
+      sub.classList.toggle('ok', !!now);
+      sub.textContent = now ? T('слушает: {0} - {1}', now.title, now.artist) : T('друг');
+    }
   }
 
   private async renderDownloads(): Promise<void> {

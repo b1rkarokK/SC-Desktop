@@ -1282,7 +1282,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
     // "love nwantiti slowed": searched without the mark; the original's text is the fallback
     let version_of = lyrics::version_base(&track.title).map(|b| genius::query_from(&track.artist, &b).1).filter(|b| !b.is_empty());
     let title = version_of.clone().unwrap_or(title);
-    let q = Query { artist, title, duration_ms: track.duration_ms, version_of };
+    let q = Query { artist, title, duration_ms: track.duration_ms, version_of, kind: lyrics::version_kind(&track.title) };
     let http = state.http();
     // the Musixmatch token is kept between launches: asking for a new one on
     // every start gets the address rate-limited
@@ -1310,6 +1310,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             cached: false,
             original: l.original,
             length_off_ms: l.length_off_ms,
+            scaled_by: l.scaled_by,
         },
         None => LyricsDto {
             track_id: track.id,
@@ -1322,6 +1323,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             cached: false,
             original: false,
             length_off_ms: None,
+            scaled_by: None,
         },
     };
     tracing::info!(track = track.id, source = ?dto.source, word = dto.word_level, "lyrics resolved");
@@ -1611,6 +1613,7 @@ pub struct SystemPrefs {
     fast_protected: bool,
     notify_new: bool,
     notify_rooms: bool,
+    share_listening: bool,
 }
 
 /// «Уведомлять о новых треках подписок».
@@ -1636,6 +1639,7 @@ pub fn system_get(app: AppHandle, state: State<'_, AppState>) -> SystemPrefs {
         fast_protected: cfg.fast_protected,
         notify_new: cfg.notify_new,
         notify_rooms: cfg.notify_rooms,
+        share_listening: cfg.share_listening,
     }
 }
 
@@ -1896,6 +1900,91 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
     Ok(())
 }
 
+// ------------------------------------------------------------------ lyrics against the sound
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct AlignDto {
+    /// add this to the timestamps (positive: the lyrics are early); None: they fit as they are
+    pub offset_ms: Option<i64>,
+    pub confidence: f32,
+}
+
+/// How far the timed lyrics of the playing track are from the recording, from the sound itself
+/// (see lyrics_align.rs). Asked once per track: the answer is kept, also "no change needed".
+#[tauri::command]
+pub async fn lyrics_align(state: State<'_, AppState>, player: State<'_, Arc<Player>>, track_id: u64) -> Cmd<Option<AlignDto>> {
+    let key = format!("lyr:align:{track_id}");
+    if let Some((cached, _)) = state.db.kv_get::<AlignDto>(&key).await? {
+        return Ok(Some(cached));
+    }
+    let Some((lyrics, _)) = state.db.lyrics_get(track_id).await? else { return Ok(None) };
+    if !lyrics.found || !lyrics.synced || lyrics.original {
+        return Ok(None);
+    }
+    let Some(audio) = player.audio_of(track_id) else { return Ok(None) };
+    let starts: Vec<u64> = lyrics.lines.iter().filter(|l| !l.text.trim().is_empty()).filter_map(|l| l.start_ms).collect();
+    let found = tokio::task::spawn_blocking(move || {
+        use rodio::Source;
+        let dec = rodio::Decoder::new(std::io::Cursor::new(audio.as_slice().to_vec())).ok()?;
+        let (channels, rate) = (dec.channels().max(1) as usize, dec.sample_rate().max(1));
+        let samples = crate::fingerprint::mono_resampled(dec.convert_samples::<f32>(), channels, rate, 600);
+        Some(crate::lyrics_align::align(&samples, &starts))
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))?;
+    let Some(estimate) = found else { return Ok(None) };
+    let dto = AlignDto { offset_ms: estimate.map(|e| e.offset_ms), confidence: estimate.map_or(0.0, |e| e.confidence) };
+    tracing::info!(track = track_id, offset = ?dto.offset_ms, confidence = dto.confidence, "lyrics aligned to the sound");
+    state.db.kv_put(&key, &dto).await?;
+    Ok(Some(dto))
+}
+
+/// Debug only: what the alignment reads on up to `n` liked tracks that have timed lyrics (downloads their audio).
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn lyrics_align_probe(state: State<'_, AppState>, n: usize, dump: Option<String>) -> Cmd<Vec<serde_json::Value>> {
+    let ids = state.db.likes_ids().await?;
+    let mut out = Vec::new();
+    for id in ids.into_iter() {
+        if out.len() >= n {
+            break;
+        }
+        let Some((l, _)) = state.db.lyrics_get(id).await? else { continue };
+        if !l.found || !l.synced || l.original {
+            continue;
+        }
+        if dump.as_ref().is_some_and(|d| std::path::Path::new(d).join(format!("{id}.f32")).exists()) {
+            continue;
+        }
+        let Some(track) = state.db.tracks_by_ids(vec![id]).await?.into_iter().next() else { continue };
+        let Ok(audio) = state.sc()?.download_audio(&track).await else { continue };
+        let starts: Vec<u64> = l.lines.iter().filter(|x| !x.text.trim().is_empty()).filter_map(|x| x.start_ms).collect();
+        let nlines = starts.len();
+        let source_name = l.source.clone().unwrap_or_default();
+        let ends: Vec<u64> = l.lines.iter().filter(|x| !x.text.trim().is_empty() && x.start_ms.is_some()).map(|x| x.end_ms.unwrap_or(0)).collect();
+        let words: Vec<u64> = l.lines.iter().flat_map(|x| x.words.iter().map(|w| w.start_ms)).collect();
+        let dump_to = dump.clone();
+        let reading = tokio::task::spawn_blocking(move || {
+            use rodio::Source;
+            let dec = rodio::Decoder::new(std::io::Cursor::new(audio)).ok()?;
+            let (channels, rate) = (dec.channels().max(1) as usize, dec.sample_rate().max(1));
+            let samples = crate::fingerprint::mono_resampled(dec.convert_samples::<f32>(), channels, rate, 600);
+            if let Some(dir) = dump_to {
+                let bytes: Vec<u8> = samples.iter().flat_map(|x| x.to_le_bytes()).collect();
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{id}.f32")), bytes);
+                let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{id}.json")), serde_json::json!({ "starts": starts, "ends": ends, "words": words, "source": source_name }).to_string());
+            }
+            let env = crate::lyrics_align::envelope(&samples);
+            crate::lyrics_align::reading(&env, &starts)
+        })
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?;
+        out.push(serde_json::json!({ "id": id, "title": track.title, "lines": nlines, "source": l.source, "reading": reading }));
+    }
+    Ok(out)
+}
+
 // ------------------------------------------------------------------ theme picture
 
 /// The background picture of a custom theme (a data URL made by the editor): in the database, not in
@@ -1971,6 +2060,20 @@ pub async fn friend_invite(app: AppHandle, state: State<'_, AppState>, friends: 
         }
     }
     Ok(friends.invite(&app, id, &kind, link, title, password).await?)
+}
+
+/// What the friends are listening to right now (only those who share it with us).
+#[tauri::command]
+pub async fn friends_listening(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>) -> Cmd<Vec<crate::sync::friends::Listening>> {
+    Ok(friends.listening(&app).await?)
+}
+
+/// Whether friends see what we listen to.
+#[tauri::command]
+pub async fn friends_share_set(app: AppHandle, state: State<'_, AppState>, friends: State<'_, crate::sync::friends::Friends>, on: bool) -> Cmd<()> {
+    state.config.update(|c| c.share_listening = on)?;
+    friends.publish_now(&app).await;
+    Ok(())
 }
 
 #[tauri::command]

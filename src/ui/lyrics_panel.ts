@@ -12,6 +12,7 @@ export class LyricsPanel {
   private view = new LyricsView('ly-panel');
   private badge = h('span', { class: 'badge' });
   private footer = h('div', { class: 'ly-foot muted small' });
+  private nudgeBox = h('div', { class: 'ly-nudge muted small' });
   private extBtn = iconButton(I.external, T('Открыть на Genius'));
   private url: string | null = null;
 
@@ -25,6 +26,7 @@ export class LyricsPanel {
     host.append(
       h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), fs, this.extBtn, hide),
       this.view.el,
+      this.nudgeBox,
       this.footer,
     );
     this.view.el.addEventListener('contextmenu', (e) => {
@@ -56,6 +58,7 @@ export class LyricsPanel {
     this.extBtn.hidden = true;
     this.badge.hidden = true;
     this.footer.textContent = '';
+    this.nudgeBox.replaceChildren();
     switch (s.kind) {
       case 'idle':
         this.view.setMessage(T('Ничего не играет.'));
@@ -78,9 +81,27 @@ export class LyricsPanel {
         this.url = l.url;
         this.extBtn.hidden = !l.url;
         this.footer.textContent = T('Источник: {0}{1}', SOURCE_NAMES[l.source ?? ''] ?? l.source, l.original ? T(' · текст оригинала') : l.word_level ? T(' · по словам') : l.synced ? T(' · по строкам') : '');
+        if (l.synced && l.original && l.scaled_by) this.footer.textContent += ' · ' + T('тайминги оригинала пересчитаны под темп: ×{0}', l.scaled_by.toFixed(2).replace('.', ','));
         if (l.synced && !l.original && l.length_off_ms) this.footer.textContent += ' · ' + T('тайминги могут быть сдвинуты: версия отличается на {0} с', Math.round(l.length_off_ms / 1000));
+        if (l.synced) this.renderNudge(s.track.id);
       }
     }
+  }
+
+  /** "Text is early / late": a nudge of a quarter of a second each press, kept for this track. */
+  private renderNudge(id: number): void {
+    const { auto, nudge } = lyricsData.info(id);
+    const sec = (ms: number) => `${ms > 0 ? '+' : ms < 0 ? '−' : ''}${(Math.abs(ms) / 1000).toFixed(2).replace('.', ',')} ${T('с')}`;
+    const mk = (label: string, title: string, delta: number) => {
+      const b = h('button', { type: 'button', class: 'btn-icon ly-nudge-btn', title, 'aria-label': title, text: label });
+      b.addEventListener('click', () => lyricsData.nudge(id, delta));
+      return b;
+    };
+    const value = h('span', { class: 'ly-nudge-val', text: nudge ? sec(nudge) : T('сдвиг текста') });
+    const reset = mk('↺', T('Сбросить сдвиг'), 0);
+    reset.hidden = nudge === 0;
+    const note = auto ? h('span', { class: 'ly-nudge-auto', title: T('Подстроено по звуку'), text: T('по звуку {0}', sec(auto)) }) : null;
+    this.nudgeBox.replaceChildren(mk('−', T('Текст спешит: сдвинуть позже'), -250), value, mk('+', T('Текст отстаёт: сдвинуть раньше'), 250), reset, ...(note ? [note] : []));
   }
 
   get element(): HTMLElement {

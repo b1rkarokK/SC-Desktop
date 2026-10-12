@@ -36,40 +36,100 @@ fn hop_ms() -> f64 {
     HOP as f64 * 1000.0 / f64::from(RATE)
 }
 
-/// Onset strength per 10 ms of mono audio at `RATE`.
-pub fn envelope(samples: &[f32]) -> Vec<f32> {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Mode {
+    /// how much the log spectrum grew in the band, per frame
+    Flux,
+    /// the same per narrow band, each band counted as much as the others (a beat cannot drown a voice)
+    BandFlux,
+    /// how much the loudness of the band rose over the last 60 ms
+    EnergyRise,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Cfg {
+    pub low: f32,
+    pub high: f32,
+    pub mode: Mode,
+}
+
+impl Default for Cfg {
+    fn default() -> Self {
+        Cfg { low: LOW_HZ, high: HIGH_HZ, mode: Mode::Flux }
+    }
+}
+
+/// Log magnitudes, frame after frame (FRAME / 2 bins each), and the number of frames.
+fn spectrogram(samples: &[f32]) -> (Vec<f32>, usize) {
+    let bins = FRAME / 2;
     if samples.len() < FRAME * 4 {
-        return Vec::new();
+        return (Vec::new(), 0);
     }
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(FRAME);
     let window: Vec<f32> = (0..FRAME).map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / FRAME as f32).cos()).collect();
-    let bin = |hz: f32| ((hz / RATE as f32) * FRAME as f32).round() as usize;
-    let (lo, hi) = (bin(LOW_HZ).max(1), bin(HIGH_HZ).min(FRAME / 2));
-
     let mut buf = vec![Complex::new(0.0f32, 0.0); FRAME];
-    let mut prev = vec![0f32; FRAME / 2];
-    let mut flux = Vec::with_capacity(samples.len() / HOP);
+    let mut out = Vec::with_capacity(samples.len() / HOP * bins);
     let mut start = 0;
     while start + FRAME <= samples.len() {
         for (i, c) in buf.iter_mut().enumerate() {
             *c = Complex::new(samples[start + i] * window[i], 0.0);
         }
         fft.process(&mut buf);
-        let mut f = 0f32;
-        for k in lo..hi {
-            // a log scale: a quiet voice over a loud beat still counts
-            let m = (1.0 + 10.0 * buf[k].norm()).ln();
-            let d = m - prev[k];
-            if d > 0.0 {
-                f += d;
-            }
-            prev[k] = m;
-        }
-        flux.push(f);
+        // a log scale: a quiet voice over a loud beat still counts
+        out.extend(buf[..bins].iter().map(|c| (1.0 + 10.0 * c.norm()).ln()));
         start += HOP;
     }
-    // what stands out from its surroundings (the last second), smoothed a little
+    let frames = out.len() / bins;
+    (out, frames)
+}
+
+/// Onset strength per 10 ms of mono audio at RATE.
+pub fn envelope(samples: &[f32]) -> Vec<f32> {
+    envelope_with(samples, Cfg::default())
+}
+
+pub fn envelope_with(samples: &[f32], cfg: Cfg) -> Vec<f32> {
+    let (spec, n) = spectrogram(samples);
+    if n == 0 {
+        return Vec::new();
+    }
+    let bins = FRAME / 2;
+    let bin = |hz: f32| ((hz / RATE as f32) * FRAME as f32).round() as usize;
+    let (lo, hi) = (bin(cfg.low).max(1), bin(cfg.high).min(bins));
+    let at = |t: usize, k: usize| spec[t * bins + k];
+    let flux_in = |a: usize, b: usize| -> Vec<f32> {
+        (0..n).map(|t| if t == 0 { 0.0 } else { (a..b).map(|k| (at(t, k) - at(t - 1, k)).max(0.0)).sum() }).collect()
+    };
+    let curve: Vec<f32> = match cfg.mode {
+        Mode::Flux => flux_in(lo, hi),
+        Mode::BandFlux => {
+            // eight bands, equally wide on a log scale
+            let edges: Vec<usize> = (0..=8).map(|j| ((lo as f32) * ((hi as f32) / (lo as f32)).powf(j as f32 / 8.0)).round() as usize).collect();
+            let mut sum = vec![0f32; n];
+            for j in 0..8 {
+                let (a, b) = (edges[j], edges[j + 1].max(edges[j] + 1).min(hi));
+                if a >= b {
+                    continue;
+                }
+                let c = flux_in(a, b);
+                let mean = c.iter().sum::<f32>() / n as f32 + 1e-6;
+                for (s, x) in sum.iter_mut().zip(&c) {
+                    *s += x / mean;
+                }
+            }
+            sum
+        }
+        Mode::EnergyRise => {
+            let e: Vec<f32> = (0..n).map(|t| (lo..hi).map(|k| at(t, k)).sum::<f32>() / (hi - lo).max(1) as f32).collect();
+            (0..n).map(|t| if t < 6 { 0.0 } else { (e[t] - e[t - 6]).max(0.0) }).collect()
+        }
+    };
+    postprocess(&curve)
+}
+
+/// What stands out from its surroundings (the last second), in standard deviations, smoothed a little.
+fn postprocess(flux: &[f32]) -> Vec<f32> {
     let n = flux.len();
     let half = 50usize;
     let mut csum = vec![0f64; n + 1];
@@ -103,8 +163,24 @@ pub fn envelope(samples: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+/// The raw readings before any decision (for tuning the thresholds on real tracks).
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct Reading {
+    pub lag_ms: f64,
+    pub z: f32,
+    pub peak: f32,
+    pub second: f32,
+    pub at_zero: f32,
+}
+
 /// The offset of the lyrics against the audio, if it can be told with confidence.
 pub fn estimate(env: &[f32], starts_ms: &[u64]) -> Option<Estimate> {
+    let r = reading(env, starts_ms)?;
+    let clear = r.z >= 5.0 && r.peak >= 1.15 * r.second && r.peak >= 1.3 * r.at_zero.max(0.0) + 0.05;
+    (clear && r.lag_ms.abs() >= 250.0).then_some(Estimate { offset_ms: r.lag_ms.round() as i64, confidence: r.z })
+}
+
+pub fn reading(env: &[f32], starts_ms: &[u64]) -> Option<Reading> {
     let mut starts: Vec<f64> = starts_ms.iter().map(|s| *s as f64 / hop_ms()).collect();
     starts.dedup_by(|a, b| (*a - *b).abs() < 30.0);
     if starts.len() < MIN_LINES || env.len() < 2_000 {
@@ -152,8 +228,7 @@ pub fn estimate(env: &[f32], starts_ms: &[u64]) -> Option<Estimate> {
     };
     let lag_ms = ((best as f64 - max_lag as f64) + f64::from(frac)) * hop_ms();
 
-    let clear = z >= 5.0 && peak >= 1.15 * second && peak >= 1.3 * at_zero.max(0.0) + 0.05;
-    (clear && lag_ms.abs() >= 250.0).then_some(Estimate { offset_ms: lag_ms.round() as i64, confidence: z })
+    Some(Reading { lag_ms, z, peak, second, at_zero })
 }
 
 /// The whole step: audio samples (mono, `RATE`) and the timed lines.
@@ -229,6 +304,67 @@ mod tests {
         let starts = lines();
         let none: Vec<u64> = Vec::new();
         assert_eq!(align(&song(&none, 0, 175), &starts), None);
+    }
+
+    /// Real tracks: ALIGN_DUMP=<dir with N.f32 + N.json> cargo test eval_real_dump -- --ignored --nocapture.
+    /// The words of karaoke lyrics are exact, so they say where the voice really is: a feature that finds
+    /// its onsets at no shift sees the voice; then the (rougher) line starts are tried on it.
+    #[test]
+    #[ignore]
+    fn eval_real_dump() {
+        let Ok(dir) = std::env::var("ALIGN_DUMP") else { return };
+        let mut tracks: Vec<(String, Vec<f32>, Vec<u64>, Vec<u64>)> = Vec::new();
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) != Some("f32") {
+                continue;
+            }
+            let bytes = std::fs::read(&p).unwrap();
+            let samples: Vec<f32> = bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+            let meta: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p.with_extension("json")).unwrap()).unwrap();
+            let list = |k: &str| -> Vec<u64> { meta[k].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default() };
+            tracks.push((p.file_stem().unwrap().to_string_lossy().into_owned(), samples, list("starts"), list("words")));
+        }
+        tracks.sort_by(|a, b| a.0.cmp(&b.0));
+        println!("{} tracks, {} with word timings", tracks.len(), tracks.iter().filter(|t| t.3.len() >= 40).count());
+        let cfgs: Vec<(&str, Cfg)> = vec![
+            ("flux 200-4000", Cfg { low: 200.0, high: 4000.0, mode: Mode::Flux }),
+            ("flux 500-2500", Cfg { low: 500.0, high: 2500.0, mode: Mode::Flux }),
+            ("flux 300-3400", Cfg { low: 300.0, high: 3400.0, mode: Mode::Flux }),
+            ("bandflux 150-5000", Cfg { low: 150.0, high: 5000.0, mode: Mode::BandFlux }),
+            ("bandflux 300-3400", Cfg { low: 300.0, high: 3400.0, mode: Mode::BandFlux }),
+            ("rise 300-3400", Cfg { low: 300.0, high: 3400.0, mode: Mode::EnergyRise }),
+            ("rise 150-1500", Cfg { low: 150.0, high: 1500.0, mode: Mode::EnergyRise }),
+        ];
+        for (name, cfg) in cfgs {
+            let (mut w_hit, mut w_n, mut l_hit, mut l_n) = (0, 0, 0, 0);
+            let (mut w_z, mut l_z) = (0.0f32, 0.0f32);
+            let mut detail = Vec::new();
+            for (id, samples, starts, words) in &tracks {
+                let env = envelope_with(samples, cfg);
+                let tag = &id[id.len().saturating_sub(4)..];
+                if words.len() >= 40 {
+                    if let Some(r) = reading(&env, words) {
+                        w_n += 1;
+                        w_z += r.z;
+                        if r.lag_ms.abs() <= 250.0 && r.z >= 5.0 {
+                            w_hit += 1;
+                        }
+                        detail.push(format!("{tag}:w{:+.0}/{:.1}", r.lag_ms, r.z));
+                    }
+                }
+                if let Some(r) = reading(&env, starts) {
+                    l_n += 1;
+                    l_z += r.z;
+                    if r.lag_ms.abs() <= 250.0 && r.z >= 5.0 {
+                        l_hit += 1;
+                    }
+                    detail.push(format!("{tag}:l{:+.0}/{:.1}", r.lag_ms, r.z));
+                }
+            }
+            println!("{name:20} words: {w_hit}/{w_n} at zero, mean z {:.1} | lines: {l_hit}/{l_n} at zero, mean z {:.1}", w_z / w_n.max(1) as f32, l_z / l_n.max(1) as f32);
+            println!("    {}", detail.join(" "));
+        }
     }
 
     #[test]

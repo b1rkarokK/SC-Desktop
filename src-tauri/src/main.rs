@@ -308,6 +308,9 @@ fn main() {
             commands::room_view,
             commands::room_cmd,
             commands::rooms_live,
+            commands::lyrics_align,
+            #[cfg(debug_assertions)]
+            commands::lyrics_align_probe,
             commands::theme_bg_get,
             commands::theme_bg_set,
             commands::theme_bg_delete,
@@ -320,6 +323,8 @@ fn main() {
             commands::friend_remove,
             commands::friend_invite,
             commands::friend_invite_dismiss,
+            commands::friends_listening,
+            commands::friends_share_set,
             commands::autopause_get,
             commands::autopause_set,
             commands::backup_export,

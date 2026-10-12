@@ -188,6 +188,7 @@ export interface Lyrics {
   original?: boolean;
   /** timings made for a recording this many ms longer / shorter than this track */
   length_off_ms?: number | null;
+  scaled_by?: number | null;
 }
 
 export interface SearchPage {
@@ -255,6 +256,7 @@ export interface SystemPrefs {
   fast_protected: boolean;
   notify_new: boolean;
   notify_rooms: boolean;
+  share_listening: boolean;
 }
 
 export interface AppErrorPayload {
@@ -338,6 +340,15 @@ export interface FriendRow {
   since: number;
   /** a friend who asks again with a new key (reinstalled the app) */
   rekey: boolean;
+}
+
+/** A friend who is listening to something right now. */
+export interface Listening {
+  id: number;
+  track_id: number;
+  title: string;
+  artist: string;
+  artwork_url: string | null;
 }
 
 export interface FriendInvite {
@@ -474,10 +485,13 @@ export const api = {
   hotkeysApply: (hotkeys: unknown) => invoke<void>('hotkeys_apply', { hotkeys }),
   fxSet: (fx: FxConfig, persist: boolean) => invoke<void>('fx_set', { fx, persist }),
   speedPreset: (action: string) => invoke<void>('speed_preset', { action }),
+  lyricsAlign: (trackId: number) => invoke<{ offset_ms: number | null; confidence: number } | null>('lyrics_align', { trackId }),
   themeBgGet: (id: string) => invoke<string | null>('theme_bg_get', { id }),
   themeBgSet: (id: string, data: string) => invoke<void>('theme_bg_set', { id, data }),
   themeBgDelete: (id: string) => invoke<void>('theme_bg_delete', { id }),
   friendsList: () => invoke<FriendsView>('friends_list'),
+  friendsListening: () => invoke<Listening[]>('friends_listening'),
+  friendsShareSet: (on: boolean) => invoke<void>('friends_share_set', { on }),
   friendIds: () => invoke<number[]>('friend_ids'),
   friendRequest: (user: User) => invoke<void>('friend_request', { user }),
   friendAccept: (id: number) => invoke<void>('friend_accept', { id }),

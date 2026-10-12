@@ -93,7 +93,7 @@ export class SettingsView implements View {
       this.renderNet();
       this.autoPause = await api.autopauseGet();
       const sys = await api.systemGet();
-      this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected, sys.notify_new, sys.notify_rooms);
+      this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected, sys.notify_new, sys.notify_rooms, sys.share_listening);
     } catch (e) {
       toast(errorMessage(e), 'error');
     }
@@ -268,6 +268,7 @@ export class SettingsView implements View {
       group(
         T('Тексты песен'),
         row(T('Синхронный текст (караоке)'), toggle(p.syncedLyrics, (v) => updatePrefs((x) => (x.syncedLyrics = v))), T('ищет по очереди: LRCLIB → NetEase → Musixmatch')),
+        row(T('Подстраивать текст по звуку'), toggle(p.lyricsAuto !== false, (v) => updatePrefs((x) => (x.lyricsAuto = v))), T('Если слова появляются раньше или позже голоса, программа сама сдвигает текст по записи. Свой сдвиг (кнопки +/− под текстом) запоминается для каждого трека.')),
         row(T('Подсветка по словам'), toggle(p.wordHighlight, (v) => updatePrefs((x) => (x.wordHighlight = v))), T('где нет слов — плавно по строке')),
         h('p', { class: 'muted small', text: T('Если синхронного текста нигде нет — показывается обычный текст с Genius. Ничего вводить не нужно, тексты сохраняются в кэш.') }),
         h('div', { class: 'row-actions' }, (() => {
@@ -372,7 +373,7 @@ export class SettingsView implements View {
     void api.autopauseSet(this.autoPause).catch((e) => toast(errorMessage(e), 'error'));
   }
 
-  private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean, notifyNew: boolean, notifyRooms: boolean): void {
+  private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean, notifyNew: boolean, notifyRooms: boolean, shareListening: boolean): void {
     let a = autostart;
     let m = minimized;
     let f = fastProtected;
@@ -381,7 +382,7 @@ export class SettingsView implements View {
       api.systemSet(a, m, f).catch(async (e) => {
         toast(errorMessage(e), 'error');
         const s = await api.systemGet();
-        this.renderSystem(s.autostart, s.start_minimized, s.fast_protected, s.notify_new, s.notify_rooms);
+        this.renderSystem(s.autostart, s.start_minimized, s.fast_protected, s.notify_new, s.notify_rooms, s.share_listening);
       });
     const version = h('span', { class: 'muted small' });
     void invoke<string>('app_version').then((v) => (version.textContent = T('Версия {0}', v)));
@@ -446,6 +447,11 @@ export class SettingsView implements View {
           T('Уведомлять об открытых комнатах друзей'),
           toggle(notifyRooms, (v) => void api.roomsNotifySet(v).catch((e) => toast(errorMessage(e), 'error'))),
           T('Уведомление Windows, когда кто-то из подписок открыл комнату. Проверка раз в полторы минуты.'),
+        ),
+        row(
+          T('Показывать друзьям, что я слушаю'),
+          toggle(shareListening, (v) => void api.friendsShareSet(v).catch((e) => toast(errorMessage(e), 'error'))),
+          T('Видят только ваши друзья, больше никто. Выключено: друзья не увидят, что у вас играет.'),
         ),
         row(T('Пауза во время звонка'), toggle(this.autoPause.call, (v) => this.saveAutoPause({ call: v })), T('Музыка встаёт на паузу, когда другая программа включила микрофон (Discord, Zoom), и продолжается после звонка.')),
         row(T('Пауза в полноэкранной игре'), toggle(this.autoPause.game, (v) => this.saveAutoPause({ game: v })), T('Музыка встаёт на паузу, когда игра открылась на весь экран, и продолжается, когда вы вышли из неё. Выключено: музыка играет и в игре.')),

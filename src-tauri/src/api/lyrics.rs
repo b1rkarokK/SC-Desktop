@@ -49,6 +49,12 @@ pub struct Lyrics {
     /// how far (ms) the length of the recording these timings were made for is from ours; set only when it is large
     #[serde(default)]
     pub length_off_ms: Option<u64>,
+    /// the length of the recording these timings were made for (LRCLIB tells it)
+    #[serde(default)]
+    pub source_duration_ms: Option<u64>,
+    /// timings of the original recalculated for a sped-up / slowed version: ours / the original's length
+    #[serde(default)]
+    pub scaled_by: Option<f32>,
 }
 
 /// Timings of a version whose length differs more than this are likely shifted: warn.
@@ -62,7 +68,39 @@ impl Lyrics {
         }
         let synced = lines.iter().any(|l| l.start_ms.is_some());
         let word_level = lines.iter().any(|l| !l.words.is_empty());
-        Some(Self { source: source.into(), synced, word_level, lines, url, original: false, length_off_ms: None })
+        Some(Self { source: source.into(), synced, word_level, lines, url, original: false, length_off_ms: None, source_duration_ms: None, scaled_by: None })
+    }
+
+    /// The original's timed lyrics for a sped-up / slowed version: every time is multiplied by the ratio of the
+    /// lengths (a sped-up track is the original squeezed evenly), when that ratio fits the kind of the version.
+    /// Anything else (no length known, a ratio that does not fit, an edit with another intro) goes without timings.
+    fn with_tempo(mut self, ours_ms: u64, kind: VersionKind) -> Self {
+        let (Some(src), true) = (self.source_duration_ms, self.synced) else { return self.as_original() };
+        if ours_ms == 0 || src == 0 {
+            return self.as_original();
+        }
+        let r = ours_ms as f64 / src as f64;
+        let fits = match kind {
+            VersionKind::Slowed => (1.04..=1.8).contains(&r),
+            VersionKind::Sped => (0.5..=0.96).contains(&r),
+            VersionKind::Same => (0.97..=1.03).contains(&r),
+        };
+        if !fits {
+            return self.as_original();
+        }
+        let mv = |t: u64| (t as f64 * r).round() as u64;
+        for l in &mut self.lines {
+            l.start_ms = l.start_ms.map(mv);
+            l.end_ms = l.end_ms.map(mv);
+            for w in &mut l.words {
+                w.start_ms = mv(w.start_ms);
+                w.end_ms = mv(w.end_ms);
+            }
+        }
+        self.original = true;
+        self.length_off_ms = None;
+        self.scaled_by = ((r - 1.0).abs() > 0.005).then_some(r as f32);
+        self
     }
 
     /// Timings dropped: the text of the original over a changed version.
@@ -76,6 +114,26 @@ impl Lyrics {
         self.word_level = false;
         self.original = true;
         self
+    }
+}
+
+/// How a changed version differs in tempo from the original, by its title.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VersionKind {
+    Slowed,
+    Sped,
+    /// reverb, 8D, bass boost: the tempo stays
+    Same,
+}
+
+pub fn version_kind(title: &str) -> VersionKind {
+    let t = title.to_lowercase();
+    if ["slowed", "slow version", "daycore", "замедл"].iter().any(|m| t.contains(m)) {
+        VersionKind::Slowed
+    } else if ["sped", "speed up", "speedup", "speed-up", "nightcore", "ускор"].iter().any(|m| t.contains(m)) {
+        VersionKind::Sped
+    } else {
+        VersionKind::Same
     }
 }
 
@@ -166,6 +224,8 @@ pub struct Query {
     pub duration_ms: u64,
     /// a changed version (slowed …): the original song's title
     pub version_of: Option<String>,
+    /// how that version differs in tempo (from the track's own title, the one searched is cleaned of the mark)
+    pub kind: VersionKind,
 }
 
 /// Text of the original song for a changed version. Its length differs, so
@@ -176,7 +236,7 @@ async fn original_text(http: &HttpClient, state: &LyricsState, artist: &str, tit
         Some((a, t)) => (a.trim().to_owned(), t.trim().to_owned()),
         None => (artist.to_owned(), title.to_owned()),
     };
-    let q = Query { artist, title, duration_ms: 0, version_of: None };
+    let q = Query { artist, title, duration_ms: 0, version_of: None, kind: VersionKind::Same };
     if let Ok(Some(l)) = lrclib(http, &q).await {
         return Ok(Some(l));
     }
@@ -278,7 +338,7 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
         // slowed / sped up / nightcore …: the original's words, without timings
         if let Some(base) = q.version_of.as_deref() {
             match original_text(http, state, &q.artist, base).await {
-                Ok(Some(l)) => return Ok(Some(l.as_original())),
+                Ok(Some(l)) => return Ok(Some(l.with_tempo(q.duration_ms, q.kind))),
                 Ok(None) => {}
                 Err(e) => tracing::debug!(error = %e, "original lyrics failed"),
             }
@@ -311,8 +371,16 @@ async fn lrclib(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
         .iter()
         .filter(|h| duration_ok(q.duration_ms, dur(h)) && names_match(q, h["artistName"].as_str().unwrap_or(""), h["trackName"].as_str().unwrap_or("")))
         .collect();
-    // the version made for the recording closest in length to ours goes first
-    cands.sort_by_key(|h| if q.duration_ms == 0 || dur(h) == 0 { u64::MAX / 2 } else { q.duration_ms.abs_diff(dur(h)) });
+    // the version made for the recording closest in length to ours goes first; with no length of ours
+    // (the original of a sped-up edit) the one of the usual length, the middle of the timed ones
+    let reference = if q.duration_ms > 0 {
+        q.duration_ms
+    } else {
+        let mut lens: Vec<u64> = cands.iter().filter(|h| h["syncedLyrics"].as_str().is_some_and(|x| !x.trim().is_empty())).map(|h| dur(h)).filter(|d| *d > 0).collect();
+        lens.sort_unstable();
+        lens.get(lens.len() / 2).copied().unwrap_or(0)
+    };
+    cands.sort_by_key(|h| if reference == 0 || dur(h) == 0 { u64::MAX / 2 } else { reference.abs_diff(dur(h)) });
 
     let mut plain = None;
     for h in cands {
@@ -322,6 +390,7 @@ async fn lrclib(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
                 if off > WARN_OFF_MS {
                     l.length_off_ms = Some(off);
                 }
+                l.source_duration_ms = (dur(h) > 0).then(|| dur(h));
                 return Ok(Some(l));
             }
         }
@@ -829,6 +898,42 @@ fn fill_ends(mut lines: Vec<Line>) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::{distinctive_title, version_base};
+
+    fn timed(src: u64) -> Lyrics {
+        let line = |start: u64, end: u64, text: &str| Line { start_ms: Some(start), end_ms: Some(end), text: text.into(), words: vec![Word { start_ms: start, end_ms: end, text: text.into() }] };
+        let mut l = Lyrics::new("lrclib", vec![line(10_000, 14_000, "a"), line(14_000, 20_000, "b")], None).unwrap();
+        l.source_duration_ms = Some(src);
+        l
+    }
+
+    #[test]
+    fn a_sped_up_version_gets_the_originals_timings_squeezed_by_the_length_ratio() {
+        // ours is 150 s, the original 200 s: everything happens at 0.75 of the time
+        let l = timed(200_000).with_tempo(150_000, version_kind("Song (Sped Up)"));
+        assert!(l.synced && l.original);
+        assert_eq!(l.lines[0].start_ms, Some(7_500));
+        assert_eq!(l.lines[1].end_ms, Some(15_000));
+        assert_eq!(l.lines[0].words[0].end_ms, 10_500);
+        assert!((l.scaled_by.unwrap() - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_slowed_version_is_stretched() {
+        let l = timed(100_000).with_tempo(125_000, version_kind("song - slowed + reverb"));
+        assert_eq!(l.lines[0].start_ms, Some(12_500));
+    }
+
+    #[test]
+    fn a_ratio_that_does_not_fit_the_kind_leaves_only_the_text() {
+        // "slowed" but shorter than the original: an edit with a cut, not a slowdown
+        assert!(!timed(200_000).with_tempo(150_000, version_kind("song slowed")).synced);
+        // no length known
+        let mut l = timed(200_000);
+        l.source_duration_ms = None;
+        assert!(!l.with_tempo(150_000, VersionKind::Sped).synced);
+        // "reverb" at another length is another edit
+        assert!(!timed(200_000).with_tempo(150_000, version_kind("song reverb")).synced);
+    }
 
     #[test]
     fn changed_versions_lose_their_marks() {

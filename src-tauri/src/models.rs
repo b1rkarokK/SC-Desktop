@@ -162,6 +162,9 @@ pub struct LyricsDto {
     /// the timings were made for a recording this many ms longer / shorter than ours
     #[serde(default)]
     pub length_off_ms: Option<u64>,
+    /// sped-up / slowed version: the original's timings multiplied by this (ours / the original's length)
+    #[serde(default)]
+    pub scaled_by: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -4395,3 +4395,35 @@ kbd {
 .rm-unban {
   margin-left: auto;
 }
+
+/* lyrics: the nudge under the text */
+.ly-nudge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.ly-nudge[hidden],
+.ly-nudge:empty {
+  display: none;
+}
+
+.ly-nudge-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.ly-nudge-val {
+  min-width: 70px;
+  text-align: center;
+}
+
+.ly-nudge-auto {
+  margin-left: 8px;
+  color: var(--accent);
+}

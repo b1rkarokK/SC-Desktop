@@ -211,7 +211,7 @@ pub struct LiveRoom {
     pub host_id: u64,
 }
 
-fn http() -> AppResult<reqwest::Client> {
+pub(crate) fn http() -> AppResult<reqwest::Client> {
     reqwest::Client::builder().timeout(Duration::from_secs(10)).build().map_err(|e| AppError::Other(e.to_string()))
 }
 
@@ -521,7 +521,8 @@ impl Rooms {
                         let v = view.lock().unwrap_or_else(|e| e.into_inner());
                         (v.host, LiveRoom { channel: ch.clone(), name: v.name.clone(), has_password: v.has_password, members: v.members.len().max(1), host_name: name.clone(), host_id: u.id })
                     };
-                    if host_now {
+                    // only an open room is shown to friends; one with a password is entered by invitation
+                    if host_now && !live.has_password {
                         let blob = crypto::seal(&dir_key(&h), &h, &serde_json::to_vec(&live).unwrap_or_default());
                         let _ = client.put(format!("{base}/dir/{h}")).body(blob).send().await;
                         announcing = true;

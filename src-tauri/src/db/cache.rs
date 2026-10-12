@@ -565,12 +565,13 @@ impl Db {
                     .query_row(
                         "SELECT CAST(json AS BLOB), fetched_at FROM lyrics2 WHERE track_id = ?1",
                         [track_id as i64],
-                        |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?)),
+                        // the time is read as whatever it is: a row left by an old version of the table has text there
+                        |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, rusqlite::types::Value>(1)?)),
                     )
                     .optional()?;
-                Ok(row.and_then(|(bytes, at)| match String::from_utf8(bytes) {
-                    Ok(json) => Some((json, at)),
-                    Err(_) => {
+                Ok(row.and_then(|(bytes, at)| match (String::from_utf8(bytes), at) {
+                    (Ok(json), rusqlite::types::Value::Integer(at)) => Some((json, at)),
+                    _ => {
                         let _ = c.execute("DELETE FROM lyrics2 WHERE track_id = ?1", [track_id as i64]);
                         None
                     }
