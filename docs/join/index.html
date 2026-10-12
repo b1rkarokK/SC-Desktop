@@ -3,49 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Присоединиться - SC Desk</title>
+<meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex">
+<title>SC Desk</title>
+<link rel="icon" href="../assets/favicon.png">
 <style>
-  :root { color-scheme: dark; --bg:#1a1a1a; --panel:#222; --text:#e8e8e8; --muted:#8c8c8c; --accent:#ff5500; --border:#333; }
+  :root { color-scheme: light dark; --bg:#f4f4f4; --panel:#fff; --text:#1a1a1a; --muted:#6b6b6b; --border:#e0e0e0; --accent:#ff5500; --shadow:0 24px 60px rgba(0,0,0,.14); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1a1a1a; --panel:#222; --text:#e0e0e0; --muted:#888; --border:#333; --shadow:0 24px 60px rgba(0,0,0,.55); } }
   * { box-sizing: border-box; }
-  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--bg); color:var(--text); font:16px/1.5 "Segoe UI", system-ui, sans-serif; }
-  main { width:100%; max-width:440px; padding:28px; border:1px solid var(--border); border-radius:14px; background:var(--panel); text-align:center; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--bg); color:var(--text); font:16px/1.6 "Segoe UI", system-ui, sans-serif; }
+  main { width:100%; max-width:440px; padding:30px; border:1px solid var(--border); border-radius:16px; background:var(--panel); box-shadow:var(--shadow); text-align:center; }
+  .logo { display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:18px; font-size:18px; font-weight:600; }
+  .logo b { color:var(--accent); }
   h1 { margin:0 0 6px; font-size:22px; font-weight:600; }
-  p { margin:0 0 18px; color:var(--muted); }
+  p { margin:0 0 20px; color:var(--muted); }
   .row { display:grid; gap:10px; }
-  a.btn { display:block; padding:11px 16px; border:1px solid var(--border); border-radius:8px; color:var(--text); text-decoration:none; font-weight:600; }
+  a.btn { display:block; padding:12px 16px; border:1px solid var(--border); border-radius:10px; color:var(--text); text-decoration:none; font-weight:600; transition:filter .15s, border-color .15s; }
   a.btn:hover { border-color:var(--muted); }
   a.primary { border-color:var(--accent); background:var(--accent); color:#fff; }
   a.primary:hover { filter:brightness(1.1); }
-  small { display:block; margin-top:16px; color:var(--muted); font-size:13px; }
+  small { display:block; margin-top:18px; color:var(--muted); font-size:13px; }
 </style>
 </head>
 <body>
 <main>
-  <h1 id="title">Открываем SC Desk…</h1>
-  <p id="text">Если окно не появилось, нажмите кнопку ниже.</p>
+  <div class="logo"><img src="../assets/icon.png" alt="" width="26" height="26"><span>SC <b>Desk</b></span></div>
+  <h1 id="title"></h1>
+  <p id="text"></p>
   <div class="row">
-    <a class="btn primary" id="open" href="#">Открыть в SC Desk</a>
-    <a class="btn" href="https://github.com/b1rkarokK/SC-Desktop/releases/latest">Скачать SC Desk</a>
+    <a class="btn primary" id="open" href="#"></a>
+    <a class="btn" id="get" href="https://github.com/b1rkarokK/SC-Desktop/releases/latest"></a>
   </div>
-  <small>SC Desk - бесплатный клиент SoundCloud для Windows. Слушать вместе можно только в программе.</small>
+  <small id="note"></small>
 </main>
 <script>
 (function () {
-  // #room/<код> or #playlist/<код>#<ключ> : the link the status button leads to
+  var ru = /^ru|^uk|^be/i.test(navigator.language || '');
+  var T = ru
+    ? { room: 'Вас зовут в комнату', list: 'Вас зовут в общий плейлист', opening: 'Открываем SC Desk. Если окно не появилось, нажмите кнопку.', open: 'Открыть в SC Desk', get: 'У меня нет программы: скачать', note: 'SC Desk - бесплатный клиент SoundCloud для Windows. Слушать вместе можно только в программе.', bad: 'Ссылка не распознана', badText: 'Попросите прислать приглашение ещё раз или скачайте программу.' }
+    : { room: 'You are invited to a room', list: 'You are invited to a shared playlist', opening: 'Opening SC Desk. If no window appeared, press the button.', open: 'Open in SC Desk', get: 'I do not have the app: download', note: 'SC Desk is a free SoundCloud client for Windows. Listening together works only in the app.', bad: 'The link is not recognised', badText: 'Ask for the invitation again or download the app.' };
+  document.documentElement.lang = ru ? 'ru' : 'en';
+  document.title = 'SC Desk';
+  var $ = function (id) { return document.getElementById(id); };
+  $('open').textContent = T.open;
+  $('get').textContent = T.get;
+  $('note').textContent = T.note;
+  // #room/<code> or #playlist/<code>#<key>: the link the status button leads to
   var m = /^#(room|playlist)\/([A-Za-z0-9_-]{16,64})(?:#([A-Za-z0-9_-]{20,80}))?$/.exec(location.hash);
-  var open = document.getElementById('open');
   if (!m) {
-    document.getElementById('title').textContent = 'Ссылка не распознана';
-    document.getElementById('text').textContent = 'Попросите прислать приглашение ещё раз или скачайте программу.';
-    open.style.display = 'none';
+    $('title').textContent = T.bad;
+    $('text').textContent = T.badText;
+    $('open').style.display = 'none';
     return;
   }
+  $('title').textContent = m[1] === 'playlist' ? T.list : T.room;
+  $('text').textContent = T.opening;
   var link = 'scdesk://' + m[1] + '/' + m[2] + (m[3] ? '#' + m[3] : '');
-  open.href = link;
-  if (m[1] === 'playlist') document.getElementById('title').textContent = 'Открываем общий плейлист…';
+  $('open').href = link;
   // a moment for the page to show, then hand the link to Windows (nothing happens if the program is not there)
-  setTimeout(function () { location.href = link; }, 400);
+  setTimeout(function () { location.href = link; }, 500);
 })();
 </script>
 </body>

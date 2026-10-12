@@ -3,38 +3,96 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SC Desk</title>
-<meta name="description" content="SC Desk - бесплатный клиент SoundCloud для Windows без рекламы: лайки, волна, синхронные тексты, комнаты для совместного прослушивания.">
-<style>
-  :root { color-scheme: dark; --bg:#1a1a1a; --panel:#222; --text:#e8e8e8; --muted:#8c8c8c; --accent:#ff5500; --border:#333; }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:48px 24px; background:var(--bg); color:var(--text); font:16px/1.6 "Segoe UI", system-ui, sans-serif; }
-  main { max-width:640px; margin:0 auto; }
-  h1 { margin:0 0 8px; font-size:34px; }
-  h1 span { color:var(--accent); }
-  p.lead { margin:0 0 24px; color:var(--muted); font-size:18px; }
-  a.btn { display:inline-block; padding:12px 22px; border-radius:8px; background:var(--accent); color:#fff; text-decoration:none; font-weight:600; }
-  a.btn:hover { filter:brightness(1.1); }
-  ul { margin:32px 0 0; padding:0; list-style:none; display:grid; gap:12px; }
-  li { padding:14px 16px; border:1px solid var(--border); border-radius:10px; background:var(--panel); }
-  li b { display:block; }
-  li span { color:var(--muted); }
-  footer { margin-top:40px; color:var(--muted); font-size:13px; }
-  footer a { color:var(--muted); }
-</style>
+<meta name="color-scheme" content="light dark">
+<title>SC Desk: SoundCloud без рекламы для Windows</title>
+<meta name="description" content="SC Desk - бесплатный клиент SoundCloud для Windows без рекламы: умная волна, комнаты для совместного прослушивания, общие плейлисты, тексты песен по словам.">
+<meta property="og:title" content="SC Desk: SoundCloud без рекламы для Windows">
+<meta property="og:description" content="SC Desk - бесплатный клиент SoundCloud для Windows без рекламы: умная волна, комнаты для совместного прослушивания, общие плейлисты, тексты песен по словам.">
+<meta property="og:image" content="assets/rooms-dark.webp">
+<link rel="icon" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-<main>
-  <h1>SC <span>Desk</span></h1>
-  <p class="lead">SoundCloud на компьютере без рекламы и лишней нагрузки.</p>
-  <a class="btn" href="https://github.com/b1rkarokK/SC-Desktop/releases/latest">Скачать для Windows</a>
-  <ul>
-    <li><b>Моя волна</b><span>Подборка под ваш вкус, которая учится на том, что вы слушаете и пропускаете.</span></li>
-    <li><b>Комнаты</b><span>Слушайте вместе с друзьями: один трек у всех одновременно, звук и переписка не передаются.</span></li>
-    <li><b>Общие плейлисты</b><span>Один список на всех, у каждого трека видно, кто его добавил.</span></li>
-    <li><b>Синхронные тексты</b><span>Тексты песен по строкам и по словам, режим во весь экран.</span></li>
-  </ul>
-  <footer>Неофициальный клиент, не связан с SoundCloud. <a href="https://github.com/b1rkarokK/SC-Desktop">Исходный код</a>.</footer>
+<header class="top">
+  <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="24" height="24"><span>SC <b>Desk</b></span></a>
+  <nav><a href="#story">Возможности</a><a href="https://github.com/b1rkarokK/SC-Desktop">GitHub</a><a class="lang" href="en/" hreflang="en" lang="en">English</a></nav>
+  <a class="btn primary dl-link" href="https://github.com/b1rkarokK/SC-Desktop/releases/latest" data-download>Скачать<small class="ver"></small></a>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <h1>SoundCloud на компьютере.<br><span>Без рекламы.</span></h1>
+    <p class="lead">Волна под ваш вкус, комнаты для совместного прослушивания, общие плейлисты и тексты песен по словам.</p>
+    <div class="cta">
+      <a class="btn primary big dl-link" href="https://github.com/b1rkarokK/SC-Desktop/releases/latest" data-download>Скачать для Windows<small class="ver"></small></a>
+      <a class="btn big" href="https://github.com/b1rkarokK/SC-Desktop">Исходный код</a>
+    </div>
+    <p class="meta"><span>Бесплатно · Windows 10 и 11</span><span class="meta-size"></span></p>
+    <div class="window hero-window">
+      <div class="winbar"><i></i><i></i><i></i></div>
+      <picture><source media="(prefers-color-scheme: light)" srcset="assets/wave-light.webp"><img class="" src="assets/wave-dark.webp" width="2000" height="1267" alt="Моя волна" decoding="async"></picture>
+    </div>
+  </section>
+
+  <section class="story" id="story" aria-label="Возможности">
+    <div class="story-sticky">
+      <div class="story-copy">
+        <ol class="caps">
+          <li class="cap is-on" data-step="0"><span class="step-no">1 из 4</span><h3>Моя волна</h3><p>Подборка, которая учится на ваших лайках, пропусках и на том, как звучат треки. Настроение на выбор: больше нового, только знакомое, спокойнее или энергичнее.</p></li>
+          <li class="cap" data-step="1"><span class="step-no">2 из 4</span><h3>Комнаты</h3><p>Слушайте вместе с друзьями: один трек у всех одновременно, с точностью до долей секунды. Звук и переписка не передаются, только команды. Комната живёт, даже когда в ней никого нет.</p></li>
+          <li class="cap" data-step="2"><span class="step-no">3 из 4</span><h3>Общие плейлисты</h3><p>Один список на всех. Видно, кто что добавил, есть история изменений и роли. Оформите его картинкой или цветом и нажмите «Играть вместе».</p></li>
+          <li class="cap" data-step="3"><span class="step-no">4 из 4</span><h3>Тексты</h3><p>Тексты песен по строкам и по словам, полноэкранный режим и поиск ваших лайков по строчке из песни.</p></li>
+        </ol>
+        <div class="ticks" aria-hidden="true"><span class="tick is-on"></span><span class="tick"></span><span class="tick"></span><span class="tick"></span></div>
+      </div>
+      <div class="stage">
+        <div class="window">
+          <div class="winbar"><i></i><i></i><i></i></div>
+          <div class="shots">
+            <div class="shot is-on" data-step="0" data-x="23" data-y="27"><picture><source media="(prefers-color-scheme: light)" srcset="assets/wave-light.webp"><img class="" src="assets/wave-dark.webp" width="2000" height="1267" alt="Моя волна" decoding="async"></picture></div>
+            <div class="shot" data-step="1" data-x="70.4" data-y="16.7"><picture><source media="(prefers-color-scheme: light)" srcset="assets/rooms-light.webp"><img class="" src="assets/rooms-dark.webp" width="2000" height="1267" alt="Комнаты" loading="lazy" decoding="async"></picture></div>
+            <div class="shot" data-step="2" data-x="20" data-y="40"><picture><source media="(prefers-color-scheme: light)" srcset="assets/shared-light.webp"><img class="" src="assets/shared-dark.webp" width="2000" height="1267" alt="Общие плейлисты" loading="lazy" decoding="async"></picture></div>
+            <div class="shot" data-step="3" data-x="84.5" data-y="15.2"><picture><source media="(prefers-color-scheme: light)" srcset="assets/lyrics-light.webp"><img class="" src="assets/lyrics-dark.webp" width="2000" height="1267" alt="Тексты песен" loading="lazy" decoding="async"></picture></div>
+            <span class="cursor" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M5 3l14 8-6 1.6L9.6 19z"/></svg></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features">
+    <ul>
+        <li><h3>Без рекламы</h3><p>Только музыка: никаких вставок между треками.</p></li>
+        <li><h3>Всё у вас</h3><p>Лайки, история и настройки хранятся на вашем компьютере. Комнаты и общие плейлисты шифруются на ваших устройствах.</p></li>
+        <li><h3>Открытый код</h3><p>Код программы можно прочитать и проверить на GitHub.</p></li>
+    </ul>
+  </section>
+
+  <section class="download" id="download">
+    <h2>Скачать SC Desk</h2>
+    <p>Установщик для Windows 10 и 11. Дальше программа обновляется сама.</p>
+    <a class="btn primary big dl-link" href="https://github.com/b1rkarokK/SC-Desktop/releases/latest" data-download>Скачать для Windows<small class="ver"></small></a>
+    <details>
+      <summary>Windows пишет «Неизвестный издатель»?</summary>
+      <p>У программы пока нет цифровой подписи, поэтому SmartScreen может предупредить. Нажмите «Подробнее», затем «Выполнить в любом случае». Исходный код открыт, а контрольную сумму файла можно сверить командой Get-FileHash.</p>
+    </details>
+    <details class="verify" hidden>
+      <summary>Проверить скачанный файл</summary>
+      <dl class="facts">
+        <div><dt>Версия</dt><dd class="f-ver"></dd></div>
+        <div><dt>МБ</dt><dd class="f-size"></dd></div>
+        <div class="wide"><dt>Контрольная сумма SHA-256</dt><dd class="f-hash"></dd></div>
+      </dl>
+    </details>
+  </section>
 </main>
+
+<footer>
+  <span>Made by b1rkarokK</span>
+  <span>Неофициальный клиент, не связан с SoundCloud.</span>
+  <a href="https://github.com/b1rkarokK/SC-Desktop">GitHub</a>
+</footer>
+<script src="assets/site.js" defer></script>
 </body>
 </html>
