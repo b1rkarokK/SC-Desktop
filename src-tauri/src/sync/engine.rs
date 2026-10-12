@@ -147,6 +147,8 @@ struct Engine {
     snap: Option<RoomSnapshot>,
     clock: ClockSync,
     welcomed: bool,
+    /// the track the room is on is still being loaded here: the host's play state waits for it
+    awaiting_load: bool,
     ping_sent: u32,
     trim_until: Option<Instant>,
     seq_loading: Option<u64>,
@@ -463,6 +465,9 @@ impl Engine {
 
     fn apply_play(&mut self, st: PlayState) {
         self.last_play = Some(st);
+        if self.awaiting_load {
+            return;
+        }
         let host_now = self.host_now();
         let want = st.position_at(host_now);
         let Some(mine) = self.port.position_ms() else {
@@ -497,8 +502,17 @@ impl Engine {
                 self.welcomed = true;
                 self.clock.set_rough(host_now - self.now());
                 self.host_pub = Some(host_pub);
+                // joined in the middle of a track: load it like any other, then catch up with the host
+                let current = room.current.clone();
+                self.last_play = room.play;
                 self.snap = Some(room);
                 self.ping_sent = 0;
+                if let Some((seq, item)) = current {
+                    self.seq_loading = Some(seq);
+                    self.awaiting_load = true;
+                    self.port.prepare(&item);
+                    self.send(&Msg::Status { id: me, status: Status::Loading }, false);
+                }
                 self.publish();
             }
             Msg::Denied { to, reason } if to == me => {
@@ -520,6 +534,8 @@ impl Engine {
             }
             Msg::Load { seq, item } => {
                 self.seq_loading = Some(seq);
+                self.awaiting_load = true;
+                self.last_play = None;
                 if let Some(s) = self.snap.as_mut() {
                     s.current = Some((seq, item.clone()));
                     s.play = None;
@@ -565,6 +581,11 @@ impl Engine {
             Cmd::Loaded { ok } => {
                 let seq = self.seq_loading.unwrap_or(0);
                 self.send(&Msg::Loaded { seq, id: me, ok }, false);
+                self.awaiting_load = false;
+                // a track that was already playing when we came: catch up with the host now
+                if let Some(st) = self.last_play {
+                    self.apply_play(st);
+                }
             }
             Cmd::Leave => {
                 self.send(&Msg::Leave { id: me }, false);
@@ -636,6 +657,7 @@ pub fn start(
         snap: None,
         clock: ClockSync::default(),
         welcomed: false,
+        awaiting_load: false,
         ping_sent: 0,
         trim_until: None,
         seq_loading: None,
@@ -831,6 +853,27 @@ pub(crate) mod tests {
             let gap = if h0 > a0 { h0 - a0 } else { a0 - h0 };
             assert!(gap < Duration::from_millis(60), "start moments differ by {gap:?}");
             assert_eq!(st(&host).as_deref(), Some("playing"));
+        });
+    }
+
+    #[test]
+    fn joining_in_the_middle_of_a_track_loads_it_and_catches_up() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-mid", "", &net, "host", true);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 1, 3000).await);
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| hp.started.lock().unwrap().is_some(), 3000).await, "the host plays alone");
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+
+            let (anna, ap) = room("chan-mid", "", &net, "anna", false);
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 4000).await, "anna is asked to load the track in progress");
+            assert!(!*ap.playing.lock().unwrap(), "not before it is loaded");
+            anna.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| *ap.playing.lock().unwrap(), 6000).await, "anna plays after loading");
+            let (h, a) = (hp.position.load(Ordering::SeqCst).max(hp.position_ms().unwrap_or(0)), ap.position_ms().unwrap_or(-1));
+            assert!((a - hp.position_ms().unwrap_or(0)).abs() < 400, "anna stands at {a} ms, host at {h} ms");
         });
     }
 
