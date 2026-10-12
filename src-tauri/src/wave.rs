@@ -362,25 +362,37 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     let ctx_ids: HashSet<u64> = ctx_tracks.iter().map(|t| t.id).collect();
     let profile = {
         // with a context its tracks lead; the likes only colour it a little
-        let like_w = if ctx_tracks.is_empty() { 1.0 } else { 0.25 };
+        let like_w = if ctx_tracks.is_empty() { 1.0 } else { 0.06 };
         let mut weighted: Vec<(&ScTrack, f64)> = ctx_tracks.iter().map(|t| (t, 3.0)).collect();
         weighted.extend(liked.iter().enumerate().map(|(i, t)| (t, like_w * recency_weight(i))));
         Profile::build(&weighted, &signals)
+    };
+    // how a candidate fits the playlist / album / track itself (not the whole taste)
+    let ctx_profile = if ctx_tracks.len() >= 3 {
+        let w: Vec<(&ScTrack, f64)> = ctx_tracks.iter().map(|t| (t, 1.0)).collect();
+        Some(Profile::build(&w, &[]))
+    } else {
+        None
     };
     // the taste model: what is kept vs. what is skipped (a few ms, see wave_model.rs)
     let trained_at = std::time::Instant::now();
     let model = {
         use crate::wave_model::{Model, Sample};
         let mut samples: Vec<Sample> = Vec::new();
+        // a context wave: the general taste counts less, the context's own tracks are the yes
+        let g: f32 = if ctx_tracks.is_empty() { 1.0 } else { 0.25 };
+        for t in ctx_tracks {
+            samples.push(Sample { track: t.clone(), positive: true, weight: 2.0, ctx: None });
+        }
         // likes are the strongest, but carry no time of day
         for (i, t) in liked.iter().enumerate() {
-            samples.push(Sample { track: t.clone(), positive: true, weight: recency_weight(i) as f32, ctx: None });
+            samples.push(Sample { track: t.clone(), positive: true, weight: g * recency_weight(i) as f32, ctx: None });
         }
         // plain plays: a weak yes, with the hour and weekday they happened at
         for (i, (t, hour, weekday)) in state.db.plays_timed(1500).await?.into_iter().enumerate() {
             if !liked_ids.contains(&t.id) {
                 let ctx = Some(crate::wave_model::context(hour, weekday));
-                samples.push(Sample { track: t, positive: true, weight: 0.4 * recency_weight(i) as f32, ctx });
+                samples.push(Sample { track: t, positive: true, weight: g * 0.4 * recency_weight(i) as f32, ctx });
             }
         }
         // wave feedback: listened to the end > plain play; an early skip is a no
@@ -550,6 +562,14 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
             };
             // skipped once in this session: less of this artist for now
             let session = if state.wave.session_skips(t.artist_id()) == 1 { 0.5 } else { 1.0 };
+            // inside a playlist wave: no common genre or tag with it means a different vibe
+            let fit = ctx_profile.as_ref().map_or(1.0, |c| {
+                let known = norm_genre(&t).is_some() || !parse_tags(t.tag_list.as_deref().unwrap_or("")).is_empty();
+                if !known {
+                    return 0.6;
+                }
+                (0.2 + 1.2 * c.genre_affinity(&t) + 1.4 * c.tag_affinity(&t) + 0.5 * c.artist_affinity(&t)).clamp(0.2, 3.0)
+            });
             let w = (1.0
                 + 0.6 * (n.saturating_sub(1)) as f64
                 + 1.5 * profile.genre_affinity(&t)
@@ -559,7 +579,8 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
                 * mood_factor(&mood, &t)
                 * profile.feedback_factor(&t)
                 * model.as_ref().map_or(1.0, |m| m.factor(&t, explore))
-                * session;
+                * session
+                * fit;
             (w, t)
         })
         .collect();
