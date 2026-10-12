@@ -4180,3 +4180,28 @@ kbd {
   margin: 0 6px;
   background: var(--border);
 }
+
+.dev-btn {
+  background: transparent;
+}
+
+.dev-btn:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-color: var(--muted);
+}
+
+.dev-pop,
+.room-pop-card {
+  background: var(--panel);
+  color: var(--text);
+}
+
+[data-theme="oled"] .dev-pop,
+[data-theme="oled"] .room-pop-card {
+  border-color: #2a2a2a;
+}
+
+[data-theme="light"] .dev-pop,
+[data-theme="light"] .room-pop-card {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
