@@ -131,7 +131,7 @@ impl Default for AppConfig {
             discord: DiscordConfig::default(),
             start_minimized: true,
             fast_protected: true,
-            sync_url: "https://sc-desk-sync.sc-desk-sync.workers.dev".to_owned(),
+            sync_url: DEFAULT_SYNC_URL.to_owned(),
             auto_pause_call: false,
             auto_pause_game: false,
             eq_per_device: true,
@@ -198,4 +198,11 @@ fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
 
 fn yes() -> bool {
     true
+}
+
+/// The relay that ships with the app; an empty setting means this one.
+pub const DEFAULT_SYNC_URL: &str = "https://sc-desk-sync.sc-desk-sync.workers.dev";
+
+pub fn sync_base(saved: &str) -> String {
+    if saved.trim().is_empty() { DEFAULT_SYNC_URL.to_owned() } else { saved.trim().to_owned() }
 }

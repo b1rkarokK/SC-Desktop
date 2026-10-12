@@ -129,7 +129,7 @@ fn http() -> AppResult<reqwest::Client> {
 }
 
 fn server(state: &AppState) -> AppResult<String> {
-    let url = state.config.get().sync_url;
+    let url = crate::config::sync_base(&state.config.get().sync_url);
     if url.trim().is_empty() {
         return Err(AppError::Other(crate::lang::pick(
             "Укажите адрес сервера синхронизации в Настройках: без него комнаты не работают.",

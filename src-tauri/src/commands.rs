@@ -1614,7 +1614,7 @@ pub fn system_set(
 
 #[tauri::command]
 pub fn sync_url_get(state: State<'_, AppState>) -> String {
-    state.config.get().sync_url
+    crate::config::sync_base(&state.config.get().sync_url)
 }
 
 #[tauri::command]
