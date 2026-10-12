@@ -6,7 +6,10 @@ import { Copy, Minus, Square, X, type IconNode } from 'lucide';
 import { h } from './dom';
 import { icon, scLogo, setIcon } from './icons';
 import { T } from './i18n';
+import { api, errorMessage, type AudioDevices } from './api';
+import { I } from './icons';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { onRoom, room } from './views/rooms';
 import { router } from './router';
 import { toast } from './dom';
@@ -62,12 +65,88 @@ function roomPill(): HTMLElement {
   return pill;
 }
 
+/** What kind of device a name sounds like, for the little icon. */
+function deviceIcon(name: string): IconNode {
+  const n = name.toLowerCase();
+  if (/науш|headphone|headset|гарнитур|airpods|buds|bluetooth/.test(n)) return I.headphones;
+  if (/hdmi|монитор|monitor|display|tv|телев/.test(n)) return I.monitor;
+  return I.speaker;
+}
+
+/** Where the sound goes: the device in a capsule next to the window buttons, a list to pick another. */
+function deviceButton(): HTMLElement {
+  const iconBox = h('span', { class: 'dev-icon' });
+  const label = h('span', { class: 'dev-name', text: '' });
+  const list = h('div', { class: 'dev-pop panel', role: 'menu' });
+  const btn = h('button', { type: 'button', class: 'dev-btn', 'aria-haspopup': 'menu', title: T('Куда идёт звук') }, iconBox, label, icon(I.chevronDown, 12));
+  const root = h('div', { class: 'dev-wrap' }, btn, list);
+  list.hidden = true;
+  let data: AudioDevices | null = null;
+  const show = (d: AudioDevices) => {
+    data = d;
+    const now = d.current ?? d.system ?? '';
+    label.textContent = now ? (d.picked ? now : now) : T('Звук');
+    label.title = d.picked ? now : T('Как в системе: {0}', now);
+    iconBox.replaceChildren(icon(deviceIcon(now), 15));
+    root.hidden = !now && !d.devices.length;
+  };
+  const refresh = async () => {
+    try {
+      show(await api.audioDevices());
+    } catch {
+      /* no device list: the button stays as it was */
+    }
+  };
+  const pick = async (name: string | null) => {
+    list.hidden = true;
+    try {
+      await api.audioDeviceSet(name);
+      setTimeout(() => void refresh(), 500);
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  };
+  const row = (text: string, sub: string | null, on: boolean, name: string | null) => {
+    const r = h('button', { type: 'button', class: `dev-row${on ? ' is-on' : ''}`, role: 'menuitem' }, h('span', { class: 'dev-check' }, on ? icon(I.check, 14) : null), h('span', { class: 'dev-text' }, h('span', { class: 'dev-title', dir: 'auto', text }), sub ? h('span', { class: 'muted small', dir: 'auto', text: sub }) : null));
+    r.addEventListener('click', () => void pick(name));
+    return r;
+  };
+  const draw = () => {
+    if (!data) return;
+    const d = data;
+    list.replaceChildren(
+      h('div', { class: 'dev-head', text: T('Вывод звука') }),
+      row(T('Как в системе'), d.system ? T('сейчас: {0}', d.system) : null, !d.picked || !d.devices.includes(d.picked), null),
+      ...d.devices.map((n) => row(n, null, d.picked === n && d.devices.includes(n), n)),
+      h('div', { class: 'dev-note muted small', text: T('Треки в плеере SoundCloud (защищённые) идут на устройство по умолчанию.') }),
+    );
+  };
+  btn.addEventListener('click', async () => {
+    if (!list.hidden) {
+      list.hidden = true;
+      return;
+    }
+    await refresh();
+    draw();
+    list.hidden = false;
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!list.hidden && !root.contains(e.target as Node)) list.hidden = true;
+  }, true);
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && (list.hidden = true));
+  void listen('audio:device', () => void refresh());
+  void refresh();
+  return root;
+}
+
 export class TitleBar {
   constructor(host: HTMLElement) {
     host.append(
       h('div', { class: 'tb-brand', 'data-tauri-drag-region': true }, scLogo(24), h('span', { class: 'tb-name', 'data-tauri-drag-region': true, text: 'SC Desk' })),
       h('div', { class: 'tb-drag', 'data-tauri-drag-region': true }),
       roomPill(),
+      deviceButton(),
+      h('div', { class: 'tb-sep' }),
       windowControls(),
     );
   }

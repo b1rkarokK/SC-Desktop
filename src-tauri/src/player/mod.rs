@@ -1586,6 +1586,7 @@ impl Player {
     /// The output device changed: its own equalizer, if it has one, takes over.
     fn on_device(self: &Arc<Self>, name: String) {
         *self.device.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.clone());
+        let _ = self.app.emit("audio:device", &name);
         let state = self.app.state::<AppState>();
         let cfg = state.config.get();
         if !cfg.eq_per_device {
@@ -1610,6 +1611,11 @@ impl Player {
     /// Speed trim of a room: 1.0 normal, a little more / less to catch up.
     pub fn room_trim(&self, factor: f32) {
         self.out(AudioCmd::Trim(factor));
+    }
+
+    /// Play to this output device; None follows the system's default.
+    pub fn set_output_device(&self, name: Option<String>) {
+        self.out(AudioCmd::Device(name));
     }
 
     pub fn current_device(&self) -> Option<String> {

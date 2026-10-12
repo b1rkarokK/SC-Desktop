@@ -50,6 +50,8 @@ pub enum AudioCmd {
     Hold(bool),
     /// 1 ± a little faster / slower than the effects' speed, to bring a room back together
     Trim(f32),
+    /// play to this output device (None: the system's default, followed as it changes)
+    Device(Option<String>),
 }
 
 #[derive(Debug)]
@@ -143,6 +145,8 @@ struct Engine {
     fx: Arc<FxShared>,
     /// name of the device the open stream plays to
     device: Option<String>,
+    /// the device the user picked; if it is not there (unplugged) the system's default plays
+    preferred: Option<String>,
     ticks: u32,
     /// loudness gain and length of the current track
     gain: f32,
@@ -173,6 +177,7 @@ impl Engine {
             fading_out: None,
             fade: None,
             device: None,
+            preferred: None,
             ticks: 0,
             stream: None,
             sink: None,
@@ -256,6 +261,17 @@ impl Engine {
             AudioCmd::Crossfade(len) => self.crossfade = len,
             AudioCmd::Hold(on) => self.hold = on,
             AudioCmd::Trim(f) => self.trim = f.clamp(0.9, 1.1),
+            AudioCmd::Device(name) => {
+                self.preferred = name;
+                // playing: move to the new device at the same place
+                if self.stream.is_some() && self.target_device() != self.device {
+                    let (pos, paused) = self.sink.as_ref().map_or((None, false), |s| (Some(s.get_pos()), s.is_paused()));
+                    self.stream = None;
+                    if self.sink.is_some() {
+                        self.start(pos, paused);
+                    }
+                }
+            }
             AudioCmd::Replay { generation } => {
                 if generation == self.generation {
                     self.position_ms.store(0, Ordering::Relaxed);
@@ -378,8 +394,16 @@ impl Engine {
         }
     }
 
+    /// The device that should play now: the picked one if it is there, else the system's default.
+    fn target_device(&self) -> Option<String> {
+        match &self.preferred {
+            Some(want) if output_device_names().iter().any(|n| n == want) => Some(want.clone()),
+            _ => default_device_name(),
+        }
+    }
+
     fn device_changed(&self) -> bool {
-        self.stream.is_some() && default_device_name() != self.device
+        self.stream.is_some() && self.target_device() != self.device
     }
 
     fn output(&mut self) -> Result<OutputStreamHandle, String> {
@@ -388,8 +412,13 @@ impl Engine {
             self.stream = None;
         }
         if self.stream.is_none() {
-            let pair = OutputStream::try_default().map_err(|e| e.to_string())?;
-            self.device = default_device_name();
+            let target = self.target_device();
+            let pair = match open_named(target.as_deref(), self.preferred.is_some()) {
+                Some(Ok(p)) => p,
+                // the picked device refused: the default one
+                _ => OutputStream::try_default().map_err(|e| e.to_string())?,
+            };
+            self.device = target;
             tracing::debug!(device = ?self.device, "audio device opened");
             if let Some(name) = self.device.clone() {
                 let _ = self.events.send(AudioEvent::Device { name });
@@ -448,6 +477,28 @@ impl Engine {
         tracing::error!(%message, "playback error");
         let _ = self.events.send(AudioEvent::Error { generation: self.generation, message });
     }
+}
+
+/// Names of every output device the system has.
+pub fn output_device_names() -> Vec<String> {
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+    let Ok(devices) = rodio::cpal::default_host().output_devices() else { return Vec::new() };
+    let mut names: Vec<String> = devices.filter_map(|d| d.name().ok()).collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+pub fn system_device_name() -> Option<String> {
+    default_device_name()
+}
+
+/// Open the output stream on the device of this name (only when one was picked).
+fn open_named(name: Option<&str>, picked: bool) -> Option<Result<(OutputStream, OutputStreamHandle), String>> {
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+    let name = name.filter(|_| picked)?;
+    let device = rodio::cpal::default_host().output_devices().ok()?.find(|d| d.name().is_ok_and(|n| n == name))?;
+    Some(OutputStream::try_from_device(&device).map_err(|e| e.to_string()))
 }
 
 fn default_device_name() -> Option<String> {

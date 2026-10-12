@@ -91,6 +91,10 @@ fn main() {
             let start_hidden = state.config.get().start_minimized && std::env::args().any(|a| a == MINIMIZED_FLAG);
             app.manage(state);
             app.manage(player::Player::start(handle.clone())?);
+            // the output device picked last time (it follows the system's if it is gone)
+            if let Some(name) = app.state::<state::AppState>().config.get().output_device {
+                app.state::<std::sync::Arc<player::Player>>().set_output_device(Some(name));
+            }
             tray::build(&handle)?;
             hotkeys::register(&handle);
             updater::start(&handle);
@@ -293,6 +297,8 @@ fn main() {
             commands::lyrics_index_run,
             commands::viz_set,
             commands::eq_set,
+            commands::audio_devices,
+            commands::audio_device_set,
             commands::eq_device_get,
             commands::eq_per_device_set,
             commands::discord_set,

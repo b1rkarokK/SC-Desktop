@@ -853,4 +853,10 @@ export const EN: Record<string, string> = {
   'Присоединиться к общему плейлисту по ссылке?': 'Join the shared playlist from the link?',
   'Вы зайдёте в комнату, где слушают вместе.': 'You will enter a room where people listen together.',
   'Плейлист появится в разделе «Общие плейлисты».': 'The playlist will appear in "Shared playlists".',
+  'Куда идёт звук': 'Where the sound goes',
+  'Звук': 'Sound',
+  'Как в системе: {0}': 'As in the system: {0}',
+  'Вывод звука': 'Sound output',
+  'сейчас: {0}': 'now: {0}',
+  'Треки в плеере SoundCloud (защищённые) идут на устройство по умолчанию.': 'Tracks in the SoundCloud player (protected ones) go to the default device.',
 };

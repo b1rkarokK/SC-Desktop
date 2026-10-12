@@ -4064,3 +4064,116 @@ kbd {
 .rm-q .icon-btn:hover {
   color: var(--text);
 }
+
+/* ---- title bar: where the sound goes */
+.dev-wrap {
+  position: relative;
+  align-self: center;
+  margin-right: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.dev-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.dev-btn:hover {
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.dev-icon {
+  display: grid;
+  flex: none;
+}
+
+.dev-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  min-width: 270px;
+  max-width: 340px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.dev-pop[hidden] {
+  display: none;
+}
+
+.dev-head {
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dev-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.dev-row:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.dev-row.is-on {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.dev-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  color: var(--accent, #ff5500);
+}
+
+.dev-text {
+  display: grid;
+  min-width: 0;
+}
+
+.dev-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-note {
+  padding: 6px 8px 4px;
+}
+
+.tb-sep {
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--border);
+}

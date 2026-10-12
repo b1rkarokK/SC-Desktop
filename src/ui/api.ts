@@ -271,6 +271,13 @@ export function errorMessage(e: unknown): string {
   return text.charAt(0).toLocaleUpperCase() + text.slice(1);
 }
 
+export interface AudioDevices {
+  devices: string[];
+  picked: string | null;
+  current: string | null;
+  system: string | null;
+}
+
 export interface PendingLike {
   track: Track;
   liked: boolean;
@@ -448,6 +455,8 @@ export const api = {
   queuePlay: (at: number) => invoke<void>('queue_play', { at }),
   playlistSetTracks: (playlistId: number, trackIds: number[]) => invoke<void>('playlist_set_tracks', { playlistId, trackIds }),
   eqSet: (eq: EqConfig, persist: boolean) => invoke<void>('eq_set', { eq, persist }),
+  audioDevices: () => invoke<AudioDevices>('audio_devices'),
+  audioDeviceSet: (name: string | null) => invoke<void>('audio_device_set', { name }),
   eqDeviceGet: () => invoke<{ device: string | null; per_device: boolean; known: boolean }>('eq_device_get'),
   eqPerDeviceSet: (on: boolean) => invoke<void>('eq_per_device_set', { on }),
   discordSet: (discord: DiscordConfig) => invoke<void>('discord_set', { discord }),

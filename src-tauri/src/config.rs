@@ -107,6 +107,9 @@ pub struct AppConfig {
     /// the equalizer is remembered per output device (speakers, headphones…) and switches with it
     #[serde(default = "yes")]
     pub eq_per_device: bool,
+    /// the output device picked in the title bar (None: the system's default)
+    #[serde(default)]
+    pub output_device: Option<String>,
     /// device name -> its equalizer
     #[serde(default)]
     pub eq_by_device: std::collections::BTreeMap<String, EqConfig>,
@@ -143,6 +146,7 @@ impl Default for AppConfig {
             eq_by_device: Default::default(),
             wave_no_liked: true,
             notify_new: true,
+            output_device: None,
             notify_rooms: true,
             autostart_initialized: false,
             ui:serde_json::Value::Object(Default::default()),

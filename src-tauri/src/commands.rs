@@ -1528,6 +1528,31 @@ pub struct EqDevice {
     known: bool,
 }
 
+#[derive(serde::Serialize)]
+pub struct AudioDevices {
+    /// every output device
+    devices: Vec<String>,
+    /// the picked one (None: follow the system)
+    picked: Option<String>,
+    /// where the sound goes now
+    current: Option<String>,
+    /// the system's default
+    system: Option<String>,
+}
+
+#[tauri::command]
+pub fn audio_devices(state: State<'_, AppState>, player: State<'_, Arc<Player>>) -> AudioDevices {
+    AudioDevices { devices: crate::player::audio::output_device_names(), picked: state.config.get().output_device, current: player.current_device(), system: crate::player::audio::system_device_name() }
+}
+
+/// Pick the output device (None: the system's, followed as it changes).
+#[tauri::command]
+pub fn audio_device_set(state: State<'_, AppState>, player: State<'_, Arc<Player>>, name: Option<String>) -> Cmd<()> {
+    state.config.update(|c| c.output_device = name.clone())?;
+    player.set_output_device(name);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn eq_device_get(state: State<'_, AppState>, player: State<'_, Arc<Player>>) -> EqDevice {
     let cfg = state.config.get();
