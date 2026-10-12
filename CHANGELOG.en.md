@@ -3,6 +3,20 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.8.0] - 2026-10-12
+
+- "Rooms": listen together, one track at everyone's place at once. Audio and chat are not sent, only commands. A room stays in "My rooms" even when nobody is in it: whoever comes first becomes the host, and when the host leaves the music goes on and the next person takes over. Pause, seek, next and previous from the host work for everyone, and a track a member clicks goes to the room's queue. On every tab a "You are in a room" badge in the title bar offers quick actions.
+- "Shared playlists": one list for everybody, every track shows who added it, and there is a history of changes. Roles (owner, editor, viewer) and access: private, by link, by invitation, open. Appearance: your own picture, a colour or the artwork of the tracks. "Play together" creates a room with the playlist's queue.
+- `scdesk://` links open a room or a shared playlist right in the app (it asks before joining).
+- Rooms and shared playlists use a free sync server that is already built in. Everything is encrypted on your devices, the server only sees ciphertext.
+- "My Wave" takes into account how the tracks you listened to sound (tempo, brightness, energy), and a wave from a playlist is now closer to the playlist itself.
+- Lyrics match the sound better: the clock corrects itself in both directions, the version of the text is chosen by the track's length, and a note warns when it differs a lot.
+- The Discord status shows where you are in the app ("Browsing likes", "On the home page") and when you are in a room. The "Join" button for an open room is turned on in the settings.
+- The equalizer is remembered separately for every output device, the sliders no longer get stuck. The equalizer and the queue close with a click elsewhere.
+- Auto-pause during a call and during a full-screen game (off by default, turned on in the settings).
+- A backup of likes, history and settings, "Copy log", search of your likes by a line of a song (Ctrl+K - "By lyrics") and "Download all" on a playlist page for listening offline.
+- The Genius check no longer pops up over a game.
+
 ## [0.7.1] - 2026-10-12
 
 - "My Wave" starts faster: the shortest of the first tracks plays first, so there is almost no waiting for the start.

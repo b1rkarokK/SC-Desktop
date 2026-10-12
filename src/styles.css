@@ -4054,3 +4054,13 @@ kbd {
 .sp-back {
   margin: 6px 0 14px;
 }
+
+.rm-q .icon-btn {
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.rm-q .icon-btn:hover {
+  color: var(--text);
+}
