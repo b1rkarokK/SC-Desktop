@@ -152,6 +152,12 @@ struct Engine {
     gain: f32,
     /// the next Load starts paused (a room)
     hold: bool,
+    /// What the sink counts is output time (a sped-up track plays through in less of it). The track's own time,
+    /// which lyrics, the progress bar and the room follow, is that plus this: (speed - 1) x every stretch of
+    /// output time played since the last seek or start.
+    extra_ms: f64,
+    /// the sink's reading at the last tick; None right after a (re)start or a seek
+    last_out: Option<Duration>,
     /// speed trim of a room, 1.0 = none
     trim: f32,
     duration_ms: u64,
@@ -187,6 +193,8 @@ impl Engine {
             suspended_at: None,
             events,
             position_ms,
+            extra_ms: 0.0,
+            last_out: None,
         }
     }
 
@@ -265,7 +273,7 @@ impl Engine {
                 self.preferred = name;
                 // playing: move to the new device at the same place
                 if self.stream.is_some() && self.target_device() != self.device {
-                    let (pos, paused) = self.sink.as_ref().map_or((None, false), |s| (Some(s.get_pos()), s.is_paused()));
+                    let (pos, paused) = self.sink.as_ref().map_or((None, false), |s| (Some(self.with_extra(s.get_pos())), s.is_paused()));
                     self.stream = None;
                     if self.sink.is_some() {
                         self.start(pos, paused);
@@ -280,7 +288,7 @@ impl Engine {
             }
             AudioCmd::Play => {
                 // device changed while paused: reopen on the new one at the same spot
-                let paused_at = self.sink.as_ref().map(|s| s.get_pos());
+                let paused_at = self.sink.as_ref().map(|s| self.with_extra(s.get_pos()));
                 match (paused_at, self.suspended_at) {
                     (Some(at), _) if self.device_changed() => self.start(Some(at), false),
                     (Some(_), _) => {
@@ -310,7 +318,11 @@ impl Engine {
             AudioCmd::Seek(to) => {
                 if let Some(s) = &self.sink {
                     match s.try_seek(to) {
-                        Ok(()) => self.position_ms.store(to.as_millis() as u64, Ordering::Relaxed),
+                        Ok(()) => {
+                            self.extra_ms = 0.0;
+                            self.last_out = None;
+                            self.position_ms.store(to.as_millis() as u64, Ordering::Relaxed);
+                        }
                         Err(e) => tracing::warn!(error = %e, "seek failed"),
                     }
                 } else if self.suspended_at.is_some() {
@@ -358,12 +370,30 @@ impl Engine {
         }
     }
 
+    /// The sink's reading turned into the track's own time.
+    fn with_extra(&self, out: Duration) -> Duration {
+        Duration::from_millis((out.as_millis() as f64 + self.extra_ms).max(0.0) as u64)
+    }
+
+    /// Adds what the speed made of the output time played since the last tick.
+    fn track_progress(&mut self) {
+        let Some((out, speed)) = self.sink.as_ref().map(|s| (s.get_pos(), s.speed())) else { return };
+        if let Some(last) = self.last_out {
+            // a reading that went back or jumped is a seek or a restart: nothing to add
+            if out >= last && out - last < Duration::from_millis(1500) {
+                self.extra_ms += (f64::from(speed) - 1.0) * (out - last).as_millis() as f64;
+            }
+        }
+        self.last_out = Some(out);
+    }
+
     fn tick(&mut self) {
         if self.fade.is_some() {
             self.apply_volume();
         }
+        self.track_progress();
         let Some(sink) = &self.sink else { return };
-        let pos = sink.get_pos();
+        let pos = self.with_extra(sink.get_pos());
         self.position_ms.store(pos.as_millis() as u64, Ordering::Relaxed);
         if sink.empty() {
             self.sink = None;
@@ -430,6 +460,8 @@ impl Engine {
 
     fn start(&mut self, resume_at: Option<Duration>, paused: bool) {
         self.sink = None;
+        self.extra_ms = 0.0;
+        self.last_out = None;
         let Some(data) = self.current.clone() else { return };
         let handle = match self.output() {
             Ok(h) => h,
@@ -465,7 +497,7 @@ impl Engine {
             if !s.is_paused() {
                 return;
             }
-            self.suspended_at = Some(s.get_pos());
+            self.suspended_at = Some(self.with_extra(s.get_pos()));
         }
         self.sink = None;
         if self.stream.take().is_some() {

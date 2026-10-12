@@ -61,6 +61,7 @@ export class MainWindow {
     // a dot on «Общие плейлисты» while others added tracks you have not looked at
     const dot = () => void unseenTotal().then((n) => this.tabs.get('shared')?.classList.toggle('has-new', n > 0));
     void listen('playlist:changed', dot);
+    void listen('playlist:seen', dot);
     window.setTimeout(dot, 12_000);
     this.user.addEventListener('click', () => {
       // a pending check: straight to the queue, where it is passed

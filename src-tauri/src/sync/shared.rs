@@ -268,6 +268,8 @@ impl SharedPlaylists {
         if seen.get(channel) != Some(&clock) {
             seen.insert(channel.to_owned(), clock);
             let _ = state.db.kv_put("sp:seen2", &seen).await;
+            // the dot in the navigation counts again
+            let _ = app.emit("playlist:seen", ());
         }
         let history = past
             .into_iter()
