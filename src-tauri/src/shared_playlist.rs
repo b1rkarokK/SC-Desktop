@@ -94,6 +94,9 @@ pub enum Edit {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Entry {
     track_id: u64,
+    /// who put it in (SoundCloud user id as text)
+    #[serde(default)]
+    added_by: String,
     pos: f64,
     pos_stamp: Stamp,
     removed: bool,
@@ -117,6 +120,7 @@ impl Playlist {
             Edit::Add { entry, track_id, pos, stamp } => {
                 self.entries.entry(entry.clone()).or_insert_with(|| Entry {
                     track_id: *track_id,
+                    added_by: stamp.author.clone(),
                     pos: *pos,
                     pos_stamp: stamp.clone(),
                     removed: false,
@@ -140,6 +144,47 @@ impl Playlist {
                 }
             }
         }
+    }
+
+    /// Takes in everything another copy knows (a snapshot): per register the newer stamp wins, so
+    /// merging is commutative and idempotent, like applying the edits one by one.
+    pub fn merge(&mut self, other: &Playlist) {
+        self.clock = self.clock.max(other.clock);
+        for (id, o) in &other.entries {
+            match self.entries.get_mut(id) {
+                None => {
+                    self.entries.insert(id.clone(), o.clone());
+                }
+                Some(e) => {
+                    if o.pos_stamp > e.pos_stamp {
+                        e.pos = o.pos;
+                        e.pos_stamp = o.pos_stamp.clone();
+                    }
+                    if o.removed_stamp > e.removed_stamp {
+                        e.removed = o.removed;
+                        e.removed_stamp = o.removed_stamp.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Visible entries in order with who added them: (entry id, track id, added by).
+    pub fn rows(&self) -> Vec<(String, u64, String)> {
+        self.list().into_iter().map(|(id, t)| (id.to_owned(), t, self.entries[id].added_by.clone())).collect()
+    }
+
+    /// Where an entry sits (its fractional position), if it exists and is visible.
+    pub fn position_of(&self, entry: &str) -> Option<f64> {
+        self.entries.get(entry).filter(|e| !e.removed).map(|e| e.pos)
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.values().filter(|e| !e.removed).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// A stamp for the next local edit.
@@ -276,6 +321,39 @@ mod tests {
         let mut p = Playlist::default();
         p.apply(&add("a", 1, 0.0, st(50, "far")));
         assert!(p.next_stamp("me").time > 50);
+    }
+
+    #[test]
+    fn merging_a_snapshot_equals_applying_the_edits() {
+        let edits = vec![
+            add("a", 1, 0.0, st(1, "x")),
+            add("b", 2, 1.0, st(2, "y")),
+            Edit::Move { entry: "a".into(), pos: 5.0, stamp: st(3, "y") },
+            Edit::Remove { entry: "b".into(), stamp: st(4, "x") },
+            Edit::Restore { entry: "b".into(), stamp: st(6, "y") },
+        ];
+        let mut full = Playlist::default();
+        edits.iter().for_each(|e| full.apply(e));
+        // one copy saw the first three, another the last two + the adds; both merge into a third
+        let (mut one, mut two) = (Playlist::default(), Playlist::default());
+        edits[..3].iter().for_each(|e| one.apply(e));
+        [&edits[0], &edits[1], &edits[3], &edits[4]].into_iter().for_each(|e| two.apply(e));
+        let mut fresh = Playlist::default();
+        fresh.merge(&one);
+        fresh.merge(&two);
+        fresh.merge(&one); // again: nothing changes
+        assert_eq!(ids(&fresh), ids(&full));
+        assert_eq!(fresh.rows(), full.rows());
+        assert_eq!(fresh.len(), 2);
+        assert_eq!(full.rows()[0].2.as_str(), "y".to_owned().as_str().max("x"), "added_by is the author of the add");
+    }
+
+    #[test]
+    fn who_added_a_track_survives_moves() {
+        let mut p = Playlist::default();
+        p.apply(&add("a", 1, 0.0, st(1, "anna")));
+        p.apply(&Edit::Move { entry: "a".into(), pos: 9.0, stamp: st(2, "bob") });
+        assert_eq!(p.rows()[0].2, "anna");
     }
 
     #[test]

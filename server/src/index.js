@@ -8,7 +8,7 @@
 //              follow up. Entries expire by themselves.
 import { DurableObject } from 'cloudflare:workers';
 
-const MAX_MSG = 24 * 1024; // one message, chars
+const MAX_MSG = 400 * 1024; // one message, chars (a snapshot of a long shared playlist is the big one)
 const KEEP_LOG = 2000; // messages kept per channel
 const BACKLOG = 500; // messages sent per connect
 const IDLE_MS = 60 * 24 * 3600 * 1000; // a channel nobody touched for 60 days is deleted

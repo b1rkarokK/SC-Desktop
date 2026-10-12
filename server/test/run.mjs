@@ -43,9 +43,9 @@ ok(back.got.filter((m) => m.t === 'msg').map((m) => m.blob).join() === 'kept-3-w
 ok(late.got[0].head === seqs[2], 'hello carries the head sequence number');
 
 // 3. limits
-a.ws.send(JSON.stringify({ t: 'send', blob: 'x'.repeat(30000), keep: true }));
+a.ws.send(JSON.stringify({ t: 'send', blob: 'x'.repeat(450000), keep: true }));
 await sleep(300);
-ok(!a.got.some((m) => m.blob && m.blob.length > 25000), 'an oversized message is dropped');
+ok(!a.got.some((m) => m.blob && m.blob.length > 400000), 'an oversized message is dropped');
 const bad = await fetch(`${base}/ch/short`);
 ok(bad.status === 400, 'a bad channel id is refused');
 
