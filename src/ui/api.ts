@@ -479,6 +479,8 @@ export const api = {
 
   lyrics: (track: Track, force: boolean) => invoke<Lyrics>('lyrics_get', { track, force }),
   /** no lyrics under the name: the app listens to the track and searches by the words (hear.rs) */
+  previewStart: (track: Track) => invoke<void>('preview_start', { track }),
+  previewStop: () => invoke<void>('preview_stop'),
   lyricsHear: (track: Track, force: boolean) => invoke<{ wait: boolean; lyrics: Lyrics | null }>('lyrics_hear', { track, force }),
   openExternal: (url: string) => invoke<void>('open_external', { url }),
 

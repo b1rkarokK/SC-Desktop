@@ -4,6 +4,7 @@
 pub mod audio;
 pub mod eq;
 pub mod fx;
+pub mod decode;
 mod widget;
 
 use std::{
@@ -245,7 +246,7 @@ pub struct Player {
     /// the track now loading goes in held (set between Load and the state update)
     room_held: std::sync::atomic::AtomicBool,
     /// loudness gain per track, measured once
-    gains: Mutex<std::collections::HashMap<u64, f32>>,
+    gains: Mutex<std::collections::HashMap<u64, fx::Analysis>>,
     /// the next load crossfades from the playing track
     crossfade_next: std::sync::atomic::AtomicBool,
     crossfade: Mutex<f32>,
@@ -587,22 +588,29 @@ impl Player {
     }
 
     /// Loudness gain of a track: measured once (a few tens of ms), then cached.
-    async fn gain_for(&self, track_id: u64, data: &Arc<Vec<u8>>) -> f32 {
-        if !self.fx.normalize() {
-            return 1.0;
+    /// Loudness and the silence at both ends of a track: one pass over it, kept for the session.
+    /// The gain is 1 while normalization is off.
+    async fn gain_for(&self, track_id: u64, data: &Arc<Vec<u8>>) -> fx::Analysis {
+        let cached = self.gains.lock().unwrap_or_else(|e| e.into_inner()).get(&track_id).copied();
+        let a = match cached {
+            Some(a) => a,
+            None => {
+                let bytes = data.clone();
+                let a = tauri::async_runtime::spawn_blocking(move || fx::analyse(&bytes)).await.unwrap_or_default();
+                let mut gains = self.gains.lock().unwrap_or_else(|e| e.into_inner());
+                if gains.len() > 2000 {
+                    gains.clear();
+                }
+                gains.insert(track_id, a);
+                tracing::debug!(track = track_id, gain = a.gain, start_ms = a.start_ms, end_ms = ?a.end_ms, "loudness and silence measured");
+                a
+            }
+        };
+        if self.fx.normalize() {
+            a
+        } else {
+            fx::Analysis { gain: 1.0, ..a }
         }
-        if let Some(g) = self.gains.lock().unwrap_or_else(|e| e.into_inner()).get(&track_id) {
-            return *g;
-        }
-        let bytes = data.clone();
-        let g = tauri::async_runtime::spawn_blocking(move || fx::measure_gain(&bytes)).await.unwrap_or(1.0);
-        let mut gains = self.gains.lock().unwrap_or_else(|e| e.into_inner());
-        if gains.len() > 2000 {
-            gains.clear();
-        }
-        gains.insert(track_id, g);
-        tracing::debug!(track = track_id, gain = g, "loudness measured");
-        g
     }
 
     // ------------------------------------------------------- sleep timer
@@ -1358,7 +1366,7 @@ impl Player {
                     match fetched {
                         Fetched::Bytes(data) => {
                             let data = Arc::new(data);
-                            let gain = this.gain_for(track.id, &data).await;
+                            let sound = this.gain_for(track.id, &data).await;
                             if this.generation.load(Ordering::SeqCst) != generation {
                                 return;
                             }
@@ -1377,7 +1385,9 @@ impl Player {
                                 let (app, track, data) = (this.app.clone(), track.clone(), data.clone());
                                 tauri::async_runtime::spawn(async move { crate::downloads::keep_if_liked(&app, &track, &data).await });
                             }
-                            this.out(AudioCmd::Load { data, generation, gain, duration_ms: track.duration_ms, fade });
+                            // a room starts everybody at 0:00 together: the silence is skipped only alone
+                            let start_ms = if held { 0 } else { sound.start_ms };
+                            this.out(AudioCmd::Load { data, generation, gain: sound.gain, duration_ms: track.duration_ms, fade, start_ms, end_ms: sound.end_ms });
                             if held {
                                 this.room_held.store(true, Ordering::SeqCst);
                             }
@@ -1435,6 +1445,24 @@ impl Player {
                 }
             }
         });
+    }
+
+    /// A short listen to `track` over the playing one: from a third in, while the user holds the key.
+    pub async fn preview(self: &Arc<Self>, track: TrackDto) -> AppResult<()> {
+        let data = match self.audio_of(track.id) {
+            Some(d) => d,
+            None => match Box::pin(self.fetch_audio(track.id)).await? {
+                Fetched::Bytes(d) => Arc::new(d),
+                Fetched::Widget(_) => return Err(AppError::UnsupportedStream("этот трек играет только виджет SoundCloud".into())),
+            },
+        };
+        let at = Duration::from_millis(track.duration_ms / 3);
+        self.out(AudioCmd::Preview { data, at });
+        Ok(())
+    }
+
+    pub fn preview_stop(&self) {
+        self.out(AudioCmd::PreviewStop);
     }
 
     /// Once per track, in the background: what it sounds like, for the wave model.

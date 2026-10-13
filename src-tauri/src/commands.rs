@@ -522,6 +522,17 @@ pub async fn download_many(app: AppHandle, tracks: Vec<TrackDto>) -> Cmd<()> {
     Ok(())
 }
 
+/// Holding Alt over a track: a short listen without leaving the playing one.
+#[tauri::command]
+pub async fn preview_start(player: State<'_, Arc<Player>>, track: TrackDto) -> Cmd<()> {
+    player.inner().preview(track).await
+}
+
+#[tauri::command]
+pub fn preview_stop(player: State<'_, Arc<Player>>) {
+    player.preview_stop();
+}
+
 #[tauri::command]
 pub fn download_many_cancel() {
     DOWNLOADING_MANY.store(false, std::sync::atomic::Ordering::SeqCst);

@@ -64,6 +64,11 @@ fn active() -> bool {
     }
 }
 
+/// SoundCloud's address is asked over HTTPS (doh.rs) while the bypass is on: a blocking provider's DNS lies too.
+pub fn doh_wanted(host: &str) -> bool {
+    active() && is_soundcloud(host)
+}
+
 /// The local proxy for this URL, if its connection is to be cut.
 pub fn proxy_for(url: &url::Url) -> Option<String> {
     let port = PORT.load(Ordering::Relaxed);
@@ -149,7 +154,12 @@ async fn serve(mut client: TcpStream) -> std::io::Result<()> {
         return Ok(());
     }
     tracing::debug!(%target, cut = active(), "bypass: connection");
-    let mut server = TcpStream::connect(&target).await?;
+    let port: u16 = target.rsplit_once(':').and_then(|(_, p)| p.parse().ok()).unwrap_or(443);
+    let ips = if active() { super::doh::lookup(&host).await } else { Vec::new() };
+    let mut server = match ips.first() {
+        Some(ip) => TcpStream::connect((*ip, port)).await?,
+        None => TcpStream::connect(&target).await?,
+    };
     server.set_nodelay(true)?;
     client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
     // the greeting, cut inside the site name

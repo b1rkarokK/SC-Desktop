@@ -3,6 +3,21 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.1.0] - 2026-10-14
+
+- If your provider blocks SoundCloud, the app gets around it by itself, with no VPN and no third-party servers: the start of the connection is cut so the filter can't see the site name, and SoundCloud's address is asked over secure DNS. Works in the sign-in window too. Settings → Network → "Get around a SoundCloud block". "Auto" turns on only when SoundCloud doesn't open directly, so it doesn't clash with zapret or a VPN.
+- Google sign-in: the sign-in window is no longer refused as an "unsafe app".
+- Songs are recognised by their words: when no lyrics turn up by the name, the app listens to 15 seconds and finds the song by what it hears. About a second of work, once per track. The model (57 MB) is downloaded the first time it's needed. Settings → Lyrics.
+- Lyrics turn up more often: for re-uploads the real artist is found by the title and length. If a lyrics source didn't answer, "not found" is no longer kept for three days.
+- Likes without the internet (Downloads → switch): a liked track that plays is saved from the audio already loaded, the rest are downloaded little by little.
+- Hold Alt over a track: a bit from the middle plays quietly while the current track goes down. Let go and everything is back.
+- Silence at the start and end of tracks is skipped: tighter transitions.
+- Seeking without clicks.
+- My Wave: language of the songs (only Russian or only foreign) and "Nothing heard before".
+- Opus tracks play.
+- Go+ stand-ins are found faster, tracks through the second account start faster.
+- The mini player is wider, the volume is no longer cut off.
+
 ## [1.0.1] - 2026-10-14
 
 - Manual sign-in is simpler: only the oauth_token is needed (it can be taken from the cookie on soundcloud.com), the app finds the client_id itself. When you are not signed in, the manual block is open at once.

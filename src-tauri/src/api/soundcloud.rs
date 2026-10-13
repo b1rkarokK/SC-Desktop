@@ -776,6 +776,8 @@ fn ranked_transcodings(track: &ScTrack) -> AppResult<Vec<&Transcoding>> {
             "progressive" if mime.starts_with("audio/mpeg") => Some(0),
             "hls" if mime.starts_with("audio/mpeg") => Some(1),
             "hls" if mime.starts_with("audio/mp4") || mime.contains("mp4a") => Some(2),
+            // Ogg Opus: decoded by player/decode.rs
+            "hls" if mime.starts_with("audio/ogg") && mime.contains("opus") => Some(3),
             _ => None,
         }
     };

@@ -1,6 +1,6 @@
 [package]
 name = "sc-desk"
-version = "1.0.1"
+version = "1.1.0"
 description = "Lightweight native SoundCloud desktop client"
 edition = "2021"
 rust-version = "1.80"
@@ -71,6 +71,9 @@ windows = { version = "0.62", features = ["Foundation", "Media", "Media_Playback
 rustfft = "6"
 # song recognition by ear (hear.rs): whisper.cpp, CPU only, no OpenMP
 whisper-rs = "0.16"
+# Ogg Opus streams (player/decode.rs): libopus, built from source by CMake
+ogg = "0.9"
+audiopus = "0.2"
 
 [profile.release]
 codegen-units = 1

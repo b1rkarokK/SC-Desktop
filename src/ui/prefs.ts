@@ -55,6 +55,10 @@ export interface UiPrefs {
   offlineLikes?: boolean;
   /** the provider blocks SoundCloud: the TLS greeting is cut (net/bypass.rs); "auto" by default */
   scBypass?: 'auto' | 'on' | 'off';
+  /** My Wave: only Russian / only foreign songs (by the letters of the title and the artist) */
+  waveLang?: 'all' | 'ru' | 'foreign';
+  /** My Wave: nothing that was ever played before */
+  waveNoHeard?: boolean;
   /** what the user moved the lyrics of a track by, ms (kept per track) */
   lyricsNudge?: Record<string, number>;
   navCollapsed: boolean;

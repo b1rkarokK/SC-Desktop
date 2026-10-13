@@ -17,6 +17,7 @@ import { store } from './ui/store';
 import { TitleBar } from './ui/titlebar';
 import { updates } from './ui/update_dialog';
 import { initHotkeys } from './ui/hotkeys';
+import { initPreview } from './ui/preview';
 import { openPalette } from './ui/palette';
 import { initRoomEvents } from './ui/views/rooms';
 import { currentLang, T } from './ui/i18n';
@@ -67,6 +68,7 @@ async function boot(): Promise<void> {
 
   void updates.listen();
   initHotkeys(openPalette);
+  initPreview();
   initRoomEvents();
   initDeepLinks();
   // where we are, for the Discord status

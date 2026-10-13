@@ -5,6 +5,7 @@ import { icon, iconButton, I } from '../icons';
 import { openTrack, openTrackArtist } from '../router';
 import { store } from '../store';
 import { btn, emptyState, sectionTitle, staticTrackList, viewHead, type View } from './common';
+import { prefs, updatePrefs } from '../prefs';
 import { T } from '../i18n';
 import { tr } from '../i18n';
 
@@ -44,6 +45,35 @@ export class WaveView implements View {
     ),
     this.noLikedBtn,
   );
+
+  /** Language and "nothing heard before": kept in the settings, the next batch of the wave follows them. */
+  private filtersRow(): HTMLElement {
+    const lang = h('select', { class: 'input' }) as HTMLSelectElement;
+    for (const [v, label] of [
+      ['all', T('Любой язык')],
+      ['ru', T('Только на русском')],
+      ['foreign', T('Только иностранное')],
+    ] as const) {
+      const o = h('option', { value: v, text: label }) as HTMLOptionElement;
+      o.selected = (prefs().waveLang ?? 'all') === v;
+      lang.append(o);
+    }
+    lang.addEventListener('change', () => updatePrefs((p) => (p.waveLang = lang.value as 'all' | 'ru' | 'foreign')));
+    const on = prefs().waveNoHeard === true;
+    const heard = h('button', { type: 'button', class: `toggle${on ? ' is-on' : ''}`, role: 'switch', 'aria-checked': String(on), 'aria-label': T('Без слушанного') }, h('span', { class: 'toggle-knob' }));
+    heard.addEventListener('click', () => {
+      const v = heard.getAttribute('aria-checked') !== 'true';
+      heard.classList.toggle('is-on', v);
+      heard.setAttribute('aria-checked', String(v));
+      updatePrefs((p) => (p.waveNoHeard = v));
+    });
+    return h(
+      'div',
+      {},
+      h('div', { class: 'set-row wave-option' }, h('div', { class: 'set-label' }, h('div', { text: T('Язык песен') }), h('div', { class: 'muted small', text: T('по буквам в названии и имени исполнителя') })), lang),
+      h('div', { class: 'set-row wave-option' }, h('div', { class: 'set-label' }, h('div', { text: T('Без слушанного') }), h('div', { class: 'muted small', text: T('только то, что вы ещё ни разу не включали') })), heard),
+    );
+  }
 
   constructor() {
     this.startBtn.addEventListener('click', () => void this.start());
@@ -86,6 +116,7 @@ export class WaveView implements View {
         sectionTitle(T('Настроение волны')),
         this.moods,
         this.noLikedRow,
+        this.filtersRow(),
         sectionTitle(T('Далее в волне')),
         this.next,
         sectionTitle(T('Исключённые артисты'), reset),

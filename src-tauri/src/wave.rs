@@ -419,6 +419,18 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     };
     let model_ms = trained_at.elapsed().as_millis() as u64;
     let mut rng = StdRng::from_entropy();
+    // the wave's own filters (Моя волна): only Russian / only foreign songs, nothing ever played before
+    let ui = state.config.get().ui;
+    let lang = ui["waveLang"].as_str().unwrap_or("all").to_owned();
+    let heard: HashSet<u64> = if ui["waveNoHeard"] == serde_json::Value::Bool(true) { state.db.recent_plays(1_000_000).await? } else { HashSet::new() };
+    let lang_ok = |t: &ScTrack| {
+        let ru = format!("{}{}", t.title, t.artist_name()).chars().any(|c| ('\u{400}'..='\u{4ff}').contains(&c));
+        match lang.as_str() {
+            "ru" => ru,
+            "foreign" => !ru,
+            _ => true,
+        }
+    };
 
     let allowed = |t: &ScTrack| {
         !disliked_artists.contains(&t.artist_id())
@@ -427,6 +439,8 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
             && t.is_fully_playable()
             && (MIN_DURATION_MS..=MAX_DURATION_MS).contains(&t.duration)
             && state.wave.session_skips(t.artist_id()) < 2
+            && !heard.contains(&t.id)
+            && lang_ok(t)
     };
 
     // ---- seeds: context tracks or likes, plus what was just listened to the end

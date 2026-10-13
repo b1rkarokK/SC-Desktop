@@ -80,6 +80,8 @@ impl HttpClient {
     pub fn new(cfg: &AppConfig) -> AppResult<Self> {
         let mut builder = Client::builder()
             .use_rustls_tls()
+            // SoundCloud over DoH while the block bypass is on (doh.rs), the system's DNS otherwise
+            .dns_resolver(std::sync::Arc::new(super::doh::Resolver))
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(45))
             .pool_idle_timeout(Duration::from_secs(30))

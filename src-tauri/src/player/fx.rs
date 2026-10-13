@@ -75,25 +75,68 @@ const MIN_GAIN: f32 = 0.35; // -9 dB
 const MAX_GAIN: f32 = 2.0; // +6 dB
 
 /// Gain that brings the track to the common level; 1.0 if it can't be decoded.
-pub fn measure_gain(data: &[u8]) -> f32 {
-    let Ok(dec) = Decoder::new(Cursor::new(data.to_vec())) else { return 1.0 };
-    let channels = dec.channels().max(1) as usize;
+/// What one pass over a track tells: its loudness gain and where the sound really starts and ends.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Analysis {
+    pub gain: f32,
+    /// silence at the start worth skipping, ms (0: none)
+    pub start_ms: u64,
+    /// where the sound ends when a long silence follows, ms
+    pub end_ms: Option<u64>,
+}
+
+impl Default for Analysis {
+    fn default() -> Self {
+        Self { gain: 1.0, start_ms: 0, end_ms: None }
+    }
+}
+
+/// Below this a frame counts as silence (about -50 dB).
+const SILENT: f32 = 0.003;
+
+pub fn analyse(data: &std::sync::Arc<Vec<u8>>) -> Analysis {
+    let Ok(src) = super::decode::open(data.clone()) else { return Analysis::default() };
+    let channels = src.channels().max(1) as usize;
+    let rate = f64::from(src.sample_rate().max(1));
     let (mut sum, mut n) = (0f64, 0u64);
-    // every 4th frame is plenty for an average and 4× faster
-    for (i, s) in dec.convert_samples::<f32>().enumerate() {
+    let (mut first, mut last, mut frames) = (None::<u64>, 0u64, 0u64);
+    let mut peak = 0f32;
+    for (i, s) in src.enumerate() {
+        // every 4th frame is plenty for an average and 4x faster
         if (i / channels) % 4 == 0 {
             sum += (s as f64) * (s as f64);
             n += 1;
         }
+        peak = peak.max(s.abs());
+        if i % channels == channels - 1 {
+            if peak > SILENT {
+                first.get_or_insert(frames);
+                last = frames;
+            }
+            peak = 0.0;
+            frames += 1;
+        }
     }
-    if n < 1000 {
-        return 1.0;
+    let ms = |f: u64| (f as f64 * 1000.0 / rate) as u64;
+    let total = ms(frames);
+    let gain = if n < 1000 {
+        1.0
+    } else {
+        let rms = (sum / n as f64).sqrt() as f32;
+        if rms < 1e-4 {
+            1.0
+        } else {
+            (TARGET_RMS / rms).clamp(MIN_GAIN, MAX_GAIN)
+        }
+    };
+    // a little of the quiet is kept on both sides: a fade-in or a last breath must not be cut
+    let lead = first.map_or(0, ms).saturating_sub(80);
+    let tail = ms(last) + 300;
+    Analysis {
+        gain,
+        start_ms: if lead >= 400 { lead } else { 0 },
+        end_ms: (first.is_some() && total > tail + 1_200).then_some(tail),
     }
-    let rms = (sum / n as f64).sqrt() as f32;
-    if rms < 1e-4 {
-        return 1.0;
-    }
-    (TARGET_RMS / rms).clamp(MIN_GAIN, MAX_GAIN)
 }
 
 // --------------------------------------------------------------- reverb
@@ -203,13 +246,16 @@ pub struct Effects<S> {
     wet: f32,
     norm: bool,
     counter: u32,
+    /// samples left of the fade-in after a seek (no click at the jump)
+    ramp: u32,
+    ramp_len: u32,
 }
 
 impl<S: Source<Item = f32>> Effects<S> {
     pub fn new(inner: S, shared: Arc<FxShared>, gain: f32) -> Self {
         let channels = inner.channels().max(1);
         // the reverb lanes are allocated only once reverb is turned on
-        Self { inner, wet: shared.reverb(), norm: shared.normalize(), shared, gain, channels, channel: 0, lanes: Vec::new(), counter: 0 }
+        Self { inner, wet: shared.reverb(), norm: shared.normalize(), shared, gain, channels, channel: 0, lanes: Vec::new(), counter: 0, ramp: 0, ramp_len: 1 }
     }
 }
 
@@ -238,7 +284,12 @@ impl<S: Source<Item = f32>> Iterator for Effects<S> {
                 y = y * (1.0 - 0.35 * self.wet) + r * self.wet * 3.0;
             }
         }
-        let y = if self.norm || self.wet > 0.0 { limit(y) } else { y };
+        let mut y = if self.norm || self.wet > 0.0 { limit(y) } else { y };
+        if self.ramp > 0 {
+            // a short rise after a seek: the jump in the wave would click
+            y *= 1.0 - self.ramp as f32 / self.ramp_len as f32;
+            self.ramp -= 1;
+        }
         if ch == 0 && crate::viz::TAP.on.load(Ordering::Relaxed) {
             crate::viz::TAP.push(y);
         }
@@ -267,6 +318,9 @@ impl<S: Source<Item = f32>> Source for Effects<S> {
         self.inner.try_seek(pos)?;
         self.lanes.iter_mut().for_each(Lane::clear);
         self.channel = 0;
+        // 25 ms
+        self.ramp_len = (self.inner.sample_rate() / 40 * u32::from(self.channels)).max(1);
+        self.ramp = self.ramp_len;
         Ok(())
     }
 }

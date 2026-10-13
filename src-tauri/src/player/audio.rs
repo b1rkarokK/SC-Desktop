@@ -37,7 +37,8 @@ const DEVICE_CHECK_TICKS: u32 = 8;
 pub enum AudioCmd {
     /// `gain`: loudness normalization of this track; `fade`: crossfade from
     /// the playing track over that long
-    Load { data: Arc<Vec<u8>>, generation: u64, gain: f32, duration_ms: u64, fade: Option<Duration> },
+    /// `start_ms` / `end_ms`: where the sound really starts and ends (silence around it is skipped)
+    Load { data: Arc<Vec<u8>>, generation: u64, gain: f32, duration_ms: u64, fade: Option<Duration>, start_ms: u64, end_ms: Option<u64> },
     /// crossfade length (0 = off): `NearEnd` is reported that long before the end
     Crossfade(Duration),
     Replay { generation: u64 },
@@ -52,6 +53,9 @@ pub enum AudioCmd {
     Trim(f32),
     /// play to this output device (None: the system's default, followed as it changes)
     Device(Option<String>),
+    /// a short listen to another track over the playing one (which goes quiet meanwhile), from `at`
+    Preview { data: Arc<Vec<u8>>, at: Duration },
+    PreviewStop,
 }
 
 #[derive(Debug)]
@@ -161,12 +165,17 @@ struct Engine {
     /// speed trim of a room, 1.0 = none
     trim: f32,
     duration_ms: u64,
+    /// the track's sound ends here (a long silence after it is not played)
+    end_ms: Option<u64>,
     crossfade: Duration,
     near_end_sent: bool,
     /// the previous track fading out under the new one
     fading_out: Option<Sink>,
     /// a crossfade in progress: (started, length)
     fade: Option<(Instant, Duration)>,
+    /// a preview over the playing track, and its fade: (started, rising)
+    preview: Option<Sink>,
+    preview_fade: Option<(Instant, bool)>,
 }
 
 impl Engine {
@@ -178,10 +187,13 @@ impl Engine {
             hold: false,
             trim: 1.0,
             duration_ms: 0,
+            end_ms: None,
             crossfade: Duration::ZERO,
             near_end_sent: false,
             fading_out: None,
             fade: None,
+            preview: None,
+            preview_fade: None,
             device: None,
             preferred: None,
             ticks: 0,
@@ -201,7 +213,7 @@ impl Engine {
     fn run(&mut self, rx: mpsc::Receiver<AudioCmd>) {
         loop {
             let playing = self.sink.as_ref().is_some_and(|s| !s.is_paused() && !s.empty());
-            let timeout = if self.fade.is_some() {
+            let timeout = if self.fade.is_some() || self.preview.is_some() {
                 Some(POLL_FADING)
             } else if playing {
                 Some(POLL_PLAYING)
@@ -238,11 +250,12 @@ impl Engine {
 
     fn apply(&mut self, cmd: AudioCmd) {
         match cmd {
-            AudioCmd::Load { data, generation, gain, duration_ms, fade } => {
+            AudioCmd::Load { data, generation, gain, duration_ms, fade, start_ms, end_ms } => {
                 self.generation = generation;
                 self.current = Some(data);
                 self.gain = gain;
                 self.duration_ms = duration_ms;
+                self.end_ms = end_ms;
                 self.near_end_sent = false;
                 self.suspended_at = None;
                 self.position_ms.store(0, Ordering::Relaxed);
@@ -257,7 +270,7 @@ impl Engine {
                     None => {}
                 }
                 let held = std::mem::take(&mut self.hold);
-                self.start(None, held);
+                self.start((start_ms > 0).then(|| Duration::from_millis(start_ms)), held);
                 match fade {
                     Some(len) if self.fading_out.is_some() && self.sink.is_some() => {
                         self.fade = Some((Instant::now(), len));
@@ -330,6 +343,26 @@ impl Engine {
                     self.position_ms.store(to.as_millis() as u64, Ordering::Relaxed);
                 }
             }
+            AudioCmd::Preview { data, at } => {
+                if let Some(old) = self.preview.take() {
+                    old.stop();
+                }
+                let handle = match self.output() {
+                    Ok(h) => h,
+                    Err(e) => return tracing::warn!(error = %e, "preview: no device"),
+                };
+                let (Ok(src), Ok(sink)) = (super::decode::open(data), Sink::try_new(&handle)) else { return };
+                sink.set_volume(0.0);
+                sink.append(src);
+                let _ = sink.try_seek(at);
+                self.preview = Some(sink);
+                self.preview_fade = Some((Instant::now(), true));
+            }
+            AudioCmd::PreviewStop => {
+                if self.preview.is_some() {
+                    self.preview_fade = Some((Instant::now(), false));
+                }
+            }
             AudioCmd::Volume(v) => {
                 self.volume = v.clamp(0.0, 1.0);
                 self.apply_volume();
@@ -387,16 +420,43 @@ impl Engine {
         self.last_out = Some(out);
     }
 
+    /// The preview rises (or falls) over 0.4 s while the playing track goes down to a fifth (or back).
+    fn preview_tick(&mut self) {
+        let Some((started, rising)) = self.preview_fade else { return };
+        let t = (started.elapsed().as_secs_f32() / 0.4).min(1.0);
+        let k = if rising { t } else { 1.0 - t };
+        let base = perceptual(self.volume);
+        if let Some(p) = &self.preview {
+            p.set_volume(base * k);
+        }
+        if let Some(s) = &self.sink {
+            s.set_volume(base * (1.0 - 0.8 * k));
+        }
+        if t >= 1.0 {
+            self.preview_fade = None;
+            if !rising {
+                if let Some(p) = self.preview.take() {
+                    p.stop();
+                }
+            }
+        }
+    }
+
     fn tick(&mut self) {
         if self.fade.is_some() {
             self.apply_volume();
         }
+        self.preview_tick();
         self.track_progress();
         let Some(sink) = &self.sink else { return };
         let pos = self.with_extra(sink.get_pos());
         self.position_ms.store(pos.as_millis() as u64, Ordering::Relaxed);
-        if sink.empty() {
-            self.sink = None;
+        // the sound is over and only silence is left: the track ends here
+        let silent_end = self.end_ms.is_some_and(|end| pos.as_millis() as u64 >= end);
+        if sink.empty() || silent_end {
+            if let Some(s) = self.sink.take() {
+                s.stop();
+            }
             let _ = self.events.send(AudioEvent::Ended { generation: self.generation });
             return;
         }
@@ -406,8 +466,9 @@ impl Engine {
             sink.set_speed(speed);
         }
         // the crossfade into the next track: that long before the end (in real time)
-        if !self.near_end_sent && !self.crossfade.is_zero() && self.duration_ms > 0 && !sink.is_paused() {
-            let left_ms = self.duration_ms.saturating_sub(pos.as_millis() as u64) as f32 / speed.max(0.1);
+        let end = self.end_ms.map_or(self.duration_ms, |e| e.min(self.duration_ms.max(e)));
+        if !self.near_end_sent && !self.crossfade.is_zero() && end > 0 && !sink.is_paused() {
+            let left_ms = end.saturating_sub(pos.as_millis() as u64) as f32 / speed.max(0.1);
             if left_ms <= self.crossfade.as_millis() as f32 && pos.as_millis() as u64 > 5_000 {
                 self.near_end_sent = true;
                 let _ = self.events.send(AudioEvent::NearEnd { generation: self.generation });
@@ -467,7 +528,7 @@ impl Engine {
             Ok(h) => h,
             Err(e) => return self.fail(format!("устройство вывода: {e}")),
         };
-        let decoder = match Decoder::new(Cursor::new(SharedBytes(data))) {
+        let decoder = match super::decode::open(data) {
             Ok(d) => d,
             Err(e) => return self.fail(format!("не удалось декодировать: {e}")),
         };
@@ -477,7 +538,7 @@ impl Engine {
         };
         sink.set_volume(perceptual(self.volume));
         sink.set_speed(self.fx.speed() * self.trim);
-        let eq = Equalizer::new(decoder.convert_samples::<f32>(), self.eq.clone());
+        let eq = Equalizer::new(decoder, self.eq.clone());
         sink.append(Effects::new(eq, self.fx.clone(), self.gain));
         if let Some(at) = resume_at {
             if let Err(e) = sink.try_seek(at) {

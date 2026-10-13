@@ -320,6 +320,8 @@ fn main() {
             commands::rooms_live,
             commands::lyrics_align,
             commands::lyrics_hear,
+            commands::preview_start,
+            commands::preview_stop,
             #[cfg(debug_assertions)]
             commands::lyrics_align_probe,
             commands::theme_bg_get,

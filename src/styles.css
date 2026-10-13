@@ -4524,3 +4524,6 @@ kbd {
 .profile-row .row-artist.ok {
   color: var(--ok);
 }
+
+/* Alt held over a track: it plays a short preview */
+.row.is-previewing { box-shadow: inset 3px 0 0 var(--accent); }
