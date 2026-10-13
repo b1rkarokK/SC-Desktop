@@ -18,6 +18,8 @@ import { store } from './store';
 
 const POLL_MS = 250;
 const COLLAPSE_AFTER_MS = 700;
+/** The next lyric line shows this much before it is sung (never over the end of the current one). */
+const LINE_LEAD_MS = 800;
 
 export async function bootMini(): Promise<void> {
   document.documentElement.classList.add('mini');
@@ -51,6 +53,7 @@ class MiniPlayer {
   private collapseTimer = 0;
   private poll = 0;
   private karaoke = 0;
+  private ticker: Worker | null = null;
   private lyrics: Lyrics | null = null;
   private lastLine = '';
 
@@ -259,9 +262,17 @@ class MiniPlayer {
       }
       return;
     }
-    const now = clock.now();
+    // the same clock as the big window's lyrics: with the user's shift
+    const now = clock.now() + prefs().fs.offset;
     let i = -1;
     for (let k = 0; k < lines.length; k++) if ((lines[k]!.start_ms ?? Infinity) <= now) i = k;
+    // the next line a little ahead of its time, so one can see what is coming; the singing is still lit by the real time
+    const next = lines[i + 1];
+    if (next && next.start_ms !== null && next.text.trim()) {
+      const cur = i >= 0 ? lines[i]! : null;
+      const curEnd = cur ? (cur.words.length ? cur.words[cur.words.length - 1]!.end_ms : (cur.end_ms ?? cur.start_ms ?? 0)) : 0;
+      if (now >= Math.max(curEnd, next.start_ms - LINE_LEAD_MS)) i += 1;
+    }
     const line = i >= 0 ? lines[i]! : null;
     if (!line || !line.text.trim()) {
       if (this.lastLine !== '♪') {
@@ -299,10 +310,27 @@ class MiniPlayer {
         });
       }, POLL_MS);
       // karaoke a little smoother than the position polling
-      this.karaoke = window.setInterval(() => this.renderLine(), 100);
+      // a worker's timer is not throttled when the small window is covered by a full-screen app
+      try {
+        const url = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 100)'], { type: 'text/javascript' }));
+        this.ticker = new Worker(url);
+        this.ticker.onmessage = () => this.renderLine();
+        // blocked or failed: the plain timer instead
+        this.ticker.onerror = () => {
+          this.ticker?.terminate();
+          this.ticker = null;
+        };
+        URL.revokeObjectURL(url);
+      } catch {
+        /* the plain timer below covers it */
+      }
+      // always there as well: if the worker never starts, the lyrics still run (the redraw is skipped when nothing changed)
+      this.karaoke = window.setInterval(() => this.renderLine(), 250);
     } else if (!playing && this.poll) {
       window.clearInterval(this.poll);
       window.clearInterval(this.karaoke);
+      this.ticker?.terminate();
+      this.ticker = null;
       this.poll = this.karaoke = 0;
     }
   }

@@ -3,6 +3,11 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.8] - 2026-10-14
+
+- Mini player: the next lyric line shows a little earlier (about 0.8 s), so you can see what is coming; the words are still lit by the real time.
+- Mini player: the lyric line falls behind less when the window is covered by a full-screen app, and it follows your lyrics shift from the settings.
+
 ## [0.9.7] - 2026-10-13
 
 - Fixed: music did not play with the error "deleted, closed by the author or not available in your country". SoundCloud stopped serving some tracks in one of the formats; now, when a format is not served, the next one (AAC) is taken.
