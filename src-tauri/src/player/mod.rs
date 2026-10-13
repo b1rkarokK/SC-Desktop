@@ -1562,6 +1562,16 @@ impl Player {
             if this.upcoming(1).first().map(|t| t.id) != Some(next.id) {
                 return;
             }
+            // its lyrics too, so that the line is there the moment it starts (the search takes seconds: several
+            // sources one after another); a cached answer makes the later request instant
+            {
+                let warm = this.clone();
+                let track = next.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = warm.app.state::<AppState>();
+                    let _ = crate::commands::lyrics_get(state, track, false).await;
+                });
+            }
             let fetched = Box::pin(this.fetch_audio(next.id)).await;
             let still_next = this.upcoming(1).first().map(|t| t.id) == Some(next.id);
             match fetched {

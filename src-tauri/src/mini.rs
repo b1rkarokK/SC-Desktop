@@ -9,7 +9,17 @@
 //! Games: while a full-screen app is in front (a game, a full-screen video)
 //! the capsule stays visible but lets every click through, so the mouse in
 //! the game never catches it. With an ordinary window, the Start menu or the
-//! desktop in front it is clickable again. One cheap system call a second.
+//! desktop in front it is clickable again. It is clickable too:
+//! * while the mouse pointer is the plain Windows arrow (a pause menu, a console or a
+//!   settings screen of a game that shows the system pointer; a game's own picture of a
+//!   pointer, like the one in Dota in play, is never mistaken for it);
+//! * after the hotkey «Мини-плеер: нажимать в игре» (Ctrl+Alt+K by default) for the time set in
+//!   Settings (20 seconds by default) or until the hotkey is pressed again; pressing it during that time
+//!   switches it back at once.
+//! A few cheap system calls a second.
+//!
+//! Pinned (the default): on top of every window. Unpinned: an ordinary window
+//! that other windows can cover.
 
 use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
@@ -19,6 +29,46 @@ pub const LABEL: &str = "mini";
 const WIDTH: f64 = 340.0;
 const HEIGHT: f64 = 58.0;
 const POS_KEY: &str = "mini:pos";
+const PIN_KEY: &str = "mini:pinned";
+/// the pin as the watcher sees it (no database read three times a second)
+static PIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// clickable on demand until this moment (ms since the Unix epoch), 0 = not
+static CLICKABLE_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// how long it stays clickable when the setting is missing
+const CLICKABLE_DEFAULT_SECS: u64 = 20;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// The hotkey: the capsule takes clicks for a while (over a game), or goes back to letting them through.
+pub fn toggle_interactive(app: &AppHandle) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let on = CLICKABLE_UNTIL.load(Relaxed) <= now_ms();
+    // the setting: seconds, or 0 = until the hotkey is pressed again
+    let secs = app.state::<AppState>().config.get().ui["hotkeys"]["miniClickSecs"].as_u64().unwrap_or(CLICKABLE_DEFAULT_SECS);
+    let until = if secs == 0 { u64::MAX / 2 } else { now_ms() + secs * 1000 };
+    CLICKABLE_UNTIL.store(if on { until } else { 0 }, Relaxed);
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.set_ignore_cursor_events(!on && fullscreen_in_front(w.hwnd().map(|h| h.0 as isize).unwrap_or(0)));
+    }
+}
+
+/// Pinned on top of everything (the default).
+pub async fn pinned(app: &AppHandle) -> bool {
+    app.state::<AppState>().db.kv_get::<bool>(PIN_KEY).await.ok().flatten().map(|(v, _)| v).unwrap_or(true)
+}
+
+pub async fn set_pinned(app: &AppHandle, on: bool) {
+    PIN.store(on, std::sync::atomic::Ordering::Relaxed);
+    let _ = app.state::<AppState>().db.kv_put(PIN_KEY, &on).await;
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.set_always_on_top(on);
+        if !on {
+            let _ = w.set_ignore_cursor_events(false);
+        }
+    }
+}
 
 pub async fn open(app: &AppHandle) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window(LABEL) {
@@ -29,6 +79,8 @@ pub async fn open(app: &AppHandle) -> tauri::Result<()> {
     }
     let saved = app.state::<AppState>().db.kv_get::<(i32, i32)>(POS_KEY).await.ok().flatten().map(|(p, _)| p);
     let handle = app.clone();
+    let pin = pinned(app).await;
+    PIN.store(pin, std::sync::atomic::Ordering::Relaxed);
     let w = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?mini=1".into()))
         .title("SC Desk")
         .inner_size(WIDTH, HEIGHT)
@@ -36,7 +88,7 @@ pub async fn open(app: &AppHandle) -> tauri::Result<()> {
         .decorations(false)
         .transparent(true)
         .shadow(false)
-        .always_on_top(true)
+        .always_on_top(pin)
         .skip_taskbar(true)
         .visible(false)
         .build()?;
@@ -69,15 +121,20 @@ pub async fn open(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Click-through while a full-screen app is in front; stops with the window.
+/// Click-through while a full-screen app is in front and the pointer is not the plain system arrow;
+/// stops with the window.
 fn watch_fullscreen(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut through = false;
         loop {
-            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
             let Some(w) = app.get_webview_window(LABEL) else { return };
             let own = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
-            let now = fullscreen_in_front(own);
+            // a window that is not pinned goes behind the game by itself: nothing to let through
+            let now = fullscreen_in_front(own)
+                && !system_arrow_shown()
+                && CLICKABLE_UNTIL.load(std::sync::atomic::Ordering::Relaxed) <= now_ms()
+                && PIN.load(std::sync::atomic::Ordering::Relaxed);
             if now != through {
                 through = now;
                 let _ = w.set_ignore_cursor_events(now);
@@ -125,6 +182,25 @@ pub(crate) fn fullscreen_in_front(own: isize) -> bool {
 #[cfg(not(windows))]
 pub(crate) fn fullscreen_in_front(_own: isize) -> bool {
     false
+}
+
+/// Is the pointer shown right now AND the plain Windows arrow? A game in play hides it or draws its own pointer
+/// (a different cursor handle); its menus, console and settings screens often show the arrow.
+#[cfg(windows)]
+fn system_arrow_shown() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorInfo, LoadCursorW, CURSORINFO, CURSOR_SHOWING, IDC_ARROW};
+    // SAFETY: GetCursorInfo fills a zeroed local struct whose size is set first; LoadCursorW with no module and a
+    // predefined id returns the shared system cursor.
+    unsafe {
+        let mut ci: CURSORINFO = std::mem::zeroed();
+        ci.cbSize = std::mem::size_of::<CURSORINFO>() as u32;
+        GetCursorInfo(&mut ci) != 0 && ci.flags & CURSOR_SHOWING != 0 && ci.hCursor == LoadCursorW(std::ptr::null_mut(), IDC_ARROW)
+    }
+}
+
+#[cfg(not(windows))]
+fn system_arrow_shown() -> bool {
+    true
 }
 
 fn on_some_monitor(w: &tauri::WebviewWindow, x: i32, y: i32) -> bool {

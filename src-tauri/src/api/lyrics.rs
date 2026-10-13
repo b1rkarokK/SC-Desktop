@@ -316,10 +316,12 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
         };
     }
 
-    consider!(lrclib(http, q).await, "lrclib");
-    consider!(deezer(http, state, q).await, "deezer");
-    consider!(netease(http, q).await, "netease");
-    consider!(musixmatch(http, state, q).await, "musixmatch");
+    // the four at once (the time of the slowest, not the sum of all), judged in the same order as before
+    let (r_lrclib, r_deezer, r_netease, r_musixmatch) = futures::join!(lrclib(http, q), deezer(http, state, q), netease(http, q), musixmatch(http, state, q));
+    consider!(r_lrclib, "lrclib");
+    consider!(r_deezer, "deezer");
+    consider!(r_netease, "netease");
+    consider!(r_musixmatch, "musixmatch");
     if let Some(l) = best {
         return Ok(Some(l));
     }
@@ -651,6 +653,35 @@ async fn mxm_token(http: &HttpClient, state: &LyricsState) -> AppResult<MxmSessi
     *state.mxm_off_until.lock().unwrap_or_else(|p| p.into_inner()) =
         Some(std::time::Instant::now() + std::time::Duration::from_secs(30 * 60));
     Err(AppError::Network("musixmatch: токен не выдан".into()))
+}
+
+/// Songs whose lyrics contain these words (Musixmatch searches inside the texts): (artist, title, length in ms).
+pub async fn search_by_lyrics(http: &HttpClient, state: &LyricsState, words: &str) -> AppResult<Vec<(String, String, u64)>> {
+    let MxmSession { base, app, token } = mxm_token(http, state).await?;
+    let mut url = Url::parse(&format!("{base}track.search"))?;
+    url.query_pairs_mut()
+        .append_pair("format", "json")
+        .append_pair("app_id", &app)
+        .append_pair("q_lyrics", words)
+        .append_pair("f_has_lyrics", "1")
+        .append_pair("page_size", "12")
+        .append_pair("usertoken", &token);
+    let res: Value = http.get_json_with(url.as_str(), &[("cookie", MXM_COOKIE)]).await?;
+    if res["message"]["header"]["status_code"].as_u64() == Some(401) {
+        *state.mxm_token.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        return Err(AppError::Network("musixmatch 401".into()));
+    }
+    Ok(res["message"]["body"]["track_list"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|t| {
+                    let t = &t["track"];
+                    Some((t["artist_name"].as_str()?.to_owned(), t["track_name"].as_str()?.to_owned(), t["track_length"].as_u64().unwrap_or(0) * 1000))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 async fn musixmatch(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResult<Option<Lyrics>> {

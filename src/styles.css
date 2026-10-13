@@ -2966,6 +2966,43 @@ body.mini #app {
   display: none;
 }
 
+/* the heart of the capsule: outline while the song is not liked, filled in the accent colour when it is */
+.mini-heart {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.mini-heart:hover {
+  color: var(--text);
+}
+
+.mini-heart.is-liked {
+  color: var(--accent);
+}
+
+.mini-heart.is-liked svg {
+  fill: currentColor;
+}
+
+.mini-box.is-open .mini-top > .mini-heart {
+  display: none;
+}
+
+.pal-row.pal-split {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
 .mini-box.is-open .mini-corner {
   display: flex;
 }
@@ -3039,14 +3076,39 @@ html.mini body {
   pointer-events: none;
 }
 
-/* mini player opacity at rest (10 % … 100 %); solid while the pointer is on it */
-.mini-box,
+/* mini player opacity at rest (10 % … 100 %); solid while the pointer is on it.
+   The capsule's own colour fades with the first slider, the lyric line with the second (the title
+   and the rest follow the capsule); the queue below fades as a whole. */
+.mini-box {
+  background: color-mix(in srgb, var(--panel) calc(var(--mini-opacity, 1) * 100%), transparent);
+  border-color: color-mix(in srgb, var(--border) calc(var(--mini-opacity, 1) * 100%), transparent);
+  transition: background 0.2s, border-color 0.2s, border-radius 0.15s;
+}
+
+.mini-top > *:not(.mini-text),
+.mini-panel,
+.mini-text {
+  opacity: var(--mini-opacity, 1);
+  transition: opacity 0.2s;
+}
+
+.mini-box.has-lyrics .mini-text {
+  opacity: var(--mini-text-opacity, 1);
+}
+
 body.mini .q-pop.mini-queue {
   opacity: var(--mini-opacity, 1);
   transition: opacity 0.2s;
 }
 
-body.mini:hover .mini-box,
+body.mini:hover .mini-box {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+body.mini:hover .mini-box .mini-top > *:not(.mini-text),
+body.mini:hover .mini-box .mini-panel,
+body.mini:hover .mini-box .mini-text,
 body.mini:hover .q-pop.mini-queue {
   opacity: 1;
 }

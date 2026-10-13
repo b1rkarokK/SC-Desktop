@@ -14,6 +14,8 @@ interface Hit {
   art: string | null;
   track?: Track;
   id: number;
+  /** the first of the results from all of SoundCloud: a line above it */
+  split?: boolean;
 }
 
 
@@ -97,7 +99,7 @@ export function openPalette(pick?: (t: Track) => void | Promise<void>): void {
         const img = h('img', { class: 'pal-art' + (x.kind === 'artist' ? ' is-round' : ''), alt: '' });
         const src = coverUrl(x.art, 't67x67');
         if (src) img.src = src;
-        const row = h('div', { class: 'pal-row' + (i === sel ? ' is-sel' : ''), role: 'option' }, img, h('div', { class: 'pal-text' }, h('div', { class: 'pal-title', dir: 'auto', text: x.title }), h('div', { class: 'muted small', dir: 'auto', text: x.sub })));
+        const row = h('div', { class: 'pal-row' + (i === sel ? ' is-sel' : '') + (x.split ? ' pal-split' : ''), role: 'option' }, img, h('div', { class: 'pal-text' }, h('div', { class: 'pal-title', dir: 'auto', text: x.title }), h('div', { class: 'muted small', dir: 'auto', text: x.sub })));
         row.addEventListener('click', () => go(x, false));
         row.addEventListener('mousemove', () => {
           if (sel !== i) {
@@ -109,7 +111,7 @@ export function openPalette(pick?: (t: Track) => void | Promise<void>): void {
       }),
     );
     if (!hits.length && input.value.trim()) {
-      list.replaceChildren(h('div', { class: 'pal-empty muted', text: filter === 'lyrics' ? T('В текстах лайков такого нет. Проиндексировать тексты можно в Настройках.') : T('Ничего не нашлось') }));
+      list.replaceChildren(h('div', { class: 'pal-empty muted', text: filter === 'lyrics' ? T('Ничего не нашлось ни в текстах лайков, ни среди песен SoundCloud. Тексты лайков индексируются в Настройках.') : T('Ничего не нашлось') }));
     }
   };
   const mark = () => {
@@ -144,7 +146,8 @@ export function openPalette(pick?: (t: Track) => void | Promise<void>): void {
   const run = async () => {
     const q = input.value.trim();
     const my = ++seq;
-    if (!q) {
+    // the likes show at once, before anything is typed
+    if (!q && filter !== 'likes') {
       hits = [];
       render();
       return;
@@ -152,12 +155,25 @@ export function openPalette(pick?: (t: Track) => void | Promise<void>): void {
     try {
       let next: Hit[] = [];
       if (filter === 'lyrics') {
-        // a line of a song you remember: among the liked tracks whose lyrics are known
-        next = (await api.likesSearchLyrics(q)).map((x) => ({ ...trackHit(x.track), sub: `«${x.line}»` }));
+        // a line of a song you remember: the liked tracks whose lyrics are known come first...
+        const mine = (await api.likesSearchLyrics(q)).map((x) => ({ ...trackHit(x.track), sub: `«${x.line}»` }));
+        if (my !== seq) return;
+        hits = mine;
+        sel = 0;
+        render();
+        // ...and below them the songs of all SoundCloud with these words in the lyrics
+        try {
+          const own = new Set(mine.map((x) => x.id));
+          const all = (await api.lyricsSearchGlobal(q)).filter((t) => !own.has(t.id)).map((t, i) => ({ ...trackHit(t), sub: `SoundCloud · ${t.artist}`, split: i === 0 && mine.length > 0 }));
+          if (my !== seq) return;
+          next = [...mine, ...all];
+        } catch {
+          return; // the liked ones stay; no network search this time
+        }
       } else if (filter === 'likes') {
         likes ??= await api.likesPage(0, 5000);
         const w = q.toLowerCase();
-        next = likes.filter((t) => `${t.title} ${t.artist}`.toLowerCase().includes(w)).slice(0, 50).map(trackHit);
+        next = (w ? likes.filter((t) => `${t.title} ${t.artist}`.toLowerCase().includes(w)) : likes).slice(0, 50).map(trackHit);
       } else if (filter === 'all') {
         const r = await api.searchAll(q);
         next = [...r.tracks.slice(0, 6).map(trackHit), ...r.users.slice(0, 3).map(userHit), ...r.playlists.slice(0, 3).map(plHit)];

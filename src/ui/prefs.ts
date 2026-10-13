@@ -42,6 +42,8 @@ export interface UiPrefs {
   lang?: Lang;
   /** mini player opacity at rest, 0.1 … 1 */
   miniOpacity?: number;
+  /** opacity of the lyric line in the mini player at rest (the capsule has its own) */
+  miniTextOpacity?: number;
   theme: Theme;
   customThemes?: CustomTheme[];
   themeSystem: boolean;

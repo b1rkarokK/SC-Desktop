@@ -44,10 +44,18 @@ class MiniPlayer {
   private repeatBtn = iconButton(I.repeat, T('Повтор'));
   private queueBtn = iconButton(I.queue, T('Очередь'));
   private likeBtn = iconButton(I.heart, T('Лайкнуть'));
+  /** the heart of the capsule itself: shows (and flips) whether the song is liked */
+  private heart = iconButton(I.heart, T('Лайкнуть'), 'mini-heart');
+  /** pinned: on top of every window (also over a game); unpinned: an ordinary window */
+  private pinBtn = iconButton(I.pin, T('Закрепить поверх всех окон'));
+  private pinned = true;
   private opacityBtn = iconButton(I.opacity, T('Прозрачность'));
   private opacityRow = h('div', { class: 'mini-opacity', hidden: true });
   private opacityValue = h('span', { class: 'mini-time' });
   private opacity: Slider;
+  private textRow = h('div', { class: 'mini-opacity', hidden: true });
+  private textValue = h('span', { class: 'mini-time' });
+  private textOpacity: Slider;
   private queue = new QueuePopover();
   private expanded = false;
   private collapseTimer = 0;
@@ -78,6 +86,16 @@ class MiniPlayer {
       void api.setRepeat(m === 'off' ? 'all' : m === 'all' ? 'one' : 'off');
     });
     this.queueBtn.addEventListener('click', () => this.queue.toggle());
+    this.heart.addEventListener('click', () => this.likeBtn.click());
+    this.pinBtn.addEventListener('click', () => {
+      this.pinned = !this.pinned;
+      void invoke('mini_set_pinned', { on: this.pinned });
+      this.renderPin();
+    });
+    void invoke<boolean>('mini_is_pinned').then((p) => {
+      this.pinned = p;
+      this.renderPin();
+    });
     this.likeBtn.addEventListener('click', () => {
       const t = store.snapshot?.track;
       if (t) void store.setLiked(t, !store.liked.has(t.id)).then(() => this.render());
@@ -89,8 +107,16 @@ class MiniPlayer {
       (v) => this.setOpacity(v, true),
     );
     this.opacityRow.append(h('span', { class: 'mini-time', text: T('Прозрачность') }), this.opacity.el, this.opacityValue);
+    // the lyric line has its own: the capsule can be nearly clear while the words stay readable
+    this.textOpacity = new Slider(
+      T('Прозрачность текста'),
+      (v) => this.setTextOpacity(v, false),
+      (v) => this.setTextOpacity(v, true),
+    );
+    this.textRow.append(h('span', { class: 'mini-time', text: T('Текст') }), this.textOpacity.el, this.textValue);
     this.opacityBtn.addEventListener('click', () => {
       this.opacityRow.hidden = !this.opacityRow.hidden;
+      this.textRow.hidden = this.opacityRow.hidden;
       this.opacityBtn.classList.toggle('is-on', !this.opacityRow.hidden);
       this.fit();
     });
@@ -122,6 +148,7 @@ class MiniPlayer {
       this.cover,
       h('div', { class: 'mini-text', 'data-tauri-drag-region': true }, this.line, this.sub),
       h('div', { class: 'mini-corner' }, restore, close),
+      this.heart,
       this.playBtn,
     );
     this.panel.append(
@@ -136,10 +163,12 @@ class MiniPlayer {
         this.repeatBtn,
         this.queueBtn,
         this.likeBtn,
+        this.pinBtn,
         this.opacityBtn,
         h('div', { class: 'mini-vol' }, icon(I.vol), this.volume.el),
       ),
       this.opacityRow,
+      this.textRow,
     );
     // the panel's own ▶ (the clone above only keeps the layout): wire it too
     const panelPlay = this.panel.querySelector('.mini-play') as HTMLButtonElement;
@@ -184,13 +213,26 @@ class MiniPlayer {
     });
     lyricsData.setWanted(true);
     void store.reloadSets().then(() => this.render());
+    // a like made in the big window
+    void listen<{ id: number; liked: boolean }>('like:set', (e) => {
+      if (e.payload.liked) store.liked.add(e.payload.id);
+      else store.liked.delete(e.payload.id);
+      this.render();
+    });
     this.setOpacity(prefs().miniOpacity ?? 1, false);
+    this.setTextOpacity(prefs().miniTextOpacity ?? 1, false);
     void api.snapshot().then((s) => {
       store.setSnapshot(s);
       lyricsData.setTrack(s.track);
       this.render();
     });
     this.setExpanded(false);
+  }
+
+  private renderPin(): void {
+    setIcon(this.pinBtn, this.pinned ? I.pin : I.unpin);
+    this.pinBtn.classList.toggle('is-on', this.pinned);
+    this.pinBtn.title = this.pinned ? T('Закреплено поверх всех окон. Нажмите, чтобы открепить') : T('Не закреплено. Нажмите, чтобы закрепить поверх всех окон');
   }
 
   /** 0 … 1 slider → 10 % … 100 % */
@@ -200,6 +242,15 @@ class MiniPlayer {
     this.opacityValue.textContent = `${Math.round(o * 100)}%`;
     if (!this.opacity.isDragging) this.opacity.set(o);
     if (persist) updatePrefs((p) => (p.miniOpacity = o));
+  }
+
+  /** 0 … 1 slider → 10 % … 100 %: the lyric line (while there is one; the title fades with the capsule) */
+  private setTextOpacity(v: number, persist: boolean): void {
+    const o = Math.round((0.1 + Math.min(1, Math.max(0, (v - 0.1) / 0.9)) * 0.9) * 100) / 100;
+    document.documentElement.style.setProperty('--mini-text-opacity', String(o));
+    this.textValue.textContent = `${Math.round(o * 100)}%`;
+    if (!this.textOpacity.isDragging) this.textOpacity.set(o);
+    if (persist) updatePrefs((p) => (p.miniTextOpacity = o));
   }
 
   private setExpanded(on: boolean): void {
@@ -239,6 +290,9 @@ class MiniPlayer {
     const liked = !!t && store.liked.has(t.id);
     this.likeBtn.classList.toggle('is-on', liked);
     this.likeBtn.title = liked ? T('Убрать из лайков') : T('Лайкнуть');
+    this.heart.classList.toggle('is-liked', liked);
+    this.heart.title = this.likeBtn.title;
+    this.heart.hidden = !t;
     this.duration.textContent = fmtTime(t?.duration_ms ?? 0);
     if (!this.volume.isDragging) this.volume.set(s?.volume ?? 0.8);
     clock.setRate(s?.speed ?? 1);
@@ -255,6 +309,7 @@ class MiniPlayer {
       return;
     }
     const lines = this.lyrics?.lines;
+    this.box.classList.toggle('has-lyrics', !!lines?.length);
     if (!lines?.length) {
       if (this.lastLine !== `title:${t.id}`) {
         this.lastLine = `title:${t.id}`;

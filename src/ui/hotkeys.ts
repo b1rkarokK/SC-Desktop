@@ -1,6 +1,7 @@
 // Own hotkeys. Combos are stored as "Ctrl+Alt+KeyP" (modifiers + KeyboardEvent.code).
 // With «Работают в играх» on, the core registers them system-wide (hotkeys.rs);
 // with it off this module listens inside the window.
+import { invoke } from '@tauri-apps/api/core';
 import { api } from './api';
 import { h, toast } from './dom';
 import { T } from './i18n';
@@ -21,6 +22,7 @@ export const HOTKEY_ACTIONS: HotkeyAction[] = [
   { id: 'volUp', label: T('Громче'), def: 'Ctrl+Alt+ArrowUp' },
   { id: 'volDown', label: T('Тише'), def: 'Ctrl+Alt+ArrowDown' },
   { id: 'mini', label: T('Мини-плеер'), def: 'Ctrl+Alt+KeyM' },
+  { id: 'miniClick', label: T('Мини-плеер: нажимать в игре (20 с, ещё раз - выключить)'), def: 'Ctrl+Alt+KeyK' },
   { id: 'slowed', label: T('Slowed (медленнее, ещё раз - обычная)'), def: 'Ctrl+Alt+Comma' },
   { id: 'sped', label: T('Sped up (быстрее, ещё раз - обычная)'), def: 'Ctrl+Alt+Period' },
 ];
@@ -28,11 +30,13 @@ export const HOTKEY_ACTIONS: HotkeyAction[] = [
 export interface HotkeyPrefs {
   inGames: boolean;
   keys: Record<string, string>;
+  /** how long the mini player takes clicks over a game after its key, seconds; 0 = until the key is pressed again */
+  miniClickSecs?: number;
 }
 
 export function hotkeys(): HotkeyPrefs {
   const p = (prefs() as { hotkeys?: Partial<HotkeyPrefs> }).hotkeys ?? {};
-  return { inGames: p.inGames ?? true, keys: p.keys ?? {} };
+  return { inGames: p.inGames ?? true, keys: p.keys ?? {}, miniClickSecs: p.miniClickSecs ?? 20 };
 }
 
 export function comboOf(id: string): string {
@@ -47,6 +51,10 @@ function save(next: HotkeyPrefs): void {
 
 export function setInGames(on: boolean): void {
   save({ ...hotkeys(), inGames: on });
+}
+
+export function setMiniClickSecs(secs: number): void {
+  save({ ...hotkeys(), miniClickSecs: secs });
 }
 
 /** '' clears the key. Returns false if another action already uses it. */
@@ -172,6 +180,9 @@ function run(id: string): void {
     }
     case 'mini':
       void api.miniOpen();
+      break;
+    case 'miniClick':
+      void invoke('mini_interact');
       break;
     case 'slowed':
     case 'sped':

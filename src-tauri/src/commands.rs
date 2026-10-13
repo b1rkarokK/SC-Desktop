@@ -340,6 +340,8 @@ async fn like_one(app: &AppHandle, state: &AppState, track: TrackDto, liked: boo
     } else {
         state.db.like_remove(track.id).await?;
     }
+    // the mini player is another window: it learns of the like from this
+    let _ = app.emit("like:set", serde_json::json!({ "id": track.id, "liked": liked }));
 
     let mut pending = pending_likes(state).await?;
     let was_pending = pending.iter().any(|(id, _)| *id == track.id);
@@ -1537,6 +1539,21 @@ pub async fn mini_close(app: AppHandle, restore: bool) -> Cmd<()> {
 }
 
 #[tauri::command]
+pub fn mini_interact(app: AppHandle) {
+    crate::mini::toggle_interactive(&app);
+}
+
+#[tauri::command]
+pub async fn mini_is_pinned(app: AppHandle) -> bool {
+    crate::mini::pinned(&app).await
+}
+
+#[tauri::command]
+pub async fn mini_set_pinned(app: AppHandle, on: bool) {
+    crate::mini::set_pinned(&app, on).await;
+}
+
+#[tauri::command]
 pub fn mini_resize(app: AppHandle, height: f64) {
     crate::mini::resize(&app, height);
 }
@@ -2203,6 +2220,30 @@ pub async fn log_tail(app: AppHandle, lines: usize) -> Cmd<String> {
 pub struct LyricHit {
     track: TrackDto,
     line: String,
+}
+
+#[tauri::command]
+pub async fn lyrics_search_global(state: State<'_, AppState>, query: String) -> Cmd<Vec<TrackDto>> {
+    use futures::StreamExt;
+    let q = query.trim();
+    if q.chars().count() < 4 {
+        return Ok(Vec::new());
+    }
+    let http = state.http();
+    let songs = crate::api::lyrics::search_by_lyrics(&http, &state.lyrics, q).await?;
+    let sc = state.sc()?;
+    // each song found on SoundCloud (in the order of the search), a few at a time
+    let found: Vec<Option<crate::api::soundcloud::ScTrack>> = futures::stream::iter(songs)
+        .map(|(artist, title, ms)| {
+            let sc = &sc;
+            async move { crate::charts::find_by_name(sc, &artist, &title, ms).await }
+        })
+        .buffered(4)
+        .collect()
+        .await;
+    let tracks: Vec<crate::api::soundcloud::ScTrack> = found.into_iter().flatten().collect();
+    state.db.upsert_tracks(tracks.clone()).await?;
+    Ok(crate::home::unique_songs(tracks).iter().map(TrackDto::from).collect())
 }
 
 #[tauri::command]

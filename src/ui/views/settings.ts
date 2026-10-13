@@ -12,7 +12,7 @@ import { lyricsData } from '../lyrics_data';
 import { updates } from '../update_dialog';
 import { btn, viewHead, type View } from './common';
 import { currentLang, setLang, T, type Lang } from '../i18n';
-import { HOTKEY_ACTIONS, hotkeys, recorder, resetCombos, setInGames } from '../hotkeys';
+import { HOTKEY_ACTIONS, hotkeys, recorder, resetCombos, setInGames, setMiniClickSecs } from '../hotkeys';
 
 function toggle(on: boolean, onChange: (v: boolean) => void): HTMLButtonElement {
   const b = h('button', { type: 'button', class: 'toggle', role: 'switch' }, h('span', { class: 'toggle-knob' }));
@@ -103,6 +103,14 @@ export class SettingsView implements View {
 
   private renderHotkeys(): void {
     const games = toggle(hotkeys().inGames, (v) => setInGames(v));
+    // how long the mini player takes clicks over a game after its key
+    const secs = h('select', { class: 'input', 'aria-label': T('Сколько пилюля нажимаема в игре') });
+    for (const [v, label] of [[5, T('5 секунд')], [10, T('10 секунд')], [20, T('20 секунд')], [30, T('30 секунд')], [60, T('1 минуту')], [0, T('до повторного нажатия клавиши')]] as [number, string][]) {
+      const o = h('option', { value: String(v), text: label });
+      if (v === (hotkeys().miniClickSecs ?? 20)) o.selected = true;
+      secs.append(o);
+    }
+    secs.addEventListener('change', () => setMiniClickSecs(Number(secs.value)));
     const reset = btn(T('Сбросить'), null);
     reset.addEventListener('click', () => {
       resetCombos();
@@ -113,6 +121,7 @@ export class SettingsView implements View {
         T('Горячие клавиши'),
         row(T('Работают в играх'), games, T('Клавиши ловятся везде, даже поверх полноэкранной игры. Выключено - только когда окно SC Desk активно.')),
         ...HOTKEY_ACTIONS.map((a) => row(a.label, recorder(a.id))),
+        row(T('Сколько пилюля нажимаема в игре'), secs, T('После клавиши «Мини-плеер: нажимать в игре». Нажатие во время этого времени возвращает всё сразу.')),
         row(T('Быстрый поиск'), h('span', { class: 'keycaps' }, h('kbd', { text: 'Ctrl' }), h('kbd', { text: 'K' })), T('Работает, когда окно открыто.')),
         row(T('Вернуть клавиши по умолчанию'), reset),
       ),

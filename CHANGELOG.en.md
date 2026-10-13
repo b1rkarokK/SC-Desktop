@@ -3,6 +3,18 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.0.0] - 2026-10-14
+
+The first "1.0": everything that piled up, put together and checked.
+
+- Lyrics search (Ctrl+K, "By lyrics"): the liked songs with these words come first, below them the songs of all SoundCloud that have them in their lyrics.
+- The "Add a track" window of a shared playlist: the "My likes" tab shows your likes at once.
+- Mini player: next to the pause button the heart shows whether the song is liked, and flips it on a click. A like made in the big window reaches the mini player at once.
+- Mini player: the pin in the open panel keeps the capsule on top of all windows or lets it go.
+- Mini player in games: the capsule lets clicks through while a game is in play and takes them when the game shows the plain Windows pointer (a pause menu, a console). A game's own pointer, like the one in Dota, is not mistaken for it. Ctrl+Alt+K makes the capsule clickable in a game on demand; Settings choose for how many seconds or until the key is pressed again.
+- Mini player: the lyric line has its own opacity (without lyrics the title fades with the capsule).
+- Lyrics: they show up noticeably sooner. The next song's lyrics are fetched ahead while the current one plays, and the lyric sources are asked at the same time, not one after another.
+
 ## [0.9.9] - 2026-10-14
 
 - Fixed: some tracks did not play, without any error. SoundCloud serves such tracks only as HLS AAC (in fragments), and the app could not decode that. The fragments are now unpacked into a plain AAC stream, and the tracks play, seeking included.

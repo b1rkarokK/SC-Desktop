@@ -425,6 +425,15 @@ async fn find_loose(sc: &SoundCloud, song: &ChartSong) -> Option<ScTrack> {
     best.map(|(_, t)| t)
 }
 
+/// A song known by artist and title, found on SoundCloud: strict matching first, then by a similar title.
+pub(crate) async fn find_by_name(sc: &SoundCloud, artist: &str, title: &str, duration_ms: u64) -> Option<ScTrack> {
+    let song = ChartSong { key: format!("name:{artist}:{title}"), artist: artist.into(), title: title.into(), duration_ms, listeners: 0 };
+    match find_on_soundcloud(sc, &song).await {
+        Some(t) => Some(t),
+        None => find_loose(sc, &song).await,
+    }
+}
+
 /// Import: SoundCloud tracks for songs (cached like the charts' lookups),
 /// `progress(done)` as they are looked up; also returns the songs not found.
 pub(crate) async fn find_all(state: &AppState, songs: &[ChartSong], progress: impl Fn(usize)) -> AppResult<(Vec<TrackDto>, Vec<ChartSong>)> {
