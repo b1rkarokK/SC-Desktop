@@ -132,6 +132,7 @@ async fn window(app: &AppHandle) -> AppResult<WebviewWindow> {
     if existing.is_none() {
         let handle = app.clone();
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(Url::parse(PAGE)?))
+        .additional_browser_args(crate::net::bypass::browser_args())
             .title(crate::lang::pick("Проверка SoundCloud", "SoundCloud check"))
             .visible(false)
             .skip_taskbar(true)

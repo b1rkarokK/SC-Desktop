@@ -113,7 +113,7 @@ pub fn show_main(app: &AppHandle) {
                 tracing::error!("main window config missing");
                 return;
             };
-            match WebviewWindowBuilder::from_config(app, &cfg).and_then(|b| b.build()) {
+            match WebviewWindowBuilder::from_config(app, &cfg).and_then(|b| b.additional_browser_args(crate::net::bypass::browser_args()).build()) {
                 Ok(w) => w,
                 Err(e) => {
                     tracing::error!(error = %e, "main window not created");

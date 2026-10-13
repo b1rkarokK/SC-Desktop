@@ -11,7 +11,9 @@
 //! the cutting turned on, for this run of the app. With a proxy set in Settings it is never used.
 //!
 //! Inside: a tiny HTTPS proxy on 127.0.0.1 (CONNECT only, SoundCloud hosts only) that the HTTP client is sent
-//! through for SoundCloud's hosts; it cuts the first message and then just copies bytes both ways.
+//! through for SoundCloud's hosts; it cuts the first message (while the bypass is on) and then just copies
+//! bytes both ways. The app's browser windows (sign-in, the check window, the widget) reach SoundCloud through
+//! it too: a PAC script sends only SoundCloud's https addresses there, everything else goes direct.
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering},
@@ -78,6 +80,29 @@ pub fn on_failure(url: &str) -> bool {
     true
 }
 
+/// The built-in browser's arguments for every window of the app. WebView2 wants the same ones for all the windows
+/// of a run, so they are fixed at the first window: a change of the setting reaches the windows after a restart.
+/// Tauri's own defaults are kept; with the bypass off, or with a proxy in Settings, they are all there is.
+pub fn browser_args() -> &'static str {
+    static ARGS: OnceLock<String> = OnceLock::new();
+    ARGS.get_or_init(|| {
+        let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection");
+        let port = PORT.load(Ordering::Relaxed);
+        if port != 0 && MODE.load(Ordering::Relaxed) != OFF {
+            use base64::Engine as _;
+            let pac = format!(concat!(
+                "function FindProxyForURL(url, host) {{ host = host.toLowerCase(); ",
+                "if (url.substring(0, 6) == 'https:' && (host == 'soundcloud.com' || dnsDomainIs(host, '.soundcloud.com') ",
+                "|| dnsDomainIs(host, '.sndcdn.com') || dnsDomainIs(host, '.soundcloud.cloud'))) ",
+                "return 'PROXY 127.0.0.1:{port}; DIRECT'; return 'DIRECT'; }}"
+            ), port = port);
+            let b64 = base64::engine::general_purpose::STANDARD.encode(pac);
+            args.push_str(&format!(" --proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,{b64}"));
+        }
+        args
+    })
+}
+
 /// Starts the local proxy once (a listening socket that costs nothing while idle).
 pub fn start() {
     if STARTED.set(()).is_err() {
@@ -123,6 +148,7 @@ async fn serve(mut client: TcpStream) -> std::io::Result<()> {
         client.write_all(b"HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n").await?;
         return Ok(());
     }
+    tracing::debug!(%target, cut = active(), "bypass: connection");
     let mut server = TcpStream::connect(&target).await?;
     server.set_nodelay(true)?;
     client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
@@ -133,7 +159,9 @@ async fn serve(mut client: TcpStream) -> std::io::Result<()> {
         return Ok(());
     }
     SERVED.fetch_add(1, Ordering::Relaxed);
-    for part in cut(&buf[..n], host.as_bytes()) {
+    // the browser windows always come here for SoundCloud: the greeting is cut only while the bypass is on
+    let parts = if active() { cut(&buf[..n], host.as_bytes()) } else { vec![buf[..n].to_vec()] };
+    for part in parts {
         server.write_all(&part).await?;
         server.flush().await?;
         // its own packet for each piece
@@ -216,6 +244,24 @@ mod tests {
         }
         let n = super::SERVED.load(std::sync::atomic::Ordering::Relaxed);
         println!("cut connections: {n}");
+        assert!(n > 0);
+    }
+
+    /// Edge (the same engine as WebView2) with the app's browser arguments reaches SoundCloud through the proxy.
+    /// `cargo test browser_pac_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn browser_pac_live() {
+        super::set_mode_from_ui(&serde_json::json!({ "scBypass": "on" }));
+        let args = super::browser_args().to_owned();
+        let dir = std::env::temp_dir().join("scdesk-pac-test");
+        let pac = args.split(' ').find(|a| a.starts_with("--proxy-pac-url=")).unwrap().to_owned();
+        let out = tokio::task::spawn_blocking(move || std::process::Command::new(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+            .args(["--headless=new", "--disable-gpu", &format!("--user-data-dir={}", dir.display()), &pac, "--virtual-time-budget=8000", "--dump-dom", "https://soundcloud.com/"])
+            .output());
+        let out = tokio::time::timeout(std::time::Duration::from_secs(60), out).await.unwrap().unwrap().unwrap();
+        let n = super::SERVED.load(std::sync::atomic::Ordering::Relaxed);
+        println!("page bytes: {}, connections through the proxy: {n}", out.stdout.len());
         assert!(n > 0);
     }
 

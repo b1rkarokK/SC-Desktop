@@ -339,6 +339,7 @@ async fn ensure_window(
         let ev_nav = events.clone();
         let ready_load = ready.clone();
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(Url::parse(PAGE)?))
+        .additional_browser_args(crate::net::bypass::browser_args())
             .title("SoundCloud")
             .visible(false)
             .skip_taskbar(true)

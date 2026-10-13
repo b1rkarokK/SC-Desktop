@@ -212,6 +212,7 @@ async fn window() -> AppResult<WebviewWindow> {
     };
     if existing.is_none() {
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(Url::parse(PAGE)?))
+        .additional_browser_args(crate::net::bypass::browser_args())
             .title(crate::lang::pick("Проверка Genius", "Genius check"))
             .visible(false)
             .skip_taskbar(true)
