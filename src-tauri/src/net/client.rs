@@ -220,7 +220,7 @@ impl HttpClient {
                         continue;
                     }
                     let body: String = resp.text().await.unwrap_or_default().chars().take(300).collect();
-                    tracing::warn!(%status, host = host_of(url), %method, body = %body, "HTTP request failed");
+                    tracing::warn!(%status, host = host_of(url), path = path_of(url), %method, body = %body, "HTTP request failed");
                     return Err(AppError::from_status(status));
                 }
                 Err(e) if is_transient(&e) && attempt < MAX_RETRIES => {
@@ -349,6 +349,11 @@ fn retry_after(resp: &Response) -> Option<Duration> {
 }
 
 /// Host only — full URLs carry client_id / track_authorization and must not hit the logs.
+/// The path of a URL without the query (no ids or tokens in the log).
+fn path_of(url: &str) -> String {
+    url::Url::parse(url).ok().map(|u| u.path().to_owned()).unwrap_or_default()
+}
+
 fn host_of(url: &str) -> String {
     url::Url::parse(url)
         .ok()

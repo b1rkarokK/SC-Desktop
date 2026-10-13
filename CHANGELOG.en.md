@@ -3,6 +3,10 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.7] - 2026-10-13
+
+- Fixed: music did not play with the error "deleted, closed by the author or not available in your country". SoundCloud stopped serving some tracks in one of the formats; now, when a format is not served, the next one (AAC) is taken.
+
 ## [0.9.6] - 2026-10-14
 
 - Playlists can be deleted: "Delete playlist" in the right-click menu and a "Delete" button on the page of your own playlist (with a confirmation).

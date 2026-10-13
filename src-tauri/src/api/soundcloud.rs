@@ -574,22 +574,39 @@ impl SoundCloud {
         if track.policy.as_deref() == Some("BLOCK") {
             return Err(AppError::UnsupportedStream("заблокирован в вашем регионе".into()));
         }
-        let tc = pick_transcoding(track)?;
-        if tc.snipped {
-            tracing::warn!(track = track.id, "only a 30s preview is available");
+        // the best format first; one that SoundCloud does not serve (404 when it is resolved) hands over to the next
+        let candidates = ranked_transcodings(track)?;
+        tracing::debug!(track = track.id, formats = ?track.media.as_ref().map(|m| m.transcodings.iter().map(|t| format!("{}/{}{}", t.format.protocol, t.format.mime_type, if t.snipped { "/snipped" } else { "" })).collect::<Vec<_>>()), policy = ?track.policy, "stream formats");
+        let mut last = AppError::NotFound;
+        for (i, tc) in candidates.iter().enumerate() {
+            if tc.snipped {
+                tracing::warn!(track = track.id, "only a 30s preview is available");
+            }
+            let mut url = self.api_href(&tc.url)?;
+            if let Some(auth) = &track.track_authorization {
+                url.query_pairs_mut().append_pair("track_authorization", auth);
+            }
+            let resolved: ResolvedStream = match self.get(url).await {
+                Ok(r) => r,
+                Err(AppError::NotFound) if i + 1 < candidates.len() => {
+                    tracing::info!(track = track.id, protocol = %tc.format.protocol, mime = %tc.format.mime_type, "format not served, trying the next one");
+                    last = AppError::NotFound;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            tracing::debug!(track = track.id, protocol = %tc.format.protocol, mime = %tc.format.mime_type, "stream resolved");
+            let got = match tc.format.protocol.as_str() {
+                "progressive" => self.http.get_bytes(&resolved.url, Profile::Media, None).await,
+                "hls" => self.fetch_hls(&resolved.url).await,
+                other => Err(AppError::UnsupportedStream(format!("протокол {other}"))),
+            };
+            match got {
+                Err(AppError::NotFound) if i + 1 < candidates.len() => last = AppError::NotFound,
+                other => return other,
+            }
         }
-        let mut url = self.api_href(&tc.url)?;
-        if let Some(auth) = &track.track_authorization {
-            url.query_pairs_mut().append_pair("track_authorization", auth);
-        }
-        let resolved: ResolvedStream = self.get(url).await?;
-        tracing::debug!(track = track.id, protocol = %tc.format.protocol, mime = %tc.format.mime_type, "stream resolved");
-
-        match tc.format.protocol.as_str() {
-            "progressive" => self.http.get_bytes(&resolved.url, Profile::Media, None).await,
-            "hls" => self.fetch_hls(&resolved.url).await,
-            other => Err(AppError::UnsupportedStream(format!("протокол {other}"))),
-        }
+        Err(last)
     }
 
     async fn fetch_hls(&self, playlist_url: &str) -> AppResult<Vec<u8>> {
@@ -724,6 +741,11 @@ pub fn has_drm_stream(track: &ScTrack) -> bool {
 /// Preference: full track over preview; progressive MP3 → HLS MP3 → HLS AAC (fMP4).
 /// Encrypted HLS (Go+ DRM) and Opus are skipped: rodio/symphonia cannot play them.
 fn pick_transcoding(track: &ScTrack) -> AppResult<&Transcoding> {
+    ranked_transcodings(track).map(|v| v[0])
+}
+
+/// All the formats that can be played, best first.
+fn ranked_transcodings(track: &ScTrack) -> AppResult<Vec<&Transcoding>> {
     let media = track
         .media
         .as_ref()
@@ -739,13 +761,12 @@ fn pick_transcoding(track: &ScTrack) -> AppResult<&Transcoding> {
         }
     };
 
-    media
-        .transcodings
-        .iter()
-        .filter_map(|t| rank(t).map(|r| ((t.snipped as u8, r), t)))
-        .min_by_key(|(k, _)| *k)
-        .map(|(_, t)| t)
-        .ok_or_else(|| AppError::UnsupportedStream("только зашифрованные (DRM) или неподдерживаемые форматы".into()))
+    let mut list: Vec<((u8, u8), &Transcoding)> = media.transcodings.iter().filter_map(|t| rank(t).map(|r| ((t.snipped as u8, r), t))).collect();
+    list.sort_by_key(|(k, _)| *k);
+    if list.is_empty() {
+        return Err(AppError::UnsupportedStream("только зашифрованные (DRM) или неподдерживаемые форматы".into()));
+    }
+    Ok(list.into_iter().map(|(_, t)| t).collect())
 }
 
 #[derive(Debug)]
