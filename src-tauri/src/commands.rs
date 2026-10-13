@@ -69,10 +69,20 @@ pub async fn auth_save(app: AppHandle, state: State<'_, AppState>, client_id: St
     let client_id = client_id.trim().to_owned();
     // people paste the whole header value
     let oauth_token = oauth_token.trim().trim_start_matches("OAuth ").trim().to_owned();
-    if client_id.is_empty() || oauth_token.is_empty() {
-        return Err(AppError::Config("client_id и oauth_token обязательны".into()));
+    if oauth_token.is_empty() {
+        return Err(AppError::Config("укажите oauth_token".into()));
     }
-    let creds = Credentials { client_id, oauth_token, genius_token: None };
+    // the public client_id can be read from soundcloud.com by the app itself: only the token is a must
+    let client_id = if client_id.is_empty() {
+        crate::api::soundcloud::discover_client_id(&state.http())
+            .await
+            .map_err(|_| AppError::Config("не удалось определить client_id само, введите его вручную".into()))?
+    } else {
+        client_id
+    };
+    // the playback account stays when the main one is changed
+    let stream_token = state.credentials().and_then(|c| c.stream_token);
+    let creds = Credentials { client_id, oauth_token, genius_token: None, stream_token };
     let me = SoundCloud::new(state.http(), &creds).me().await?;
     let to_save = creds.clone();
     tauri::async_runtime::spawn_blocking(move || secrets::save(&to_save))
@@ -86,6 +96,56 @@ pub async fn auth_save(app: AppHandle, state: State<'_, AppState>, client_id: St
         tauri::async_runtime::spawn(async move { crate::sync::start_account_services(&app).await });
     }
     Ok(auth_status_of(&state))
+}
+
+/// The playback account: the name of the account whose token gets the audio (None = the main one plays).
+#[tauri::command]
+pub async fn stream_token_state(state: State<'_, AppState>) -> Cmd<Option<String>> {
+    if state.credentials().and_then(|c| c.stream_token).is_none() {
+        return Ok(None);
+    }
+    let second = state.sc_second().ok_or(AppError::NotAuthorized)?;
+    Ok(Some(second.me().await?.username))
+}
+
+/// Saves the token of the playback account after checking it; returns that account's name.
+#[tauri::command]
+pub async fn stream_token_save(state: State<'_, AppState>, token: String) -> Cmd<String> {
+    let token = token.trim().trim_start_matches("OAuth ").trim().to_owned();
+    if token.is_empty() {
+        return Err(AppError::Config("укажите oauth_token второго аккаунта".into()));
+    }
+    let mut creds = state.credentials().ok_or(AppError::NotAuthorized)?;
+    let probe = Credentials { client_id: creds.client_id.clone(), oauth_token: token.clone(), genius_token: None, stream_token: None };
+    let me = SoundCloud::new(state.http(), &probe).without_renewal().me().await?;
+    creds.stream_token = Some(token);
+    let to_save = creds.clone();
+    tauri::async_runtime::spawn_blocking(move || secrets::save(&to_save))
+        .await
+        .map_err(|e| AppError::Keyring(e.to_string()))??;
+    let main = state.current_user().await.ok();
+    state.set_credentials(Some(creds));
+    if let Some(m) = main {
+        state.set_me(m);
+    }
+    tracing::info!(user = %me.username, "playback account set");
+    Ok(me.username)
+}
+
+#[tauri::command]
+pub async fn stream_token_clear(state: State<'_, AppState>) -> Cmd<()> {
+    let Some(mut creds) = state.credentials() else { return Ok(()) };
+    creds.stream_token = None;
+    let to_save = creds.clone();
+    tauri::async_runtime::spawn_blocking(move || secrets::save(&to_save))
+        .await
+        .map_err(|e| AppError::Keyring(e.to_string()))??;
+    let main = state.current_user().await.ok();
+    state.set_credentials(Some(creds));
+    if let Some(m) = main {
+        state.set_me(m);
+    }
+    Ok(())
 }
 
 /// Opens the soundcloud.com sign-in window; result arrives as `auth:changed`.

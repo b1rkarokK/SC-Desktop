@@ -145,7 +145,7 @@ export class SettingsView implements View {
         toast(errorMessage(e), 'error');
       }
     });
-    const cid = h('input', { class: 'input', type: 'password', placeholder: 'client_id', autocomplete: 'off' });
+    const cid = h('input', { class: 'input', type: 'password', placeholder: T('client_id (необязательно)'), autocomplete: 'off' });
     const tok = h('input', { class: 'input', type: 'password', placeholder: 'oauth_token', autocomplete: 'off' });
     const save = btn(T('Сохранить и проверить'), null);
     save.addEventListener('click', async () => {
@@ -161,12 +161,53 @@ export class SettingsView implements View {
     });
     const manual = h(
       'details',
-      { class: 'details' },
-      h('summary', { text: T('Ввести токены вручную') }),
-      h('p', { class: 'muted small', text: T('soundcloud.com → F12 → Network → запрос к api-v2.soundcloud.com: client_id — в адресе, oauth_token — в заголовке Authorization после «OAuth ».') }),
+      // not signed in: the manual way is open at once (some accounts cannot sign in through the window)
+      { class: 'details', ...(a.has_credentials ? {} : { open: 'open' }) },
+      h('summary', { text: T('Ввести токен вручную') }),
+      h('p', { class: 'muted small', text: T('Если вход через окно не получается. Самый простой способ: откройте soundcloud.com в браузере и войдите, затем F12 → Application (Приложение) → Cookies → https://soundcloud.com → строка oauth_token → скопируйте её значение и вставьте сюда. client_id можно не вводить: программа найдёт его сама.') }),
       cid,
       tok,
       save,
+    );
+    // the playback account: another account's token that only gets the audio (the subscription lives there)
+    const streamBox = h('div', { class: 'set-stream' });
+    const renderStream = (name: string | null, error = '') => {
+      const field = h('input', { class: 'input', type: 'password', placeholder: 'oauth_token', autocomplete: 'off' });
+      const saveStream = btn(T('Сохранить и проверить'), null);
+      saveStream.addEventListener('click', async () => {
+        try {
+          const n = await invoke<string>('stream_token_save', { token: field.value });
+          field.value = '';
+          renderStream(n);
+          toast(T('Подключён: {0}', n));
+        } catch (e) {
+          toast(errorMessage(e), 'error');
+        }
+      });
+      const off = btn(T('Убрать'), null);
+      off.addEventListener('click', async () => {
+        await invoke('stream_token_clear').catch((e) => toast(errorMessage(e), 'error'));
+        renderStream(null);
+      });
+      streamBox.replaceChildren(
+        ...(name || error ? [h('div', { class: 'muted small', text: name ? T('Подключён: {0}', name) : error })] : []),
+        field,
+        h('div', { class: 'row-actions' }, saveStream, ...(name ? [off] : [])),
+      );
+    };
+    renderStream(null);
+    if (a.has_credentials) {
+      void invoke<string | null>('stream_token_state').then(
+        (n) => renderStream(n),
+        (e) => renderStream(null, errorMessage(e)),
+      );
+    }
+    const streamDetails = h(
+      'details',
+      { class: 'details' },
+      h('summary', { text: T('Второй аккаунт (подписка)') }),
+      h('p', { class: 'muted small', text: T('oauth_token второго аккаунта. Основной остаётся как есть.') }),
+      streamBox,
     );
     this.account.replaceChildren(
       group(
@@ -176,6 +217,7 @@ export class SettingsView implements View {
           : h('p', { class: 'muted small', text: T('Откроется окно soundcloud.com — войдите как обычно. Ключи сохранятся в системном хранилище.') }),
         h('div', { class: 'row-actions' }, a.has_credentials ? logout : loginBtn),
         manual,
+        ...(a.has_credentials ? [streamDetails] : []),
       ),
     );
   }

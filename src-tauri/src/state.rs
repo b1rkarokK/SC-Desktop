@@ -140,6 +140,16 @@ impl AppState {
         Ok(SoundCloud::new(self.http(), &creds))
     }
 
+    /// The second account (the one with the subscription), if one is set: asked for the audio only when the main
+    /// account cannot play a track in full. Library, likes and friends always use `sc()`.
+    pub fn sc_second(&self) -> Option<SoundCloud> {
+        let _ = self.sc(); // keeps the stored client_id fresh
+        let creds = self.credentials()?;
+        let token = creds.stream_token.clone()?;
+        let own = Credentials { client_id: creds.client_id, oauth_token: token, genius_token: None, stream_token: None };
+        Some(SoundCloud::new(self.http(), &own).without_renewal())
+    }
+
     /// Same account, new client_id: the cached `/me` stays valid.
     fn set_credentials_keep_me(&self, creds: Credentials) {
         write(&self.creds, Some(creds));

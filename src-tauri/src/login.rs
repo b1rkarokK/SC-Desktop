@@ -74,7 +74,9 @@ async fn watch(app: &AppHandle) -> AppResult<()> {
     let http = state.http();
     let client_id = discover_client_id(&http).await?;
     let genius_token = state.credentials().and_then(|c| c.genius_token);
-    let creds = Credentials { client_id, oauth_token: token, genius_token };
+    // the playback account stays when the main one signs in again
+    let stream_token = state.credentials().and_then(|c| c.stream_token);
+    let creds = Credentials { client_id, oauth_token: token, genius_token, stream_token };
     let me = SoundCloud::new(http, &creds).me().await?;
 
     let to_save = creds.clone();

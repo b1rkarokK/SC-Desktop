@@ -229,6 +229,9 @@ pub struct SoundCloud {
     http: Arc<HttpClient>,
     client_id: String,
     auth: String,
+    /// an expired token may be replaced by the one of the app's browser session (the main account); not for a
+    /// second account, which would silently turn into the main one
+    renew: bool,
 }
 
 impl SoundCloud {
@@ -237,7 +240,14 @@ impl SoundCloud {
             http,
             client_id: creds.client_id.clone(),
             auth: format!("OAuth {}", creds.oauth_token),
+            renew: true,
         }
+    }
+
+    /// For a second account: its expired token is an error, not a reason to use the main one.
+    pub fn without_renewal(mut self) -> Self {
+        self.renew = false;
+        self
     }
 
     fn api_url(&self, path: &str, query: &[(&str, String)]) -> AppResult<Url> {
@@ -271,6 +281,7 @@ impl SoundCloud {
     /// retry and kept for every later request (see `rotated_client_id`).
     async fn get<T: DeserializeOwned>(&self, url: Url) -> AppResult<T> {
         match self.get_with_client_retry::<T>(&url, &self.auth).await {
+            Err(AppError::AuthExpired) if !self.renew => Err(AppError::AuthExpired),
             Err(AppError::AuthExpired) => {
                 // the login token itself expired: the site session in the app's
                 // browser profile still has a fresh one (SoundCloud renews it)

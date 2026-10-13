@@ -3,6 +3,11 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.0.1] - 2026-10-14
+
+- Manual sign-in is simpler: only the oauth_token is needed (it can be taken from the cookie on soundcloud.com), the app finds the client_id itself. When you are not signed in, the manual block is open at once.
+- A second account (Settings → SoundCloud account): if the subscription is on another account, paste its oauth_token. The main account with all its likes, playlists and friends stays, and the tracks it cannot play in full play through the second one. Nothing else to do.
+
 ## [1.0.0] - 2026-10-14
 
 The first "1.0": everything that piled up, put together and checked.

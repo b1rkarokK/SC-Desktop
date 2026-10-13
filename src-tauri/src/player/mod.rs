@@ -1447,6 +1447,8 @@ impl Player {
         });
     }
 
+    /// The audio of a track. The main account plays it; if that cannot (only a preview, or a stream only the widget
+    /// can play) and a second account with a subscription is set, that one is asked, quietly. Nobody is told.
     async fn fetch_audio(&self, track_id: u64) -> AppResult<Fetched> {
         let state = self.app.state::<AppState>();
         // downloaded: play the file (offline, no quota, no region blocks)
@@ -1456,17 +1458,37 @@ impl Player {
                 Err(e) => tracing::warn!(error = %e, "downloaded file unreadable, streaming instead"),
             }
         }
-        if self.drm_only.lock().unwrap_or_else(|e| e.into_inner()).contains(&track_id) {
+        let Some(second) = state.sc_second() else {
+            return Box::pin(self.fetch_audio_with(&state, state.sc()?, track_id, true, true)).await;
+        };
+        // with a second account the "only the widget plays it" memory is not trusted: the subscription may play it
+        match Box::pin(self.fetch_audio_with(&state, state.sc()?, track_id, false, false)).await {
+            Ok(Fetched::Bytes(data)) => return Ok(Fetched::Bytes(data)),
+            first => tracing::debug!(track = track_id, ok = first.is_ok(), "main account could not play it in full, asking the second"),
+        }
+        if let Ok(Fetched::Bytes(data)) = Box::pin(self.fetch_audio_with(&state, second, track_id, true, false)).await {
+            return Ok(Fetched::Bytes(data));
+        }
+        // the second did not help either: as it would have been without it
+        Box::pin(self.fetch_audio_with(&state, state.sc()?, track_id, true, true)).await
+    }
+
+    /// `stand_in_ok`: a 30-second preview may be replaced by someone else's full upload of the same recording;
+    /// `trust_drm`: a track known to be DRM-only goes straight to the widget.
+    async fn fetch_audio_with(&self, state: &AppState, sc: crate::api::soundcloud::SoundCloud, track_id: u64, stand_in_ok: bool, trust_drm: bool) -> AppResult<Fetched> {
+        if trust_drm && self.drm_only.lock().unwrap_or_else(|e| e.into_inner()).contains(&track_id) {
             return Ok(Fetched::Widget(track_id));
         }
         let used = state.db.streams_last_24h().await?;
         if used >= STREAM_QUOTA {
             return Err(AppError::StreamQuota(used));
         }
-        let sc = state.sc()?;
         // always fresh: track_authorization in cached JSON expires
         let mut full = sc.track(track_id).await?;
         let mut ready: Option<Vec<u8>> = None;
+        if full.is_preview() && !stand_in_ok {
+            return Err(AppError::UnsupportedStream("в SoundCloud это только 30-секундное превью".into()));
+        }
         if full.is_preview() {
             // 30 s Go+ preview: play someone else's full upload of the very same recording
             let shift;

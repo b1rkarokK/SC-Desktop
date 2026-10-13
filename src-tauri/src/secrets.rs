@@ -21,6 +21,10 @@ pub struct Credentials {
     pub oauth_token: String,
     #[serde(default)]
     pub genius_token: Option<String>,
+    /// The login token of ANOTHER account, used only to get the audio (e.g. the one that has the Go+ subscription while
+    /// the library, likes and friends stay on the main account).
+    #[serde(default)]
+    pub stream_token: Option<String>,
 }
 
 impl fmt::Debug for Credentials {
@@ -29,6 +33,7 @@ impl fmt::Debug for Credentials {
             .field("client_id", &"<redacted>")
             .field("oauth_token", &"<redacted>")
             .field("genius_token", &self.genius_token.as_ref().map(|_| "<redacted>"))
+            .field("stream_token", &self.stream_token.as_ref().map(|_| "<redacted>"))
             .finish()
     }
 }
