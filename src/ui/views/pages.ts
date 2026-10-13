@@ -242,26 +242,34 @@ export class PlaylistPageView implements View {
           saveBtn.lastChild && ((saveBtn.lastChild as HTMLElement).textContent = q.running ? T('Остановить ({0}/{1})', q.done, q.total) : T('Скачать всё'));
           if (!q.running && q.total) toast(q.failed ? T('Скачано {0} из {1}, не удалось: {2}', q.total - q.failed, q.total, q.failed) : T('Скачано: {0}', q.total));
         });
-        // like every song of the list (one by one, SoundCloud limits how fast likes may come)
+        // like every song of the list at once: the heart marks come first, SoundCloud gets them in the background
         const likeAll = btn(T('Лайкнуть всё'), I.heart);
         let liking = false;
         likeAll.addEventListener('click', async () => {
-          if (liking) return void (liking = false);
+          if (liking) return void api.likesManyStop();
           const todo = tracks.filter((t) => !store.liked.has(t.id));
           if (!todo.length) return void toast(T('Все песни уже в лайках'));
           liking = true;
           const label = likeAll.lastChild as HTMLElement | null;
-          let n = 0;
-          for (const t of todo) {
-            if (!liking || !likeAll.isConnected) break;
-            await store.setLiked(t, true);
-            n++;
-            if (label) label.textContent = T('Остановить ({0}/{1})', n, todo.length);
-            await new Promise((r) => setTimeout(r, 250));
+          for (const t of todo) store.liked.add(t.id);
+          store.emit('likes');
+          const unlisten = await listen<{ done: number; total: number }>('likes:bulk', (e) => {
+            if (label) label.textContent = T('Остановить ({0}/{1})', e.payload.done, e.payload.total);
+          });
+          try {
+            const n = await api.likesMany(todo);
+            // the ones not reached (stopped) lose their mark
+            for (const t of todo.slice(0, todo.length - n)) store.liked.delete(t.id);
+            store.emit('likes');
+            toast(T('Лайкнуто: {0}', n));
+          } catch (e) {
+            await store.reloadSets();
+            toast(errorMessage(e), 'error');
+          } finally {
+            unlisten();
+            liking = false;
+            if (label) label.textContent = T('Лайкнуть всё');
           }
-          liking = false;
-          if (label) label.textContent = T('Лайкнуть всё');
-          toast(T('Лайкнуто: {0}', n));
         });
         const sub = [p.year, T('{0} {1}', tracks.length, plural(tracks.length, 'трек', 'трека', 'треков')), fmtTime(total)].filter(Boolean).join(' · ');
         // own playlist: «Изменить» → drag to reorder, ✕ to remove, saved on SoundCloud

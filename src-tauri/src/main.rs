@@ -181,6 +181,8 @@ fn main() {
             commands::likes_page,
             commands::likes_ids,
             commands::like_set,
+            commands::likes_many,
+            commands::likes_many_stop,
             commands::likes_pending,
             commands::likes_pending_flush,
             commands::follows_pending,

@@ -294,6 +294,39 @@ async fn send_like(app: &AppHandle, state: &AppState, track_id: u64, liked: bool
 /// retried in the background until it goes through. The user never waits.
 #[tauri::command]
 pub async fn like_set(app: AppHandle, state: State<'_, AppState>, track: TrackDto, liked: bool) -> Cmd<()> {
+    like_one(&app, &state, track, liked).await
+}
+
+static LIKE_MANY_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// «Лайкнуть всё» on a playlist: all of it in one go, from the last song to the first, so that the likes list shows
+/// the songs in the playlist's order (it lists the newest like first). `likes:bulk` {done,total} while it runs.
+#[tauri::command]
+pub async fn likes_many(app: AppHandle, state: State<'_, AppState>, tracks: Vec<TrackDto>) -> Cmd<usize> {
+    use std::sync::atomic::Ordering::Relaxed;
+    LIKE_MANY_STOP.store(false, Relaxed);
+    let total = tracks.len();
+    let mut done = 0;
+    for track in tracks.into_iter().rev() {
+        if LIKE_MANY_STOP.load(Relaxed) {
+            break;
+        }
+        like_one(&app, &state, track, true).await?;
+        done += 1;
+        if done % 5 == 0 || done == total {
+            let _ = app.emit("likes:bulk", serde_json::json!({ "done": done, "total": total }));
+        }
+    }
+    Ok(done)
+}
+
+#[tauri::command]
+pub fn likes_many_stop() {
+    LIKE_MANY_STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+async fn like_one(app: &AppHandle, state: &AppState, track: TrackDto, liked: bool) -> Cmd<()> {
+    let app = app.clone();
     if liked {
         if state.db.tracks_by_ids(vec![track.id]).await?.is_empty() {
             // a private or just uploaded track of your own may not open by id: the like still goes to SoundCloud
@@ -308,11 +341,11 @@ pub async fn like_set(app: AppHandle, state: State<'_, AppState>, track: TrackDt
         state.db.like_remove(track.id).await?;
     }
 
-    let mut pending = pending_likes(&state).await?;
+    let mut pending = pending_likes(state).await?;
     let was_pending = pending.iter().any(|(id, _)| *id == track.id);
     pending.retain(|(id, _)| *id != track.id);
     state.db.kv_put(PENDING_LIKES, &pending).await?;
-    match send_like(&app, &state, track.id, liked, true).await {
+    match send_like(&app, state, track.id, liked, true).await {
         Ok(()) => {
             if was_pending {
                 let _ = app.emit("likes:queue", ());

@@ -3,6 +3,10 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.4] - 2026-10-13
+
+- "Like all" on a playlist now works at once: the hearts light up on every song as you press it, and the likes go to SoundCloud in one run in the background, without pauses. The songs are liked so that the playlist lies in its own order in "My likes". The run can be stopped.
+
 ## [0.9.3] - 2026-10-13
 
 - Import from Yandex Music and Spotify no longer cuts the list at 500 songs: a long playlist is split into several SoundCloud playlists ("Name (1/3)", "(2/3)"…), because SoundCloud holds up to 500 songs in a playlist.
