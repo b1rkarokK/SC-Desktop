@@ -51,6 +51,8 @@ export interface UiPrefs {
   lyricsAuto?: boolean;
   /** no lyrics anywhere: listen to the track and find the song by the words heard (hear.rs), default on */
   lyricsHear?: boolean;
+  /** liked tracks are kept as files to play without the internet (downloads.rs), default off */
+  offlineLikes?: boolean;
   /** what the user moved the lyrics of a track by, ms (kept per track) */
   lyricsNudge?: Record<string, number>;
   navCollapsed: boolean;

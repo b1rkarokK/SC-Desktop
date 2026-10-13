@@ -122,12 +122,15 @@ pub async fn download(app: &AppHandle, state: &AppState, track: TrackDto) -> App
         Err(e) => return Err(e),
     };
     state.db.log_stream().await?;
-    let track = TrackDto::from(&full);
+    store(app, state, TrackDto::from(&full), &data).await
+}
 
+/// Writes audio already in hand to the folder and adds it to the list.
+async fn store(app: &AppHandle, state: &AppState, track: TrackDto, data: &[u8]) -> AppResult<Download> {
     let dir = folder(app).await?;
     tokio::fs::create_dir_all(&dir).await.map_err(|e| AppError::Other(format!("папка {}: {e}", dir.display())))?;
     let path = dir.join(file_name(&track, extension(&data)));
-    tokio::fs::write(&path, &data).await.map_err(|e| AppError::Other(format!("не удалось сохранить файл: {e}")))?;
+    tokio::fs::write(&path, data).await.map_err(|e| AppError::Other(format!("не удалось сохранить файл: {e}")))?;
     tracing::info!(track = track.id, bytes = data.len(), "track downloaded");
 
     let item = Download {
@@ -140,6 +143,79 @@ pub async fn download(app: &AppHandle, state: &AppState, track: TrackDto) -> App
     all.insert(0, item.clone());
     save_list(state, &all).await?;
     Ok(item)
+}
+
+/// «Лайки без интернета» is on (Settings → Скачанные треки).
+pub fn offline_likes_on(state: &AppState) -> bool {
+    state.config.get().ui["offlineLikes"] == serde_json::Value::Bool(true)
+}
+
+/// A liked track that just played is kept from the audio already downloaded for playing: no extra traffic.
+pub async fn keep_if_liked(app: &AppHandle, track: &TrackDto, data: &[u8]) {
+    let state = app.state::<AppState>();
+    if !offline_likes_on(&state) || file_of(&state, track.id).await.is_some() {
+        return;
+    }
+    if !state.db.likes_ids().await.is_ok_and(|ids| ids.contains(&track.id)) {
+        return;
+    }
+    match store(app, &state, track.clone(), data).await {
+        Ok(_) => {
+            tracing::info!(track = track.id, "liked track kept for offline from the playing audio");
+            let _ = tauri::Emitter::emit(app, "downloads:changed", ());
+        }
+        Err(e) => tracing::warn!(error = %e, "keeping a liked track failed"),
+    }
+}
+
+/// While «Лайки без интернета» is on: the liked tracks not saved yet are downloaded one by one, slowly
+/// (one every half a minute, newest likes first), and never past a share of the daily stream limit.
+pub fn start_offline_likes(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+        loop {
+            let wait = match fill_one(&app).await {
+                Ok(true) => 30,
+                Ok(false) => 600,
+                Err(e) => {
+                    tracing::debug!(error = %e, "offline likes: download failed, later");
+                    300
+                }
+            };
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+        }
+    });
+}
+
+/// liked tracks that could not be saved in this run of the app
+static SKIP: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+/// One missing liked track downloaded; false: nothing to do now.
+async fn fill_one(app: &AppHandle) -> AppResult<bool> {
+    /// the player keeps its own limit at 14 500 a day: the background takes no more than a fifth of it
+    const SHARE: u32 = 3_000;
+    let state = app.state::<AppState>();
+    if !offline_likes_on(&state) || state.db.streams_last_24h().await? >= SHARE {
+        return Ok(false);
+    }
+    let have: std::collections::HashSet<u64> = list(&state).await?.into_iter().filter(|d| Path::new(&d.path).is_file()).map(|d| d.track.id).collect();
+    let liked = state.db.liked_full(5_000).await?;
+    let failed = SKIP.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(next) = liked.iter().find(|t| !have.contains(&t.id) && !failed.contains(&t.id) && t.is_fully_playable()) else { return Ok(false) };
+    match download(app, &state, TrackDto::from(next)).await {
+        Ok(_) => {
+            let _ = tauri::Emitter::emit(app, "downloads:changed", ());
+            Ok(true)
+        }
+        // this one cannot be saved (DRM, removed …): the next one, this one again after a restart
+        Err(e) if e.is_track_specific() => {
+            tracing::info!(track = next.id, error = %e, "offline likes: track skipped");
+            SKIP.lock().unwrap_or_else(|e| e.into_inner()).push(next.id);
+            Ok(true)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Removes from the list and deletes the file (it is ours: we wrote it).

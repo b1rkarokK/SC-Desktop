@@ -103,6 +103,7 @@ fn main() {
             updater::start(&handle);
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
+            downloads::start_offline_likes(&handle);
             {
                 // with a proxy the connection pool may have been opened while the proxy program (a VPN client that
                 // starts later than this one) was not there yet: a fresh client a few seconds after the start, twice

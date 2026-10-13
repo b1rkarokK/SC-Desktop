@@ -14,6 +14,7 @@ import { trackMenu } from '../menus';
 import { uploadTrack } from '../upload_dialog';
 import { btn, emptyState, viewHead, type View } from './common';
 import { T } from '../i18n';
+import { prefs, updatePrefs } from '../prefs';
 
 function row(t: Track, note: string | null, ...actions: HTMLElement[]): HTMLElement {
   return line(t.artwork_url, t.title, t.artist, note, ...actions);
@@ -309,13 +310,31 @@ export class ProfileView implements View {
       h('span', { class: 'small profile-path', title: dir, text: dir }),
       change,
     );
+    // «Лайки без интернета»: the liked tracks are kept as files (the ones playing from their own audio, the rest slowly)
+    const likesOn = prefs().offlineLikes === true;
+    const knob = h('button', { type: 'button', class: `toggle${likesOn ? ' is-on' : ''}`, role: 'switch', 'aria-checked': String(likesOn) }, h('span', { class: 'toggle-knob' }));
+    knob.addEventListener('click', () => {
+      const v = knob.getAttribute('aria-checked') !== 'true';
+      knob.classList.toggle('is-on', v);
+      knob.setAttribute('aria-checked', String(v));
+      updatePrefs((p) => (p.offlineLikes = v));
+      if (v) toast(T('Лайки начнут сохраняться: те, что слушаете, сразу, остальные понемногу в фоне.'));
+    });
+    const likesLine = h(
+      'div',
+      { class: 'profile-folder' },
+      knob,
+      h('span', { class: 'small', text: T('Лайки без интернета') }),
+      h('span', { class: 'muted small', text: T('Лайкнутые треки сохраняются в эту папку: играющий сразу, без лишнего трафика, остальные по одному в фоне.') }),
+    );
     if (!list.length) {
-      this.body.replaceChildren(folderLine, emptyState(T('Скачанных треков пока нет. Нажмите правой кнопкой на трек и выберите «Скачать». Скачанные треки играют без интернета.')));
+      this.body.replaceChildren(folderLine, likesLine, emptyState(T('Скачанных треков пока нет. Нажмите правой кнопкой на трек и выберите «Скачать». Скачанные треки играют без интернета.')));
       return;
     }
     const tracks = list.map((d) => d.track);
     this.body.replaceChildren(
       folderLine,
+      likesLine,
       ...list.map((d, i) => {
         const show = iconButton(I.folder, T('Показать в папке'));
         show.addEventListener('click', (e) => {

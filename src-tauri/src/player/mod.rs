@@ -1372,6 +1372,11 @@ impl Player {
                                 this.out(AudioCmd::Hold(true));
                             }
                             *this.last_audio.lock().unwrap_or_else(|e| e.into_inner()) = Some((track.id, data.clone()));
+                            {
+                                // «Лайки без интернета»: a liked track is kept from this very audio
+                                let (app, track, data) = (this.app.clone(), track.clone(), data.clone());
+                                tauri::async_runtime::spawn(async move { crate::downloads::keep_if_liked(&app, &track, &data).await });
+                            }
                             this.out(AudioCmd::Load { data, generation, gain, duration_ms: track.duration_ms, fade });
                             if held {
                                 this.room_held.store(true, Ordering::SeqCst);
