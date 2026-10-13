@@ -3,6 +3,18 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.1] - 2026-10-13
+
+- Slowed and Sped up: the lyrics and the progress bar no longer drift when the speed changes. The position used to be counted in output time, now it is counted in the track's own time.
+- For sped-up and slowed versions (speed up, slowed, nightcore) the original's timed lyrics are used and their timings are recalculated for the tempo.
+- Under the lyrics the "-" and "+" buttons move the text by a quarter of a second if it is early or late; the shift is remembered for each track. Matching the lyrics to the sound can be turned on and off in Settings.
+- Friends see what you listen to (only they, can be turned off in Settings), and you see what they listen to: "Profile - Friends" and the "Rooms" page. You cannot join a person: only their open room, or by invitation. Rooms with a password are no longer shown to friends.
+- Friend requests: protection from a flood of fake ones and a hint that you follow the person. Friends and shared playlists start right after you sign in, not after a restart.
+- First start without signing in: a clear "Sign in with SoundCloud" button on the home page and in "Likes" instead of an empty page and red errors.
+- Equalizer: the note about SoundCloud's player takes the whole width of the window. The "new" dot of shared playlists goes out once you have looked at everything.
+- "My Wave" takes into account more tracks you did not like.
+- Hotkeys show the "," and "." signs instead of words. The switches in Settings have names for screen readers. Old lyrics records in the database no longer cause an error.
+
 ## [0.9.0] - 2026-10-12
 
 - Friends: the app now has its own friends, not SoundCloud followers. Profile - "Friends": find a person, send a request, they accept and you are friends. You can invite friends to a room (a password included) and to a shared playlist: the invitation arrives in the app as a notification and waits in the tab. Everything is encrypted with the pair's key, an invitation cannot be forged. A dot on the avatar shows a waiting request or invitation. Friends' open rooms show in "Rooms".
