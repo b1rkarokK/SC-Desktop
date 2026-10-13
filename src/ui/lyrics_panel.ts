@@ -99,6 +99,9 @@ export class LyricsPanel {
       case 'loading':
         this.view.setMessage(T('Ищем текст…'));
         return;
+      case 'hearing':
+        this.view.setMessage(T('По названию текста нет. Слушаю песню, чтобы узнать её по словам…'));
+        return;
       case 'error':
         this.view.setMessage(s.message);
         return;

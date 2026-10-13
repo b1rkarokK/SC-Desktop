@@ -478,6 +478,8 @@ export const api = {
   waveClearDislikes: () => invoke<void>('wave_clear_dislikes'),
 
   lyrics: (track: Track, force: boolean) => invoke<Lyrics>('lyrics_get', { track, force }),
+  /** no lyrics under the name: the app listens to the track and searches by the words (hear.rs) */
+  lyricsHear: (track: Track, force: boolean) => invoke<{ wait: boolean; lyrics: Lyrics | null }>('lyrics_hear', { track, force }),
   openExternal: (url: string) => invoke<void>('open_external', { url }),
 
   configGet: () => invoke<AppConfig>('config_get'),

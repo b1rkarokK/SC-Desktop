@@ -1392,14 +1392,24 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
         }
     }
     let before = state.lyrics.mxm_session();
-    let found = lyrics::find(&http, &state.lyrics, &q).await?;
+    let (found, failed) = lyrics::find_counted(&http, &state.lyrics, &q).await?;
     let after = state.lyrics.mxm_session();
     if after != before {
         state.db.kv_put(MXM_KEY, &after.unwrap_or_default()).await?;
     }
-    let dto = match found {
+    let dto = lyrics_dto(track.id, found);
+    tracing::info!(track = track.id, source = ?dto.source, word = dto.word_level, failed, "lyrics resolved");
+    // "not found" is kept for days; with a source down it is asked again next time instead
+    if dto.found || failed == 0 {
+        state.db.lyrics_put(dto.clone()).await?;
+    }
+    Ok(dto)
+}
+
+fn lyrics_dto(track_id: u64, found: Option<lyrics::Lyrics>) -> LyricsDto {
+    match found {
         Some(l) => LyricsDto {
-            track_id: track.id,
+            track_id,
             found: true,
             source: Some(l.source),
             synced: l.synced,
@@ -1412,7 +1422,7 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             scaled_by: l.scaled_by,
         },
         None => LyricsDto {
-            track_id: track.id,
+            track_id,
             found: false,
             source: None,
             synced: false,
@@ -1424,10 +1434,38 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
             length_off_ms: None,
             scaled_by: None,
         },
-    };
-    tracing::info!(track = track.id, source = ?dto.source, word = dto.word_level, "lyrics resolved");
+    }
+}
+
+#[derive(Serialize)]
+pub struct HearDto {
+    /// the audio of the track is not loaded yet: ask again a bit later
+    pub wait: bool,
+    pub lyrics: Option<LyricsDto>,
+}
+
+/// No lyrics under the track's name: listen to the track (hear.rs) and look the heard words up.
+/// Once per track; `force` (the "search again" button) tries again.
+#[tauri::command]
+pub async fn lyrics_hear(app: AppHandle, state: State<'_, AppState>, player: State<'_, Arc<Player>>, track: TrackDto, force: bool) -> Cmd<HearDto> {
+    let none = HearDto { wait: false, lyrics: None };
+    if state.config.get().ui["lyricsHear"] == serde_json::Value::Bool(false) || !crate::hear::supported() {
+        return Ok(none);
+    }
+    let key = format!("lyr:hear:{}", track.id);
+    if !force && state.db.kv_get::<bool>(&key).await?.is_some() {
+        return Ok(none);
+    }
+    let Some(audio) = player.audio_of(track.id) else { return Ok(HearDto { wait: true, lyrics: None }) };
+    let models = app.path().app_data_dir()?.join("models");
+    let cyrillic = format!("{}{}", track.artist, track.title).chars().any(|c| ('\u{400}'..='\u{4ff}').contains(&c));
+    let found = crate::hear::find(&state.http(), &state.lyrics, &models, audio, track.duration_ms, cyrillic).await?;
+    state.db.kv_put(&key, &true).await?;
+    let Some(l) = found else { return Ok(none) };
+    let dto = lyrics_dto(track.id, Some(l));
+    tracing::info!(track = track.id, source = ?dto.source, "lyrics found by ear");
     state.db.lyrics_put(dto.clone()).await?;
-    Ok(dto)
+    Ok(HearDto { wait: false, lyrics: Some(dto) })
 }
 
 // ---------------------------------------------------------------- system

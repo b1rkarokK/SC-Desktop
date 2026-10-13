@@ -11,3 +11,6 @@ HANDOFF.md
 *.key
 переписка.txt
 scripts/ui-smoke-out/
+promo/
+CLAUDE.md
+.tools/

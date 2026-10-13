@@ -16,6 +16,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # whisper.cpp bindings (src-tauri/.cargo/config.toml): the runner's own LLVM
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
     steps:
       - uses: actions/checkout@v4
 

@@ -287,16 +287,22 @@ pub struct LyricsState {
     dz_jwt: Mutex<Option<String>>,
 }
 
-#[allow(unused_assignments)] // the macro also assigns `best` after the last read
 pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResult<Option<Lyrics>> {
+    find_counted(http, state, q).await.map(|(l, _)| l)
+}
+
+/// `find`, plus how many sources failed to answer: "nothing found" while a source was down
+/// (LRCLIB overloaded, no Musixmatch token) is not a real answer and must not be kept.
+#[allow(unused_assignments)] // the macro also assigns `best` after the last read
+pub async fn find_counted(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResult<(Option<Lyrics>, u32)> {
     let mut best: Option<Lyrics> = None;
     let mut plain: Option<Lyrics> = None;
-    let mut errors = 0;
+    let mut errors = 0u32;
 
     macro_rules! consider {
         ($res:expr, $name:literal) => {
             match $res {
-                Ok(Some(l)) if l.word_level => return Ok(Some(l)),
+                Ok(Some(l)) if l.word_level => return Ok((Some(l), errors)),
                 Ok(Some(l)) if l.synced => {
                     if best.is_none() {
                         best = Some(l);
@@ -309,7 +315,10 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    errors += 1;
+                    // Genius often just skips (its check window is not opened in the background): not a failure
+                    if !$name.starts_with("genius") {
+                        errors += 1;
+                    }
                     tracing::debug!(provider = $name, error = %e, "lyrics provider failed");
                 }
             }
@@ -323,24 +332,46 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
     consider!(r_netease, "netease");
     consider!(r_musixmatch, "musixmatch");
     if let Some(l) = best {
-        return Ok(Some(l));
+        return Ok((Some(l), errors));
     }
     if plain.is_none() {
         // covers / re-uploads: the uploader is not the artist the lyrics are filed under
         consider!(lrclib_by_title(http, q).await, "lrclib-title");
         if let Some(l) = best {
-            return Ok(Some(l));
+            return Ok((Some(l), errors));
         }
     }
     if plain.is_none() {
         // last: may need the Genius browser window
         consider!(genius_plain(http, q).await, "genius");
     }
+    if plain.is_none() && best.is_none() && q.version_of.is_none() {
+        // a re-upload under someone else's name ("Gabris - Дымок" is Ицык Цыпер's):
+        // find who really recorded it by the title and the exact length, ask again
+        for alias in real_artists(http, q).await {
+            let q2 = Query { artist: alias.0, title: alias.1, duration_ms: q.duration_ms, version_of: None, kind: q.kind };
+            tracing::debug!(artist = %q2.artist, title = %q2.title, "lyrics: trying the real artist");
+            let (a, b, c, d) = futures::join!(lrclib(http, &q2), deezer(http, state, &q2), netease(http, &q2), musixmatch(http, state, &q2));
+            consider!(a, "lrclib-real");
+            consider!(b, "deezer-real");
+            consider!(c, "netease-real");
+            consider!(d, "musixmatch-real");
+            if let Some(l) = best {
+                return Ok((Some(l), errors));
+            }
+            if plain.is_none() {
+                consider!(genius_plain(http, &q2).await, "genius-real");
+            }
+            if plain.is_some() {
+                break;
+            }
+        }
+    }
     if plain.is_none() {
         // slowed / sped up / nightcore …: the original's words, without timings
         if let Some(base) = q.version_of.as_deref() {
             match original_text(http, state, &q.artist, base).await {
-                Ok(Some(l)) => return Ok(Some(l.with_tempo(q.duration_ms, q.kind))),
+                Ok(Some(l)) => return Ok((Some(l.with_tempo(q.duration_ms, q.kind)), errors)),
                 Ok(None) => {}
                 Err(e) => tracing::debug!(error = %e, "original lyrics failed"),
             }
@@ -349,7 +380,92 @@ pub async fn find(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResul
     if plain.is_none() && errors >= 4 {
         return Err(AppError::Network("ни один источник текстов не ответил".into()));
     }
-    Ok(plain)
+    Ok((plain, errors))
+}
+
+/// The same title in brackets-free form: "Дымок (Smoke)" = "Дымок".
+fn bare_title(s: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0u32;
+    for c in s.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    normalize(&out)
+}
+
+/// Who really recorded a track uploaded under another name: catalog entries with
+/// the same title and the same length (±2 s), most trusted first (Deezer ranks
+/// popular recordings first, then Yandex Music, then LRCLIB). At most two, and
+/// never the uploader itself.
+async fn real_artists(http: &HttpClient, q: &Query) -> Vec<(String, String)> {
+    if q.duration_ms == 0 {
+        return Vec::new();
+    }
+    let want = bare_title(&q.title);
+    if want.is_empty() {
+        return Vec::new();
+    }
+    let close = |secs: f64| (secs * 1000.0) as u64 >= 1 && q.duration_ms.abs_diff((secs * 1000.0) as u64) <= 2_000;
+
+    let dz = async {
+        let mut url = Url::parse("https://api.deezer.com/search").ok()?;
+        url.query_pairs_mut().append_pair("q", &q.title);
+        let v: Value = http.get_json_with(url.as_str(), &[]).await.ok()?;
+        Some(
+            v["data"]
+                .as_array()?
+                .iter()
+                .filter(|t| close(t["duration"].as_f64().unwrap_or(0.0)))
+                .filter_map(|t| Some((t["artist"]["name"].as_str()?.to_owned(), t["title"].as_str()?.to_owned())))
+                .collect::<Vec<_>>(),
+        )
+    };
+    let ya = async {
+        let mut url = Url::parse("https://api.music.yandex.net/search").ok()?;
+        url.query_pairs_mut().append_pair("type", "track").append_pair("page", "0").append_pair("text", &q.title);
+        let v: Value = http.get_json_with(url.as_str(), &[]).await.ok()?;
+        Some(
+            v["result"]["tracks"]["results"]
+                .as_array()?
+                .iter()
+                .filter(|t| close(t["durationMs"].as_f64().unwrap_or(0.0) / 1000.0))
+                .filter_map(|t| {
+                    let artist = t["artists"].as_array()?.iter().filter_map(|a| a["name"].as_str()).collect::<Vec<_>>().join(", ");
+                    Some((artist, t["title"].as_str()?.to_owned()))
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+    let lr = async {
+        let mut url = Url::parse("https://lrclib.net/api/search").ok()?;
+        url.query_pairs_mut().append_pair("q", &q.title);
+        let v: Value = http.get_json_with(url.as_str(), &[("lrclib-client", "SC Desk")]).await.ok()?;
+        Some(
+            v.as_array()?
+                .iter()
+                .filter(|t| close(t["duration"].as_f64().unwrap_or(0.0)))
+                .filter_map(|t| Some((t["artistName"].as_str()?.to_owned(), t["trackName"].as_str()?.to_owned())))
+                .collect::<Vec<_>>(),
+        )
+    };
+    let (dz, ya, lr) = futures::join!(dz, ya, lr);
+    let uploader = normalize(&q.artist);
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (artist, title) in [dz, ya, lr].into_iter().flatten().flatten() {
+        let a = normalize(&artist);
+        if bare_title(&title) == want && a != uploader && !out.iter().any(|(x, _)| normalize(x) == a) {
+            out.push((artist, title));
+        }
+        if out.len() == 2 {
+            break;
+        }
+    }
+    out
 }
 
 fn duration_ok(want_ms: u64, got_ms: u64) -> bool {
@@ -928,7 +1044,31 @@ fn fill_ends(mut lines: Vec<Line>) -> Vec<Line> {
 
 #[cfg(test)]
 mod tests {
-    use super::{distinctive_title, version_base};
+    use super::{bare_title, distinctive_title, version_base};
+
+    #[test]
+    fn bare_titles() {
+        assert_eq!(bare_title("Дымок (Smoke)"), bare_title("Дымок"));
+        assert_eq!(bare_title("Life [prod. X]"), bare_title("Life"));
+    }
+
+    /// Real network: `cargo test real_artist_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn real_artist_live() {
+        let http = crate::net::HttpClient::new(&crate::config::AppConfig::default()).unwrap();
+        let state = super::LyricsState::default();
+        let _ = tracing_subscriber::fmt().with_env_filter("sc_desk=debug").with_test_writer().try_init();
+        let (artist, title, ms) = match std::env::var("LY_Q") {
+            Ok(v) => { let p: Vec<&str> = v.split('|').collect(); (p[0].to_owned(), p[1].to_owned(), p[2].parse().unwrap()) }
+            Err(_) => ("Gabris".to_owned(), "Дымок".to_owned(), 139_000),
+        };
+        let q = super::Query { kind: super::version_kind(&title), artist, title, duration_ms: ms, version_of: None };
+        println!("real artists: {:?}", super::real_artists(&http, &q).await);
+        let found = super::find(&http, &state, &q).await.unwrap();
+        let l = found.expect("lyrics");
+        println!("source {} synced {} first: {:?}", l.source, l.synced, l.lines.iter().find(|x| !x.text.trim().is_empty()).map(|x| &x.text));
+    }
 
     fn timed(src: u64) -> Lyrics {
         let line = |start: u64, end: u64, text: &str| Line { start_ms: Some(start), end_ms: Some(end), text: text.into(), words: vec![Word { start_ms: start, end_ms: end, text: text.into() }] };

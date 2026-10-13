@@ -1461,13 +1461,25 @@ impl Player {
         let Some(second) = state.sc_second() else {
             return Box::pin(self.fetch_audio_with(&state, state.sc()?, track_id, true, true)).await;
         };
-        // with a second account the "only the widget plays it" memory is not trusted: the subscription may play it
-        match Box::pin(self.fetch_audio_with(&state, state.sc()?, track_id, false, false)).await {
-            Ok(Fetched::Bytes(data)) => return Ok(Fetched::Bytes(data)),
-            first => tracing::debug!(track = track_id, ok = first.is_ok(), "main account could not play it in full, asking the second"),
+        // a track the main account could not play last time goes to the second one at once (no extra round trip)
+        let via_second = format!("via_second:{track_id}");
+        let known = state.db.kv_get::<bool>(&via_second).await.ok().flatten().is_some();
+        if !known {
+            // with a second account the "only the widget plays it" memory is not trusted: the subscription may play it
+            match Box::pin(self.fetch_audio_with(&state, state.sc()?, track_id, false, false)).await {
+                Ok(Fetched::Bytes(data)) => return Ok(Fetched::Bytes(data)),
+                first => tracing::debug!(track = track_id, ok = first.is_ok(), "main account could not play it in full, asking the second"),
+            }
         }
         if let Ok(Fetched::Bytes(data)) = Box::pin(self.fetch_audio_with(&state, second, track_id, true, false)).await {
+            if !known {
+                let _ = state.db.kv_put(&via_second, &true).await;
+            }
             return Ok(Fetched::Bytes(data));
+        }
+        if known {
+            // the second account no longer plays it: next time the main one is asked first again
+            let _ = state.db.kv_delete(&via_second).await;
         }
         // the second did not help either: as it would have been without it
         Box::pin(self.fetch_audio_with(&state, state.sc()?, track_id, true, true)).await

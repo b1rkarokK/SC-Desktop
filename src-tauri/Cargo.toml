@@ -69,6 +69,8 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphic
 # Windows media panel (System Media Transport Controls); the version Tauri already uses
 windows = { version = "0.62", features = ["Foundation", "Media", "Media_Playback", "Storage_Streams", "Win32_UI_Shell"] }
 rustfft = "6"
+# song recognition by ear (hear.rs): whisper.cpp, CPU only, no OpenMP
+whisper-rs = "0.16"
 
 [profile.release]
 codegen-units = 1

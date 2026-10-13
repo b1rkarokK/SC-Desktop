@@ -245,6 +245,7 @@ export class Fullscreen {
       const l = s.lyrics;
       this.el.dataset.source = `${SOURCE_NAMES[l.source ?? ''] ?? ''}`;
     } else if (s.kind === 'loading') this.view.setMessage(T('Ищем текст…'));
+    else if (s.kind === 'hearing') this.view.setMessage(T('По названию текста нет. Слушаю песню, чтобы узнать её по словам…'));
     else if (s.kind === 'error') this.view.setMessage(s.message);
     else if (s.kind === 'ready') this.view.setMessage(T('Текст не найден.'));
     else this.view.setMessage('');

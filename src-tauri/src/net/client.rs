@@ -323,6 +323,25 @@ impl HttpClient {
         }
     }
 
+    /// A big file (a model) straight to disk, chunk by chunk: never the whole of it in memory, no 45 s limit.
+    /// Returns the SHA-256 of what was written.
+    pub async fn download_file(&self, url: &str, path: &std::path::Path) -> AppResult<String> {
+        use sha2::Digest;
+        use tokio::io::AsyncWriteExt;
+        let mut resp = self.client.get(url).timeout(Duration::from_secs(30 * 60)).header("user-agent", &self.id.user_agent).send().await?;
+        if !resp.status().is_success() {
+            return Err(AppError::from_status(resp.status()));
+        }
+        let mut file = tokio::fs::File::create(path).await?;
+        let mut hash = sha2::Sha256::new();
+        while let Some(chunk) = resp.chunk().await? {
+            hash.update(&chunk);
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        Ok(hex::encode(hash.finalize()))
+    }
+
     pub async fn get_text(&self, url: &str, profile: Profile, auth: Option<&str>) -> AppResult<String> {
         Ok(self.get(url, profile, auth).await?.text().await?)
     }

@@ -1,3 +1,17 @@
 # Leave half the CPU free so the PC stays responsive while building.
 [build]
 jobs = 4
+
+# whisper.cpp (song recognition, see hear.rs) is built by CMake:
+# * one CPU level for every user (AVX2, 2013 on), not this machine's; older CPUs skip recognition at run time;
+# * /O2 given explicitly: the cmake crate passes release flags without it and the engine runs ten times slower;
+# * libclang for the bindings: a local copy in .tools (not in git); CI sets LIBCLANG_PATH itself.
+[env]
+GGML_NATIVE = "OFF"
+GGML_AVX = "ON"
+GGML_AVX2 = "ON"
+GGML_FMA = "ON"
+GGML_F16C = "ON"
+CMAKE_C_FLAGS_RELEASE = "/MD /O2 /Ob2 /DNDEBUG"
+CMAKE_CXX_FLAGS_RELEASE = "/MD /O2 /Ob2 /DNDEBUG"
+LIBCLANG_PATH = { value = "../.tools/libclang", relative = true }

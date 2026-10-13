@@ -5,6 +5,8 @@ import { prefs, updatePrefs } from './prefs';
 export type LyricsState =
   | { kind: 'idle' }
   | { kind: 'loading'; track: Track }
+  /** no lyrics under the name: the app is listening to the track to find the song by its words */
+  | { kind: 'hearing'; track: Track }
   | { kind: 'ready'; track: Track; lyrics: Lyrics }
   | { kind: 'error'; track: Track; message: string };
 
@@ -101,13 +103,31 @@ class LyricsData {
     this.set({ kind: 'loading', track });
     try {
       const lyrics = await api.lyrics(track, force);
-      if (seq === this.seq) {
-        this.set({ kind: 'ready', track, lyrics });
-        if (lyrics.found && lyrics.synced && !lyrics.original && !this.autos.has(track.id)) void this.align(track);
-      }
+      if (seq !== this.seq) return;
+      if (!lyrics.found && prefs().lyricsHear !== false) return void this.hear(track, lyrics, force, seq);
+      this.ready(track, lyrics);
     } catch (e) {
       if (seq === this.seq) this.set({ kind: 'error', track, message: errorMessage(e) });
     }
+  }
+
+  private ready(track: Track, lyrics: Lyrics): void {
+    this.set({ kind: 'ready', track, lyrics });
+    if (lyrics.found && lyrics.synced && !lyrics.original && !this.autos.has(track.id)) void this.align(track);
+  }
+
+  /** Listens to the track (the audio may still be loading, so a few tries) and shows what that finds. */
+  private async hear(track: Track, none: Lyrics, force: boolean, seq: number): Promise<void> {
+    this.set({ kind: 'hearing', track });
+    for (const wait of [0, 3000, 7000]) {
+      if (wait) await new Promise((r) => window.setTimeout(r, wait));
+      if (seq !== this.seq) return;
+      const r = await api.lyricsHear(track, force).catch(() => null);
+      if (seq !== this.seq) return;
+      if (r?.wait) continue;
+      return this.ready(track, r?.lyrics ?? none);
+    }
+    if (seq === this.seq) this.ready(track, none);
   }
 
   private set(s: LyricsState): void {

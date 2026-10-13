@@ -35,6 +35,7 @@ mod tray;
 mod updater;
 mod import;
 mod lang;
+mod hear;
 mod lyrics_align;
 mod mini;
 mod smtc;
@@ -317,6 +318,7 @@ fn main() {
             commands::room_cmd,
             commands::rooms_live,
             commands::lyrics_align,
+            commands::lyrics_hear,
             #[cfg(debug_assertions)]
             commands::lyrics_align_probe,
             commands::theme_bg_get,

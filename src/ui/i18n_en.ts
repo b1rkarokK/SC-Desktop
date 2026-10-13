@@ -513,6 +513,10 @@ export const EN: Record<string, string> = {
   'Текст спешит: сдвинуть позже': 'Text is early: move it later',
   'Текст отстаёт: сдвинуть раньше': 'Text is late: move it earlier',
   'Подстраивать текст по звуку': 'Match the lyrics to the sound',
+  'Узнавать песню по словам': 'Recognise the song by its words',
+  'Если по названию текста нигде нет, программа послушает 15 секунд песни и найдёт её по услышанным словам. Только для таких треков и один раз на трек, около секунды работы. В первый раз скачает модель распознавания (57 МБ).':
+    'If no lyrics turn up by the name, the app listens to 15 seconds of the song and finds it by the words it hears. Only for such tracks and once per track, about a second of work. The first time it downloads the speech model (57 MB).',
+  'По названию текста нет. Слушаю песню, чтобы узнать её по словам…': 'No lyrics by the name. Listening to the song to recognise it by its words…',
   'Если слова появляются раньше или позже голоса, программа сама сдвигает текст по записи. Свой сдвиг (кнопки +/− под текстом) запоминается для каждого трека.': 'If the words show up before or after the voice, the app moves the text to the recording by itself. Your own shift (the +/- buttons under the text) is remembered for each track.',
   'тайминги оригинала пересчитаны под темп: ×{0}': 'timings of the original recalculated for the tempo: ×{0}',
   'Имя и аватар берутся с SoundCloud, но запрос мог отправить кто угодно. Принимайте тех, кого знаете.': 'The name and picture come from SoundCloud, but anybody could have sent the request. Accept the people you know.',

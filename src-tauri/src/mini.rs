@@ -26,7 +26,8 @@ use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewUrl, Webvi
 use crate::state::AppState;
 
 pub const LABEL: &str = "mini";
-const WIDTH: f64 = 340.0;
+/// wide enough for the whole control row with like + pin and the volume slider
+const WIDTH: f64 = 380.0;
 const HEIGHT: f64 = 58.0;
 const POS_KEY: &str = "mini:pos";
 const PIN_KEY: &str = "mini:pinned";

@@ -268,22 +268,24 @@ pub async fn full_version(sc: &SoundCloud, preview: &ScTrack) -> AppResult<Optio
     cands.sort_by_key(|t| (std::cmp::Reverse(t.playback_count.unwrap_or(0) / 1000), t.duration.abs_diff(want_ms)));
     cands.truncate(CHECKS);
 
-    let search = async {
-        let reference = match Box::pin(sc.download_audio(preview)).await {
-            Ok(bytes) => tauri::async_runtime::spawn_blocking(move || crate::fingerprint::compute(&bytes)).await.ok().flatten(),
+    // the preview (what to compare with) and the candidates are downloaded at the same time:
+    // the first candidate that passes starts playing, nobody waits for the preview first
+    let reference = futures::FutureExt::shared(Box::pin(async {
+        match Box::pin(sc.download_audio(preview)).await {
+            Ok(bytes) => tauri::async_runtime::spawn_blocking(move || crate::fingerprint::compute(&bytes)).await.ok().flatten().map(std::sync::Arc::new),
             Err(_) => None,
-        };
-        let Some(reference) = reference else {
-            // no preview audio to compare with: only an upload of exactly the same length
-            let Some(t) = cands.into_iter().find(|t| want_ms > 0 && t.duration.abs_diff(want_ms) <= 3_000) else { return None };
-            let audio = Box::pin(sc.download_audio(&t)).await.ok()?;
-            return Some(FullVersion { track: t, audio, shift_secs: 0.0 });
-        };
-        let reference = std::sync::Arc::new(reference);
+        }
+    }));
+    let search = async {
         let checks = cands.into_iter().map(|t| {
             let reference = reference.clone();
             async move {
-                let audio = Box::pin(sc.download_audio(&t)).await.ok()?;
+                let (audio, reference) = futures::join!(Box::pin(sc.download_audio(&t)), reference);
+                let audio = audio.ok()?;
+                let Some(reference) = reference else {
+                    // no preview audio to compare with: only an upload of exactly the same length
+                    return (want_ms > 0 && t.duration.abs_diff(want_ms) <= 3_000).then_some(FullVersion { track: t, audio, shift_secs: 0.0 });
+                };
                 let (ber, shift, audio) = tauri::async_runtime::spawn_blocking(move || {
                     let (ber, shift) = crate::fingerprint::compute_head(&audio, HEAD_SECS)
                         .map_or((1.0, 0.0), |fp| crate::fingerprint::best_match(&reference, &fp));
@@ -292,13 +294,13 @@ pub async fn full_version(sc: &SoundCloud, preview: &ScTrack) -> AppResult<Optio
                 .await
                 .ok()?;
                 tracing::info!(preview = preview.id, candidate = t.id, ber, shift, "Go+ preview: audio check");
-                (ber <= crate::fingerprint::SAME_MAX_BER).then_some((ber, FullVersion { track: t, audio, shift_secs: shift.max(0.0) }))
+                (ber <= crate::fingerprint::SAME_MAX_BER).then_some(FullVersion { track: t, audio, shift_secs: shift.max(0.0) })
             }
         });
         // the first upload that passes wins: no waiting for slower downloads
         let mut checks: futures::stream::FuturesUnordered<_> = checks.collect();
         while let Some(done) = futures::StreamExt::next(&mut checks).await {
-            if let Some((_, v)) = done {
+            if let Some(v) = done {
                 return Some(v);
             }
         }

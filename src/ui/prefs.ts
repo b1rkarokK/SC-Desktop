@@ -49,6 +49,8 @@ export interface UiPrefs {
   themeSystem: boolean;
   /** lyrics are moved to the singing by the sound itself (see lyrics_align.rs), default on */
   lyricsAuto?: boolean;
+  /** no lyrics anywhere: listen to the track and find the song by the words heard (hear.rs), default on */
+  lyricsHear?: boolean;
   /** what the user moved the lyrics of a track by, ms (kept per track) */
   lyricsNudge?: Record<string, number>;
   navCollapsed: boolean;
