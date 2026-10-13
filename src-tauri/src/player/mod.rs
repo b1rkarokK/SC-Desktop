@@ -88,6 +88,9 @@ pub struct Snapshot {
     pub widget: bool,
 }
 
+/// Tracks skipped in a row because they are disliked.
+static DISLIKE_SKIPS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 struct State {
     queue: Vec<TrackDto>,
     /// Play order (indices into `queue`); identity unless shuffled.
@@ -1309,6 +1312,20 @@ impl Player {
 
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
+            // a track marked «Не рекомендовать» is never played: straight to the next one (a queue of nothing
+            // but such tracks plays on after a run of skips, so it cannot loop forever)
+            let state = this.app.state::<AppState>();
+            if let Ok(disliked) = state.db.disliked_track_ids().await {
+                if disliked.contains(&track.id) && DISLIKE_SKIPS.fetch_add(1, Ordering::SeqCst) < 50 {
+                    if this.generation.load(Ordering::SeqCst) == generation {
+                        tracing::info!(track = track.id, "disliked track skipped");
+                        this.lock().loading = false;
+                        this.advance(true);
+                    }
+                    return;
+                }
+            }
+            DISLIKE_SKIPS.store(0, Ordering::SeqCst);
             // boxed: the download future is large, and debug builds keep it on the worker's stack
             let t0 = std::time::Instant::now();
             // already fetched while the previous track played: start at once

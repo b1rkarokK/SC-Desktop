@@ -3,6 +3,10 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.5] - 2026-10-13
+
+- Songs marked "Don't recommend" are never played now: in a playlist, the queue, the wave and a room such a song is skipped and the next one plays at once.
+
 ## [0.9.4] - 2026-10-13
 
 - "Like all" on a playlist now works at once: the hearts light up on every song as you press it, and the likes go to SoundCloud in one run in the background, without pauses. The songs are liked so that the playlist lies in its own order in "My likes". The run can be stopped.
