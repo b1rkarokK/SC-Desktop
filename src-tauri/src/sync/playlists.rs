@@ -587,14 +587,14 @@ mod tests {
             let bob = pl(&relay, "chan-cover-playlist-1", &key, 2, "bob", false);
             let carol = pl(&relay, "chan-cover-playlist-1", &key, 3, "carol", false);
             settle().await;
-            bob.set_cover(Some("#1f2c3f".into()), None).unwrap();
+            bob.set_cover(Some("#1f2c3f".into()), None, None).unwrap();
             settle().await;
             assert_eq!(anna.cover().color.as_deref(), Some("#1f2c3f"), "the owner sees the editor's colour");
-            assert!(carol.set_cover(Some("#3a1f1f".into()), None).is_err(), "a viewer cannot");
-            anna.set_cover(None, Some("data:image/jpeg;base64,AAAA".into())).unwrap();
+            assert!(carol.set_cover(Some("#3a1f1f".into()), None, None).is_err(), "a viewer cannot");
+            anna.set_cover(None, Some("data:image/jpeg;base64,AAAA".into()), None).unwrap();
             settle().await;
             assert!(bob.cover().image.is_some() && bob.cover().color.is_none(), "the newest look wins");
-            assert!(anna.set_cover(None, Some("data:image/jpeg;base64,".to_string() + &"A".repeat(300_000))).is_err(), "too big");
+            assert!(anna.set_cover(None, Some("data:image/jpeg;base64,".to_string() + &"A".repeat(300_000)), None).is_err(), "too big");
         });
     }
 

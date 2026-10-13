@@ -625,6 +625,7 @@ impl SoundCloud {
         }
 
         let playlist = parse_media_playlist(&base, &text)?;
+        let fragmented = playlist.init.is_some();
         let mut out = Vec::new();
         if let Some(init) = &playlist.init {
             out.extend(self.http.get_bytes(init.as_str(), Profile::Media, None).await?);
@@ -642,6 +643,13 @@ impl SoundCloud {
         out.reserve(chunks.iter().map(Vec::len).sum());
         for c in chunks {
             out.extend_from_slice(&c);
+        }
+        if fragmented {
+            // fragmented MP4 (AAC): the player's decoder reads plain ADTS, so the frames are unpacked into that
+            match crate::api::fmp4::to_adts(&out) {
+                Some(adts) => return Ok(adts),
+                None => tracing::warn!(bytes = out.len(), "fragmented MP4 not unpacked, passing it as it is"),
+            }
         }
         Ok(out)
     }

@@ -3,6 +3,10 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.9] - 2026-10-14
+
+- Fixed: some tracks did not play, without any error. SoundCloud serves such tracks only as HLS AAC (in fragments), and the app could not decode that. The fragments are now unpacked into a plain AAC stream, and the tracks play, seeking included.
+
 ## [0.9.8] - 2026-10-14
 
 - Mini player: the next lyric line shows a little earlier (about 0.8 s), so you can see what is coming; the words are still lit by the real time.
