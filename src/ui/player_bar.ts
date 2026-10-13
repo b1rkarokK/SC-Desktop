@@ -140,6 +140,17 @@ export class PlayerBar {
       h('div', { class: 'pb-right' }, this.miniBtn, this.queueBtn, this.sleepBtn, this.eqBtn, this.muteBtn, h('div', { class: 'pb-volume' }, this.volume.el), this.fsBtn, this.lyricsBtn),
     );
 
+    // the wheel over the volume (the slider or the speaker) changes it
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const now = store.snapshot?.volume ?? 0;
+      const v = Math.min(1, Math.max(0, Math.round((now + (e.deltaY < 0 ? 0.05 : -0.05)) * 100) / 100));
+      this.volume.set(v);
+      this.applyVolume(v, true);
+    };
+    this.volume.el.addEventListener('wheel', wheel, { passive: false });
+    this.muteBtn.addEventListener('wheel', wheel, { passive: false });
+
     host.querySelector('.pb-now')!.addEventListener('contextmenu', (e) => {
       const t = cur();
       if (t) trackMenu(e as MouseEvent, t, () => void api.toggle());

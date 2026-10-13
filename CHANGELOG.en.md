@@ -6,6 +6,8 @@ The release notes carry both; the "Update available" window shows the app's lang
 ## [0.9.4] - 2026-10-13
 
 - "Like all" on a playlist now works at once: the hearts light up on every song as you press it, and the likes go to SoundCloud in one run in the background, without pauses. The songs are liked so that the playlist lies in its own order in "My likes". The run can be stopped.
+- The lyrics panel on the right can be widened to the left: drag its left edge (a double click returns the width), and the "A−" and "A+" buttons in its header change the text size.
+- The volume is changed with the mouse wheel when the cursor is over the slider or the speaker icon.
 
 ## [0.9.3] - 2026-10-13
 

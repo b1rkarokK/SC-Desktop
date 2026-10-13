@@ -252,6 +252,7 @@ select {
 }
 
 #lyrics {
+  position: relative;
   grid-area: lyrics;
   display: flex;
   flex-direction: column;
@@ -1680,6 +1681,26 @@ select {
   overflow-y: auto;
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* the left edge of the lyrics panel: drag to widen */
+.ly-grip {
+  position: absolute;
+  inset: 0 auto 0 -3px;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.ly-grip:hover,
+.ly-grip:active {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.ly-size-btn {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 28px;
 }
 
 .ly-panel {

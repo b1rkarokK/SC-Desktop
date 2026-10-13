@@ -15,6 +15,7 @@ export class LyricsPanel {
   private nudgeBox = h('div', { class: 'ly-nudge muted small' });
   private extBtn = iconButton(I.external, T('Открыть на Genius'));
   private url: string | null = null;
+  private dragWidth = 0;
 
   constructor(private host: HTMLElement, onFullscreen: () => void) {
     const fs = iconButton(I.fullscreen, T('Полный экран'));
@@ -23,8 +24,38 @@ export class LyricsPanel {
     const hide = iconButton(I.lyrics, T('Скрыть текст'));
     hide.classList.add('is-on');
     hide.addEventListener('click', () => updatePrefs((p) => (p.lyricsOpen = false)));
+    const sizeBtn = (label: string, title: string, delta: number) => {
+      const b = h('button', { type: 'button', class: 'btn-icon ly-size-btn', title, 'aria-label': title, text: label });
+      b.addEventListener('click', () => updatePrefs((p) => (p.lyricsSize = Math.min(40, Math.max(11, (p.lyricsSize ?? 14) + delta)))));
+      return b;
+    };
+    // the left edge drags: the panel grows to the left, the page gets narrower
+    const grip = h('div', { class: 'ly-grip', title: T('Потяните, чтобы изменить ширину') });
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      const move = (ev: PointerEvent) => {
+        const w = Math.round(Math.min(window.innerWidth * 0.7, Math.max(240, window.innerWidth - ev.clientX)));
+        document.documentElement.style.setProperty('--ly-w', w + 'px');
+        this.dragWidth = w;
+      };
+      const up = () => {
+        grip.removeEventListener('pointermove', move);
+        grip.removeEventListener('pointerup', up);
+        grip.removeEventListener('pointercancel', up);
+        if (this.dragWidth) {
+          const w = this.dragWidth;
+          updatePrefs((p) => (p.lyricsWidth = w));
+        }
+      };
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up);
+      grip.addEventListener('pointercancel', up);
+    });
+    grip.addEventListener('dblclick', () => updatePrefs((p) => (p.lyricsWidth = 320)));
     host.append(
-      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), fs, this.extBtn, hide),
+      grip,
+      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), sizeBtn('A−', T('Текст меньше'), -2), sizeBtn('A+', T('Текст больше'), 2), fs, this.extBtn, hide),
       this.view.el,
       this.nudgeBox,
       this.footer,
@@ -43,6 +74,8 @@ export class LyricsPanel {
   private applyPrefs(): void {
     const p = prefs();
     document.getElementById('app')?.classList.toggle('lyrics-closed', !p.lyricsOpen);
+    document.documentElement.style.setProperty('--ly-w', (p.lyricsWidth ?? 320) + 'px');
+    this.view.el.style.fontSize = (p.lyricsSize ?? 14) + 'px';
     this.view.setShown(p.lyricsOpen);
     const hl = !p.syncedLyrics ? 'none' : p.wordHighlight ? 'word' : 'line';
     if (hl !== this.view.highlight || p.fs.offset !== this.view.offset) {

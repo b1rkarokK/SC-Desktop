@@ -51,6 +51,10 @@ export interface UiPrefs {
   lyricsNudge?: Record<string, number>;
   navCollapsed: boolean;
   lyricsOpen: boolean;
+  /** width of the right lyrics panel, px (dragged by its left edge) */
+  lyricsWidth?: number;
+  /** text size of the right lyrics panel, px */
+  lyricsSize?: number;
   syncedLyrics: boolean;
   wordHighlight: boolean;
   fs: {
