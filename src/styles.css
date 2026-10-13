@@ -3951,6 +3951,15 @@ kbd {
   height: 100%;
 }
 
+/* the playlist's own picture: one square, not four */
+.sp-mosaic.is-own {
+  grid-template-columns: 1fr;
+}
+
+.is-mosaic:has(.sp-art:only-child) {
+  grid-template-columns: 1fr;
+}
+
 .sp-swatches {
   display: flex;
   flex-wrap: wrap;

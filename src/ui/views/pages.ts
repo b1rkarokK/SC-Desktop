@@ -5,7 +5,9 @@ import { playlistGrid } from '../cards';
 import { findCategory } from '../categories';
 import { h, toast } from '../dom';
 import { icon, iconButton, I } from '../icons';
-import { openArtist, openTrackArtist } from '../router';
+import { openArtist, openTrackArtist, router } from '../router';
+import { deletePlaylist } from '../menus';
+import { loadSeries, type Series } from '../playlist_series';
 import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
 import { roomButton } from './rooms';
@@ -198,10 +200,10 @@ export class ArtistPageView implements View {
 export class PlaylistPageView implements View {
   el: HTMLElement;
 
-  constructor(id: number) {
+  constructor(id: number, series?: Series) {
     const body = h('div', { class: 'view-scroll pad' }, emptyState(T('Загрузка…')));
     this.el = h('section', { class: 'view' }, viewHead(null), body);
-    api.playlistPage(id).then(
+    (series?.parts ? loadSeries(series) : api.playlistPage(id)).then(
       ({ playlist: p, tracks: loaded }) => {
         let tracks = loaded;
         const artist = h('button', { type: 'button', class: 'link hero-artist', dir: 'auto', text: p.artist });
@@ -276,8 +278,9 @@ export class PlaylistPageView implements View {
         const listBox = h('div');
         const showList = () =>
           listBox.replaceChildren(tracks.length ? staticTrackList(tracks, remember) : emptyState(T('Плейлист пуст или недоступен.')));
+        // a series of parts is one playlist for listening; changing the order is done in its parts
         const own = !p.is_album && store.auth.user_id === p.user_id;
-        const editBtn = own ? btn(T('Изменить'), I.edit) : null;
+        const editBtn = own && !series?.parts ? btn(T('Изменить'), I.edit) : null;
         editBtn?.addEventListener('click', () =>
           listBox.replaceChildren(
             playlistEditor(
@@ -291,6 +294,10 @@ export class PlaylistPageView implements View {
             ),
           ),
         );
+        const delBtn = own ? btn(T('Удалить'), I.trash) : null;
+        delBtn?.addEventListener('click', async () => {
+          if (await deletePlaylist(series?.parts ? series : p)) router.back();
+        });
         showList();
         body.replaceChildren(
           hero(
@@ -299,7 +306,7 @@ export class PlaylistPageView implements View {
             h('h2', { class: 'hero-title', dir: 'auto', text: p.title }),
             artist,
             h('div', { class: 'muted small', text: sub }),
-            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, roomButton(() => tracks), wave, likeAll, saveBtn, editBtn, ext),
+            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, roomButton(() => tracks), wave, likeAll, saveBtn, editBtn, delBtn, ext),
           ),
           listBox,
         );

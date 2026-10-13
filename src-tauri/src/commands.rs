@@ -1514,6 +1514,14 @@ pub async fn playlist_set_tracks(app: AppHandle, state: State<'_, AppState>, pla
     set_cached_track_count(&state, playlist_id, track_ids.len() as u64).await
 }
 
+/// Deletes one of the user's own playlists on SoundCloud and drops it from the library list.
+#[tauri::command]
+pub async fn playlist_delete(app: AppHandle, state: State<'_, AppState>, playlist_id: u64) -> Cmd<()> {
+    let req = state.sc()?.playlist_delete_request(playlist_id)?;
+    sc_write(&app, &state, req, true).await?;
+    library_playlists_fresh(&state, true).await.map(|_| ())
+}
+
 /// Mini player: open (the big window goes to the tray).
 #[tauri::command]
 pub async fn mini_open(app: AppHandle) -> Cmd<()> {
@@ -1787,8 +1795,8 @@ pub fn sp_access(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: S
 }
 
 #[tauri::command]
-pub fn sp_cover(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, color: Option<String>, image: Option<String>) -> Cmd<()> {
-    Ok(sp.set_cover(&channel, color, image)?)
+pub fn sp_cover(sp: State<'_, crate::sync::shared::SharedPlaylists>, channel: String, color: Option<String>, image: Option<String>, avatar: Option<String>) -> Cmd<()> {
+    Ok(sp.set_cover(&channel, color, image, avatar)?)
 }
 
 #[tauri::command]

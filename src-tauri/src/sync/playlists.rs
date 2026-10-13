@@ -291,12 +291,15 @@ impl Pl {
         self.change_settings(|s| s.access = access)
     }
 
-    pub fn set_cover(&self, color: Option<String>, image: Option<String>) -> Result<(), String> {
+    pub fn set_cover(&self, color: Option<String>, image: Option<String>, avatar: Option<String>) -> Result<(), String> {
         if image.as_deref().is_some_and(|i| i.len() > crate::shared_playlist::MAX_COVER_IMAGE || !i.starts_with("data:image/")) {
             return Err("картинка слишком большая".into());
         }
+        if avatar.as_deref().is_some_and(|i| i.len() > crate::shared_playlist::MAX_COVER_AVATAR || !i.starts_with("data:image/")) {
+            return Err("картинка слишком большая".into());
+        }
         let color = color.filter(|c| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|d| d.is_ascii_hexdigit()));
-        let cover = Cover { color, image };
+        let cover = Cover { color, image, avatar };
         let mut st = self.lock();
         if !st.settings.as_ref().is_some_and(|s| s.can_edit(Some(self.me))) {
             return Err("менять оформление могут владелец и редакторы".into());

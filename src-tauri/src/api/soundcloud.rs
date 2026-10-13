@@ -390,6 +390,11 @@ impl SoundCloud {
         Ok(("PUT", url, body))
     }
 
+    /// Deletes a playlist of the user's own.
+    pub fn playlist_delete_request(&self, playlist_id: u64) -> AppResult<(&'static str, Url)> {
+        Ok(("DELETE", self.api_url(&format!("/playlists/{playlist_id}"), &[])?))
+    }
+
     /// A new private playlist with these tracks.
     pub fn playlist_create_request(&self, title: &str, tracks: &[u64], private: bool) -> AppResult<(&'static str, Url, String)> {
         let url = self.api_url("/playlists", &[])?;

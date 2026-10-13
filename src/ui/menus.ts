@@ -1,6 +1,8 @@
 // Context menus for tracks, playlists, artists and lyrics.
-import { api, errorMessage, type Playlist, type Track, type User } from './api';
+import { api, errorMessage, type Track, type User } from './api';
 import { clock } from './clock';
+import { confirmDialog } from './confirm';
+import { loadSeries, type Series } from './playlist_series';
 import { openMenu, type MenuItem } from './context_menu';
 import { addToPlaylistMenu, addToSharedMenu } from './playlist_picker';
 import { toast } from './dom';
@@ -71,10 +73,10 @@ export function trackMenu(e: MouseEvent, t: Track, play?: () => void): void {
   openMenu(e, items);
 }
 
-export function playlistMenu(e: MouseEvent, p: Playlist): void {
+export function playlistMenu(e: MouseEvent, p: Series): void {
   const play = async (shuffle: boolean) => {
     try {
-      const page = await api.playlistPage(p.id);
+      const page = await loadSeries(p);
       if (!page.tracks.length) return;
       await api.setShuffle(shuffle);
       await api.playTracks(page.tracks, shuffle ? Math.floor(Math.random() * page.tracks.length) : 0);
@@ -91,7 +93,7 @@ export function playlistMenu(e: MouseEvent, p: Playlist): void {
       icon: I.wave,
       action: () => void api.waveStartPlaylist(p.id).then((n) => toast(T('Волна: {0} треков', n)), fail),
     },
-    { label: p.is_album ? T('Открыть альбом') : T('Открыть плейлист'), icon: I.playlist, action: () => openPlaylist(p.id) },
+    { label: p.is_album ? T('Открыть альбом') : T('Открыть плейлист'), icon: I.playlist, action: () => openPlaylist(p.id, p) },
     { label: T('Перейти к автору'), icon: I.user, action: () => openArtist(p.user_id), disabled: !p.user_id },
     'separator',
   ];
@@ -100,7 +102,26 @@ export function playlistMenu(e: MouseEvent, p: Playlist): void {
     items.push({ label: T('Скопировать ссылку'), icon: I.link, action: () => void copy(url, T('Ссылка скопирована')) });
     items.push({ label: T('Открыть на SoundCloud'), icon: I.external, action: () => void api.openExternal(url) });
   }
+  if (p.own && !p.is_album) {
+    items.push('separator');
+    items.push({ label: T('Удалить плейлист'), icon: I.trash, action: () => void deletePlaylist(p) });
+  }
   openMenu(e, items);
+}
+
+/** Asks, deletes an own playlist on SoundCloud and tells the library to drop it. */
+export async function deletePlaylist(p: Series): Promise<boolean> {
+  const ok = await confirmDialog(T('Удалить плейлист «{0}»?', p.title), p.parts ? T('Это {0} плейлистов подряд, пропадут все и из SoundCloud. Песни в лайках останутся.', p.parts.length) : T('Он пропадёт и из SoundCloud. Песни в лайках останутся.'), T('Удалить'));
+  if (!ok) return false;
+  try {
+    for (const x of p.parts ?? [p]) await api.playlistDelete(x.id);
+    window.dispatchEvent(new Event('sc:playlists'));
+    toast(T('Плейлист удалён'));
+    return true;
+  } catch (err) {
+    fail(err);
+    return false;
+  }
 }
 
 export function artistMenu(e: MouseEvent, u: User): void {

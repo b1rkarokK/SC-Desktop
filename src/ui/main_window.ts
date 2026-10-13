@@ -160,7 +160,7 @@ export class MainWindow {
         view = new ArtistPageView(r.id);
         break;
       case 'playlist':
-        view = new PlaylistPageView(r.id);
+        view = new PlaylistPageView(r.id, r.series);
         break;
       case 'mix':
         view = new MixPageView(r.urn);

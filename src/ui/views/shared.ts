@@ -30,7 +30,7 @@ export interface SharedInfo {
   mine: boolean;
   can_edit: boolean;
   members: Member[];
-  cover: { color: string | null; image: string | null };
+  cover: { color: string | null; image: string | null; avatar?: string | null };
   artworks: string[];
 }
 
@@ -64,7 +64,7 @@ const MODES: [Access, string, string][] = [
 
 const COVER_COLORS = ['#3a2418', '#1f2c3f', '#2a3a24', '#3a2438', '#3a3318', '#18353a', '#3a1f1f', '#2a2a2a'];
 
-/** The top of a tile: the owner's picture, else a colour, else the artwork of the first tracks. */
+/** The top of a tile: the banner, else a colour, else the playlist's own picture, else the artwork of the first tracks. */
 export function coverStrip(info: SharedInfo, className: string, artworks: string[] = info.artworks): HTMLElement {
   const strip = h('div', { class: className });
   if (info.cover.image) {
@@ -72,17 +72,36 @@ export function coverStrip(info: SharedInfo, className: string, artworks: string
     strip.classList.add('has-image');
   } else if (info.cover.color) {
     strip.style.background = info.cover.color;
-  } else if (artworks.length) {
+  } else if (info.cover.avatar || artworks.length) {
     strip.classList.add('is-mosaic');
-    for (const a of artworks.slice(0, 4)) strip.append(h('div', { class: 'sp-art', style: `background-image:url("${a}")` }));
+    for (const a of info.cover.avatar ? [info.cover.avatar] : artworks.slice(0, 4)) strip.append(h('div', { class: 'sp-art', style: `background-image:url("${a}")` }));
   }
   return strip;
+}
+
+/** The banner's size: 4 : 1. */
+const BANNER_W = 1200;
+
+/** A square picture (256 px) squeezed until it is small enough to keep. */
+async function pictureToAvatar(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas');
+  const scale = Math.max(256 / bitmap.width, 256 / bitmap.height);
+  ctx.drawImage(bitmap, (256 - bitmap.width * scale) / 2, (256 - bitmap.height * scale) / 2, bitmap.width * scale, bitmap.height * scale);
+  for (const q of [0.85, 0.72, 0.6, 0.48, 0.36, 0.25]) {
+    const url = canvas.toDataURL('image/jpeg', q);
+    if (url.length <= 38_000) return url;
+  }
+  throw new Error(T('Картинка слишком большая'));
 }
 
 /** A picture cut to the strip's shape (4 : 1, at most 1200 px wide) and squeezed until it is small enough to keep. */
 async function pictureToCover(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file);
-  const w = Math.min(1200, bitmap.width);
+  const w = Math.min(BANNER_W, bitmap.width);
   const h2 = Math.round(w / 4);
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -287,7 +306,8 @@ export class SharedView implements View {
     const strip = hasStrip ? coverStrip(i, 'sp-strip') : null;
     const art = d.tracks.map((t) => t.track?.artwork_url).filter((a): a is string => !!a).slice(0, 4);
     const mosaic = h('div', { class: 'sp-mosaic' });
-    if (art.length) for (const a of art) mosaic.append(h('div', { class: 'sp-art', style: `background-image:url("${a}")` }));
+    if (i.cover.avatar) mosaic.classList.add('is-own'), mosaic.append(h('div', { class: 'sp-art', style: `background-image:url("${i.cover.avatar}")` }));
+    else if (art.length) for (const a of art) mosaic.append(h('div', { class: 'sp-art', style: `background-image:url("${a}")` }));
     else mosaic.append(icon(I.playlist, 28));
     const head = h('div', { class: 'rm-head sp-head' }, mosaic, h('div', { class: 'sp-head-text' }, h('div', { class: 'rm-title', dir: 'auto', text: i.title }), h('div', { class: 'muted small', text: `${T('общий')} · ${T('{0} треков', d.tracks.length)} · ${T('{0} человек', i.members.length)}${i.role ? ' · ' + ROLE_TEXT[i.role] : ''}` })), people);
 
@@ -385,7 +405,7 @@ export class SharedView implements View {
   /** The look: a picture across the top, a colour, or nothing. */
   private async coverDialog(d: SharedDetail): Promise<void> {
     const i = d.info;
-    const save = (color: string | null, image: string | null) => invoke('sp_cover', { channel: i.channel, color, image }).catch(fail);
+    const save = (color: string | null, image: string | null, avatar: string | null = i.cover.avatar ?? null) => invoke('sp_cover', { channel: i.channel, color, image, avatar }).catch(fail);
     const swatches = h('div', { class: 'sp-swatches' });
     for (const c of COVER_COLORS) {
       const b = h('button', { type: 'button', class: `sp-swatch${i.cover.color === c && !i.cover.image ? ' is-on' : ''}`, title: c, 'aria-label': c });
@@ -397,13 +417,31 @@ export class SharedView implements View {
       swatches.append(b);
     }
     const file = h('input', { type: 'file', accept: 'image/*', hidden: 'hidden' });
-    const pick = btn(T('Выбрать картинку…'), I.upload);
+    const pick = btn(T('Баннер…'), I.upload);
+    const avatarFile = h('input', { type: 'file', accept: 'image/*', hidden: 'hidden' });
+    const pickAvatar = btn(T('Аватарка…'), I.upload);
+    pickAvatar.addEventListener('click', () => avatarFile.click());
+    avatarFile.addEventListener('change', async () => {
+      const f = avatarFile.files?.[0];
+      if (!f) return;
+      try {
+        await save(i.cover.color, i.cover.image, await pictureToAvatar(f));
+        done();
+      } catch (e) {
+        fail(e);
+      }
+    });
+    const autoAvatar = btn(T('Аватарка по трекам'), I.playlist);
+    autoAvatar.addEventListener('click', async () => {
+      await save(i.cover.color, i.cover.image, null);
+      done();
+    });
     pick.addEventListener('click', () => file.click());
     file.addEventListener('change', async () => {
       const f = file.files?.[0];
       if (!f) return;
       try {
-        await save(i.cover.color, await pictureToCover(f));
+        await save(i.cover.color, await pictureToCover(f), i.cover.avatar ?? null);
         done();
       } catch (e) {
         fail(e);
@@ -411,11 +449,11 @@ export class SharedView implements View {
     });
     const clear = btn(T('Убрать оформление'), I.close);
     clear.addEventListener('click', async () => {
-      await save(null, null);
+      await save(null, null, null);
       done();
     });
     const close = h('button', { type: 'button', class: 'btn btn-primary', text: T('Готово') });
-    const box = h('div', { class: 'upd panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': T('Оформление') }, h('div', { class: 'upd-title', text: T('Оформление') }), h('div', { class: 'muted small', text: T('Полоса сверху: своя картинка, цвет или ничего. Её видят все участники.') }), swatches, h('div', { class: 'row-actions' }, pick, clear), file, h('div', { class: 'upd-actions' }, close));
+    const box = h('div', { class: 'upd panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': T('Оформление') }, h('div', { class: 'upd-title', text: T('Оформление') }), h('div', { class: 'muted small', text: T('Баннер - полоса сверху: своя картинка, цвет или ничего. Рекомендуем 1200 × 300 (4 : 1), картинка обрежется по центру. Аватарка - квадрат слева от названия, рекомендуем от 256 × 256; без неё берутся обложки первых треков. Всё видят все участники.') }), swatches, h('div', { class: 'row-actions' }, pick, clear), h('div', { class: 'row-actions' }, pickAvatar, autoAvatar), file, avatarFile, h('div', { class: 'upd-actions' }, close));
     const backdrop = h('div', { class: 'upd-backdrop' }, box);
     const done = () => {
       backdrop.remove();

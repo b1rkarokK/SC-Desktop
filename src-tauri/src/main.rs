@@ -181,6 +181,7 @@ fn main() {
             commands::likes_page,
             commands::likes_ids,
             commands::like_set,
+            commands::playlist_delete,
             commands::likes_many,
             commands::likes_many_stop,
             commands::likes_pending,

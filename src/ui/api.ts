@@ -397,6 +397,7 @@ export const api = {
   lyricsIndexStatus: () => invoke<{ done: number; total: number; running: boolean }>('lyrics_index_status'),
   lyricsIndexRun: (start: boolean) => invoke<void>('lyrics_index_run', { start }),
   likeSet: (track: Track, liked: boolean) => invoke<void>('like_set', { track, liked }),
+  playlistDelete: (playlistId: number) => invoke<void>('playlist_delete', { playlistId }),
   likesMany: (tracks: Track[]) => invoke<number>('likes_many', { tracks }),
   likesManyStop: () => invoke<void>('likes_many_stop'),
   likesPending: () => invoke<PendingLike[]>('likes_pending'),

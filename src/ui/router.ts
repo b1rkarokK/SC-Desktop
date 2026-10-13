@@ -1,6 +1,8 @@
 // Tiny in-app navigation: top-level sections reset the stack, detail pages
 // (track / artist / playlist) push onto it so "Назад" works.
 
+import type { Series } from './playlist_series';
+
 export type LibTab = 'tracks' | 'playlists' | 'albums' | 'artists';
 export type ProfileTab = 'mine' | 'friends' | 'downloads' | 'queue';
 export type HomeTab = 'home' | 'categories' | 'feed';
@@ -18,7 +20,7 @@ export type Route =
   | { name: 'profile'; tab?: ProfileTab }
   | { name: 'track'; id: number }
   | { name: 'artist'; id: number }
-  | { name: 'playlist'; id: number }
+  | { name: 'playlist'; id: number; series?: Series }
   | { name: 'mix'; urn: string }
   | { name: 'category'; key: string }
   | { name: 'chart'; kind: string };
@@ -106,8 +108,8 @@ export async function openTrackArtist(t: { artist: string; user_id: number }): P
   openArtist(t.user_id);
 }
 
-export function openPlaylist(id: number): void {
-  router.go({ name: 'playlist', id });
+export function openPlaylist(id: number, series?: Series): void {
+  router.go({ name: 'playlist', id, series: series?.parts ? series : undefined });
 }
 
 export function openChart(kind: string): void {

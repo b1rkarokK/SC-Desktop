@@ -1,6 +1,7 @@
 // «Лайки»: Треки / Плейлисты / Альбомы / Артисты.
 import { api, errorMessage, fmtCount, type Playlist, type Track, type User } from '../api';
 import { artistGrid, playlistGrid } from '../cards';
+import { groupSeries } from '../playlist_series';
 import { h, toast } from '../dom';
 import { I } from '../icons';
 import type { LibTab } from '../router';
@@ -46,6 +47,7 @@ export class LibraryView implements View {
     store.on('player', refresh);
     store.on('likes', refresh);
     store.on('dislikes', refresh);
+    window.addEventListener('sc:playlists', () => void this.loadPlaylists(false));
   }
 
   show(tab?: LibTab): void {
@@ -76,7 +78,7 @@ export class LibraryView implements View {
       const items = (this.playlists ?? []).filter((p) => (tab === 'albums' ? p.is_album : !p.is_album));
       if (this.playlists === null) scroller.append(emptyState(T('Загрузка…')));
       else if (!items.length) scroller.append(emptyState(tab === 'albums' ? T('Нет лайкнутых альбомов.') : T('Нет лайкнутых плейлистов.')));
-      else scroller.append(playlistGrid(items));
+      else scroller.append(playlistGrid(groupSeries(items)));
     }
     this.body.replaceChildren(scroller);
   }

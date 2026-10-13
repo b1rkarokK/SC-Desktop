@@ -1,13 +1,14 @@
 // Grid cards for playlists/albums and artists.
-import { api, coverUrl, errorMessage, fmtCount, plural, type Playlist, type User } from './api';
+import { api, coverUrl, errorMessage, fmtCount, plural, type User } from './api';
 import { h, toast } from './dom';
 import { icon, I } from './icons';
 import { artistMenu, playlistMenu } from './menus';
 import { openArtist, openPlaylist } from './router';
+import { loadSeries, type Series } from './playlist_series';
 import { T } from './i18n';
 import { tr } from './i18n';
 
-export function playlistGrid(items: Playlist[]): HTMLElement {
+export function playlistGrid(items: Series[]): HTMLElement {
   const grid = h('div', { class: 'grid grid-cards' });
   for (const p of items) {
     const img = h('img', { class: 'card-cover', alt: '', loading: 'lazy', decoding: 'async' });
@@ -17,7 +18,7 @@ export function playlistGrid(items: Playlist[]): HTMLElement {
     play.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
-        const page = await api.playlistPage(p.id);
+        const page = await loadSeries(p);
         if (page.tracks.length) {
           await api.playTracks(page.tracks, 0);
           void api.historyPlaylistAdd(p);
@@ -36,9 +37,9 @@ export function playlistGrid(items: Playlist[]): HTMLElement {
       h('div', { class: 'card-title', dir: 'auto', text: tr(p.title) }),
       h('div', { class: 'card-sub', dir: 'auto', text: sub }),
     );
-    card.addEventListener('click', () => openPlaylist(p.id));
+    card.addEventListener('click', () => openPlaylist(p.id, p));
     card.addEventListener('contextmenu', (e) => playlistMenu(e, p));
-    card.addEventListener('keydown', (e) => e.key === 'Enter' && openPlaylist(p.id));
+    card.addEventListener('keydown', (e) => e.key === 'Enter' && openPlaylist(p.id, p));
     grid.append(card);
   }
   return grid;

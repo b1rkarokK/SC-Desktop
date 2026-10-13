@@ -2,7 +2,7 @@
 //! connection for each, and the data the screens ask for.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -192,6 +192,18 @@ impl SharedPlaylists {
             }
         }
         let state = app.state::<AppState>();
+        // tracks nobody here has seen yet (added by others): asked from SoundCloud together, so the pictures are there
+        // when the list opens and not after the first visit to each playlist
+        let all: Vec<u64> = firsts.iter().flat_map(|(_, ids)| ids.iter().copied()).collect();
+        let have: HashSet<u64> = state.db.tracks_by_ids(all.clone()).await.map(|t| t.iter().map(|t| t.id).collect()).unwrap_or_default();
+        let missing: Vec<u64> = { let mut m: Vec<u64> = all.into_iter().filter(|id| !have.contains(id)).collect(); m.sort_unstable(); m.dedup(); m.truncate(24); m };
+        if !missing.is_empty() {
+            if let Ok(sc) = state.sc() {
+                use futures::StreamExt;
+                let got: Vec<_> = futures::stream::iter(missing).map(|id| { let sc = &sc; async move { sc.track(id).await.ok() } }).buffer_unordered(8).filter_map(|t| async move { t }).collect().await;
+                let _ = state.db.upsert_tracks(got).await;
+            }
+        }
         for (at, ids) in firsts {
             if let Ok(tracks) = state.db.tracks_by_ids(ids.clone()).await {
                 v[at].artworks = ids.iter().filter_map(|id| tracks.iter().find(|t| t.id == *id)).filter_map(|t| TrackDto::from(t).artwork_url).collect();
@@ -249,12 +261,10 @@ impl SharedPlaylists {
         missing.truncate(40);
         if !missing.is_empty() {
             if let Ok(sc) = state.sc() {
-                let mut got = Vec::new();
-                for id in missing {
-                    if let Ok(t) = sc.track(id).await {
-                        have.insert(id, TrackDto::from(&t));
-                        got.push(t);
-                    }
+                use futures::StreamExt;
+                let got: Vec<_> = futures::stream::iter(missing).map(|id| { let sc = &sc; async move { sc.track(id).await.ok() } }).buffer_unordered(8).filter_map(|t| async move { t }).collect().await;
+                for t in &got {
+                    have.insert(t.id, TrackDto::from(t));
                 }
                 let _ = state.db.upsert_tracks(got).await;
             }
@@ -294,8 +304,8 @@ impl SharedPlaylists {
         self.pl(channel)?.set_access(access).map_err(AppError::Other)
     }
 
-    pub fn set_cover(&self, channel: &str, color: Option<String>, image: Option<String>) -> AppResult<()> {
-        self.pl(channel)?.set_cover(color, image).map_err(AppError::Other)
+    pub fn set_cover(&self, channel: &str, color: Option<String>, image: Option<String>, avatar: Option<String>) -> AppResult<()> {
+        self.pl(channel)?.set_cover(color, image, avatar).map_err(AppError::Other)
     }
 
     pub fn set_title(&self, channel: &str, title: String) -> AppResult<()> {

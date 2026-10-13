@@ -3,6 +3,13 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.6] - 2026-10-14
+
+- Playlists can be deleted: "Delete playlist" in the right-click menu and a "Delete" button on the page of your own playlist (with a confirmation).
+- More than 500 songs: the parts "Name (1/3)", "(2/3)"… show as one playlist in "Playlists". It plays as a whole (play, shuffle, one list) and is deleted as a whole. The order and the contents are changed in the separate parts.
+- Shared playlists: the banner shows its size (1200 × 300, 4 : 1), and a playlist can have its own picture (or keep the artwork of the first tracks).
+- Shared playlists: the artwork of the tracks shows at once, not after the first visit to each playlist; the playlist page opens faster.
+
 ## [0.9.5] - 2026-10-13
 
 - Songs marked "Don't recommend" are never played now: in a playlist, the queue, the wave and a room such a song is skipped and the next one plays at once.

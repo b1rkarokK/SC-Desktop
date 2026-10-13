@@ -51,10 +51,15 @@ pub struct Cover {
     /// a small JPEG as a data URL (the owner's picture, cut down to a couple of hundred KB)
     #[serde(default)]
     pub image: Option<String>,
+    /// the playlist's own square picture (a small JPEG data URL); none = the artwork of the first tracks
+    #[serde(default)]
+    pub avatar: Option<String>,
 }
 
 /// The largest picture kept in a playlist (data URL characters).
 pub const MAX_COVER_IMAGE: usize = 230_000;
+/// The largest square picture (data URL characters). Banner and picture travel in one message (400 KB at most, encrypted).
+pub const MAX_COVER_AVATAR: usize = 40_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
