@@ -2,6 +2,8 @@
 
 # SC Desk
 
+![SC Desk: Моя волна](docs/assets/wave-dark.webp)
+
 Программа для SoundCloud на Windows. Без рекламы, лёгкая, с текстами песен и статусом в Discord.
 
 **[Скачать последнюю версию](https://github.com/b1rkarokK/SC-Desktop/releases/latest)** - файл `SC.Desk_x.y.z_x64-setup.exe`.

@@ -2,6 +2,8 @@
 
 # SC Desk
 
+![SC Desk: My Wave](docs/assets/en-wave-dark.webp)
+
 A SoundCloud app for Windows. No ads, light on your PC, with synced lyrics and Discord status.
 
 **[Download the latest version](https://github.com/b1rkarokK/SC-Desktop/releases/latest)** - the `SC.Desk_x.y.z_x64-setup.exe` file.
