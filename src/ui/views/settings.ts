@@ -406,6 +406,25 @@ export class SettingsView implements View {
         radios,
         h('div', { class: 'row-actions proxy-row' }, proxy, check, apply),
         result,
+        (() => {
+          // the provider blocks SoundCloud by its name: cut the greeting (net/bypass.rs), no server in between
+          const sel = h('select', { class: 'input' }) as HTMLSelectElement;
+          for (const [v, label] of [
+            ['auto', T('Авто')],
+            ['on', T('Всегда')],
+            ['off', T('Выключен')],
+          ] as const) {
+            const o = h('option', { value: v, text: label }) as HTMLOptionElement;
+            o.selected = (prefs().scBypass ?? 'auto') === v;
+            sel.append(o);
+          }
+          sel.addEventListener('change', () => updatePrefs((p) => (p.scBypass = sel.value as 'auto' | 'on' | 'off')));
+          return row(
+            T('Обход блокировки SoundCloud'),
+            sel,
+            T('Если провайдер блокирует SoundCloud, программа сама режет начало соединения так, что фильтр не видит имя сайта. Без чужих серверов и VPN. «Авто» включает это, только когда SoundCloud не открывается напрямую, поэтому с «запретом» и VPN не конфликтует. С прокси не используется. Не поможет, если заблокирован сам адрес сервера.'),
+          );
+        })(),
         faq(T('Как пользоваться прокси?'), [
           [T('Зачем'), T('весь трафик приложения пойдёт через указанный адрес — например, через ваш VPN-клиент, если он не включён системно.')],
           [T('Где взять адрес'), T('в настройках VPN-клиента найдите «локальный SOCKS-порт» (v2rayN — 10808, NekoBox — 2080, Clash — 7890).')],

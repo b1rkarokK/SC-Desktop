@@ -1551,6 +1551,7 @@ pub async fn net_check(state: State<'_, AppState>, net_mode: NetMode, proxy: Opt
 #[tauri::command]
 pub fn config_set_ui(app: AppHandle, state: State<'_, AppState>, ui: serde_json::Value) -> Cmd<()> {
     let lang_changed = crate::lang::set_from_ui(&ui);
+    crate::net::bypass::set_mode_from_ui(&ui);
     state.config.update(|c| c.ui = ui)?;
     if lang_changed {
         crate::tray::refresh_menu(&app);

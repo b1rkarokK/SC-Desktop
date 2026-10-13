@@ -96,7 +96,10 @@ impl HttpClient {
             }
             None => {
                 tracing::info!("direct connection (no proxy)");
-                builder.no_proxy()
+                // SoundCloud blocked by the provider: its connections may go through the cutting proxy (bypass.rs)
+                super::bypass::set_mode_from_ui(&cfg.ui);
+                super::bypass::start();
+                builder.no_proxy().proxy(reqwest::Proxy::custom(|url| super::bypass::proxy_for(url)))
             }
         };
 
@@ -223,6 +226,8 @@ impl HttpClient {
                     tracing::warn!(%status, host = host_of(url), path = path_of(url), %method, body = %body, "HTTP request failed");
                     return Err(AppError::from_status(status));
                 }
+                // SoundCloud broke off right at the connection: in «Авто» the bypass turns on, asked again at once
+                Err(e) if (e.is_connect() || e.is_timeout()) && super::bypass::on_failure(url) => continue,
                 Err(e) if is_transient(&e) && attempt < MAX_RETRIES => {
                     let wait = backoff(attempt);
                     tracing::warn!(error = %e.without_url(), attempt, wait_ms = wait.as_millis() as u64, host = host_of(url), "network retry");

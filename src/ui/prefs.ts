@@ -53,6 +53,8 @@ export interface UiPrefs {
   lyricsHear?: boolean;
   /** liked tracks are kept as files to play without the internet (downloads.rs), default off */
   offlineLikes?: boolean;
+  /** the provider blocks SoundCloud: the TLS greeting is cut (net/bypass.rs); "auto" by default */
+  scBypass?: 'auto' | 'on' | 'off';
   /** what the user moved the lyrics of a track by, ms (kept per track) */
   lyricsNudge?: Record<string, number>;
   navCollapsed: boolean;

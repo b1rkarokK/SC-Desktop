@@ -515,6 +515,11 @@ export const EN: Record<string, string> = {
   'Подстраивать текст по звуку': 'Match the lyrics to the sound',
   'Узнавать песню по словам': 'Recognise the song by its words',
   'Лайки без интернета': 'Likes without the internet',
+  'Обход блокировки SoundCloud': 'Get around a SoundCloud block',
+  'Всегда': 'Always',
+  'Выключен': 'Off',
+  'Если провайдер блокирует SoundCloud, программа сама режет начало соединения так, что фильтр не видит имя сайта. Без чужих серверов и VPN. «Авто» включает это, только когда SoundCloud не открывается напрямую, поэтому с «запретом» и VPN не конфликтует. С прокси не используется. Не поможет, если заблокирован сам адрес сервера.':
+    "If your provider blocks SoundCloud, the app cuts the start of the connection so the filter can't see the site name. No third-party servers, no VPN. \"Auto\" turns it on only when SoundCloud doesn't open directly, so it doesn't clash with zapret or a VPN. Not used with a proxy. It won't help if the server address itself is blocked.",
   'Лайкнутые треки сохраняются в эту папку: играющий сразу, без лишнего трафика, остальные по одному в фоне.':
     'Liked tracks are saved to this folder: the playing one right away with no extra traffic, the rest one by one in the background.',
   'Лайки начнут сохраняться: те, что слушаете, сразу, остальные понемногу в фоне.': 'Likes will be saved: the ones you play right away, the rest little by little in the background.',
