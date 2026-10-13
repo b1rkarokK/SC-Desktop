@@ -3,6 +3,13 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.2] - 2026-10-13
+
+- "Categories": noticeably more genres. Metal, jazz, classical, country, folk, Latin, reggae, reggaeton, dancehall, disco, synthwave and world music joined the genres (these are real SoundCloud trends).
+- A new "Phonk and funk" block: phonk is split by kind (general, drift, aggressive, dark, Memphis and old-school, Brazilian, phonk house and wave), and funk stands on its own so the two are not mixed up.
+- A new "Underground and strange" block: hyperpop, rage, plugg, drill, jerk, emo and emo rap, hardtekk, hardstyle, vaporwave, lo-fi, glitch, dark ambient, shoegaze, post-punk, R&B, Slowed + reverb, Speed up and nightcore.
+- "Anti-music" is a pick of a scene, not of one artist: dekma is the sample, then come those who record with him and around him, and the taste model puts the tracks in order by how close they sound. No more than three tracks from one artist.
+
 ## [0.9.1] - 2026-10-13
 
 - Slowed and Sped up: the lyrics and the progress bar no longer drift when the speed changes. The position used to be counted in output time, now it is counted in the track's own time.
