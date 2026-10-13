@@ -25,14 +25,16 @@ use crate::{
 };
 
 const YA: &str = "https://api.music.yandex.net";
-/// SoundCloud playlists hold up to 500 tracks
-const MAX_TRACKS: usize = 500;
+/// SoundCloud playlists hold up to 500 tracks: a longer list goes into several playlists
+const PLAYLIST_MAX: usize = 500;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportResult {
     pub title: String,
     pub found: usize,
     pub total: usize,
+    /// how many playlists the songs went into (more than one when there are over 500)
+    pub playlists: usize,
     /// «Артист - Трек» of the songs not found on SoundCloud
     pub missing: Vec<String>,
 }
@@ -149,7 +151,6 @@ pub async fn preview(state: &AppState, input: &str) -> AppResult<(String, usize)
 /// {done, total} while looking up.
 pub async fn run(app: &AppHandle, state: &AppState, input: &str, title: &str, private: bool) -> AppResult<ImportResult> {
     let mut src = read_source(state, input).await?;
-    src.songs.truncate(MAX_TRACKS);
     let total = src.songs.len();
     let progress = |done: usize| {
         let _ = app.emit("import:progress", serde_json::json!({ "done": done, "total": total }));
@@ -161,12 +162,17 @@ pub async fn run(app: &AppHandle, state: &AppState, input: &str, title: &str, pr
     }
     let title = Some(title.trim()).filter(|t| !t.is_empty()).map(str::to_owned).unwrap_or(src.title);
     let ids: Vec<u64> = tracks.iter().map(|t| t.id).collect();
-    crate::commands::create_playlist(app, state, &title, &ids, private).await?;
-    tracing::info!(found = ids.len(), total, "import: playlist created");
+    let parts = ids.chunks(PLAYLIST_MAX).count();
+    for (i, chunk) in ids.chunks(PLAYLIST_MAX).enumerate() {
+        let name = if parts > 1 { format!("{title} ({}/{parts})", i + 1) } else { title.clone() };
+        crate::commands::create_playlist(app, state, &name, chunk, private).await?;
+    }
+    tracing::info!(found = ids.len(), total, parts, "import: playlist created");
     Ok(ImportResult {
         title,
         found: ids.len(),
         total,
+        playlists: parts,
         missing: missing.iter().map(|s| format!("{} - {}", s.artist, s.title)).collect(),
     })
 }

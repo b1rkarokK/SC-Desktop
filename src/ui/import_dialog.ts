@@ -107,12 +107,17 @@ export function importDialog(onDone: () => void): void {
     try {
       const r = await api.importRun(input.value.trim(), title.value.trim(), isPrivate);
       onDone();
-      toast(T('Плейлист «{0}» создан: {1} из {2}', r.title, r.found, r.total));
+      toast(r.playlists > 1 ? T('Создано плейлистов: {0} ({1} из {2} песен)', r.playlists, r.found, r.total) : T('Плейлист «{0}» создан: {1} из {2}', r.title, r.found, r.total));
       if (!backdrop.isConnected) return;
       progress.hidden = true;
       result.hidden = false;
       result.replaceChildren(
-        h('div', { text: T('Создан плейлист «{0}»: нашлось {1} из {2}.', r.title, r.found, r.total) }),
+        h('div', {
+          text:
+            r.playlists > 1
+              ? T('«{0}»: нашлось {1} из {2}, песни разложены по {3} плейлистам (в SoundCloud в плейлисте не больше 500 песен).', r.title, r.found, r.total, r.playlists)
+              : T('Создан плейлист «{0}»: нашлось {1} из {2}.', r.title, r.found, r.total),
+        }),
         ...(r.missing.length
           ? [
               h(

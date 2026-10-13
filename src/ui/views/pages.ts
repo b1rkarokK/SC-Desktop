@@ -242,6 +242,27 @@ export class PlaylistPageView implements View {
           saveBtn.lastChild && ((saveBtn.lastChild as HTMLElement).textContent = q.running ? T('Остановить ({0}/{1})', q.done, q.total) : T('Скачать всё'));
           if (!q.running && q.total) toast(q.failed ? T('Скачано {0} из {1}, не удалось: {2}', q.total - q.failed, q.total, q.failed) : T('Скачано: {0}', q.total));
         });
+        // like every song of the list (one by one, SoundCloud limits how fast likes may come)
+        const likeAll = btn(T('Лайкнуть всё'), I.heart);
+        let liking = false;
+        likeAll.addEventListener('click', async () => {
+          if (liking) return void (liking = false);
+          const todo = tracks.filter((t) => !store.liked.has(t.id));
+          if (!todo.length) return void toast(T('Все песни уже в лайках'));
+          liking = true;
+          const label = likeAll.lastChild as HTMLElement | null;
+          let n = 0;
+          for (const t of todo) {
+            if (!liking || !likeAll.isConnected) break;
+            await store.setLiked(t, true);
+            n++;
+            if (label) label.textContent = T('Остановить ({0}/{1})', n, todo.length);
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          liking = false;
+          if (label) label.textContent = T('Лайкнуть всё');
+          toast(T('Лайкнуто: {0}', n));
+        });
         const sub = [p.year, T('{0} {1}', tracks.length, plural(tracks.length, 'трек', 'трека', 'треков')), fmtTime(total)].filter(Boolean).join(' · ');
         // own playlist: «Изменить» → drag to reorder, ✕ to remove, saved on SoundCloud
         const listBox = h('div');
@@ -270,7 +291,7 @@ export class PlaylistPageView implements View {
             h('h2', { class: 'hero-title', dir: 'auto', text: p.title }),
             artist,
             h('div', { class: 'muted small', text: sub }),
-            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, roomButton(() => tracks), wave, saveBtn, editBtn, ext),
+            h('div', { class: 'hero-actions' }, playBtn, shuffleBtn, roomButton(() => tracks), wave, likeAll, saveBtn, editBtn, ext),
           ),
           listBox,
         );

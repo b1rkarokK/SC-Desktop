@@ -3,6 +3,12 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [0.9.3] - 2026-10-13
+
+- Import from Yandex Music and Spotify no longer cuts the list at 500 songs: a long playlist is split into several SoundCloud playlists ("Name (1/3)", "(2/3)"…), because SoundCloud holds up to 500 songs in a playlist.
+- If the strict search does not find a song, the import tries a similar title (the same artist, a close length, no covers or remixes).
+- A "Like all" button on the playlist page: likes every song of the playlist one by one, and can be stopped.
+
 ## [0.9.2] - 2026-10-13
 
 - "Categories": noticeably more genres. Metal, jazz, classical, country, folk, Latin, reggae, reggaeton, dancehall, disco, synthwave and world music joined the genres (these are real SoundCloud trends).

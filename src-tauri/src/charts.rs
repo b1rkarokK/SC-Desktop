@@ -358,6 +358,73 @@ async fn find_on_soundcloud(sc: &SoundCloud, song: &ChartSong) -> Option<ScTrack
         .map(|(_, t)| t)
 }
 
+/// Similarity of two normalized strings by character pairs, 0.0..=1.0 (1.0 = the same).
+fn dice(a: &str, b: &str) -> f32 {
+    let pairs = |s: &str| -> Vec<(char, char)> {
+        let c: Vec<char> = s.chars().collect();
+        c.windows(2).map(|w| (w[0], w[1])).collect()
+    };
+    let (pa, mut pb) = (pairs(a), pairs(b));
+    if a == b {
+        return 1.0;
+    }
+    if pa.is_empty() || pb.is_empty() {
+        return 0.0;
+    }
+    let total = (pa.len() + pb.len()) as f32;
+    let mut hit = 0;
+    for p in &pa {
+        if let Some(i) = pb.iter().position(|q| q == p) {
+            pb.swap_remove(i);
+            hit += 1;
+        }
+    }
+    2.0 * hit as f32 / total
+}
+
+/// The second try for an import: a song the strict matching did not find, by a similar title. The title may differ
+/// a little ("Song (Prod. X)" / "Song - Remastered"), the artist must still be named somewhere (the artist, the
+/// uploader, the title) and the length must be close. Never the version the song is not (a cover, a remix).
+async fn find_loose(sc: &SoundCloud, song: &ChartSong) -> Option<ScTrack> {
+    let (want_artist, want_title) = query_from(&song.artist, &song.title);
+    let (wa, wt) = (normalize(&want_artist), normalize(&want_title));
+    if wa.chars().count() < 2 || wt.chars().count() < 2 {
+        return None;
+    }
+    let mut best: Option<(i32, ScTrack)> = None;
+    for query in [format!("{want_artist} {want_title}"), want_title.clone()] {
+        let Ok((found, _)) = sc.search_tracks(&query, 0).await else { continue };
+        for t in found.into_iter().filter(|t| !t.is_unplayable()) {
+            let (title_artist, sc_title) = query_from(t.uploader(), &t.title);
+            let st = normalize(&sc_title);
+            let raw = normalize(&format!("{} {} {}", t.artist_name(), t.uploader(), t.title));
+            let sim = dice(&wt, &st).max(if raw.contains(&wt) && wt.chars().count() >= 5 { 0.85 } else { 0.0 });
+            if sim < 0.8 {
+                continue;
+            }
+            let names = [normalize(&t.artist_name()), normalize(t.uploader()), normalize(&title_artist)];
+            let artist_ok = raw.contains(&wa) || names.iter().any(|n| n.chars().count() >= 3 && wa.contains(n.as_str()));
+            if !artist_ok || !same_recording(&song.title, &song.artist, &t.title) {
+                continue;
+            }
+            if song.duration_ms > 0 {
+                let real = t.full_duration.unwrap_or(t.duration).max(t.duration);
+                if real.abs_diff(song.duration_ms) > 20_000 {
+                    continue;
+                }
+            }
+            let score = (sim * 10.0) as i32 + i32::from(names.iter().any(|n| *n == wa)) * 3 + i32::from(t.is_fully_playable());
+            if best.as_ref().map_or(true, |(b, bt)| (score, t.playback_count) > (*b, bt.playback_count)) {
+                best = Some((score, t));
+            }
+        }
+        if best.is_some() {
+            break;
+        }
+    }
+    best.map(|(_, t)| t)
+}
+
 /// Import: SoundCloud tracks for songs (cached like the charts' lookups),
 /// `progress(done)` as they are looked up; also returns the songs not found.
 pub(crate) async fn find_all(state: &AppState, songs: &[ChartSong], progress: impl Fn(usize)) -> AppResult<(Vec<TrackDto>, Vec<ChartSong>)> {
@@ -365,7 +432,7 @@ pub(crate) async fn find_all(state: &AppState, songs: &[ChartSong], progress: im
     let mut ids: HashMap<String, u64> = HashMap::new();
     let mut todo = Vec::new();
     for s in songs {
-        match state.db.kv_get::<u64>(&format!("match6:{}", s.key)).await? {
+        match state.db.kv_get::<u64>(&format!("import1:{}", s.key)).await? {
             Some((id, _)) if id > 0 => {
                 ids.insert(s.key.clone(), id);
             }
@@ -377,13 +444,18 @@ pub(crate) async fn find_all(state: &AppState, songs: &[ChartSong], progress: im
     let mut lookups = stream::iter(todo)
         .map(|s| {
             let sc = &sc;
-            async move { (s.key.clone(), find_on_soundcloud(sc, &s).await) }
+            async move {
+                if let Some(t) = find_on_soundcloud(sc, &s).await {
+                    return (s.key.clone(), Some(t));
+                }
+                (s.key.clone(), find_loose(sc, &s).await)
+            }
         })
         .buffer_unordered(4);
     let mut fresh = Vec::new();
     while let Some((key, t)) = lookups.next().await {
         let id = t.as_ref().map_or(0, |t| t.id);
-        state.db.kv_put(&format!("match6:{key}"), &id).await?;
+        state.db.kv_put(&format!("import1:{key}"), &id).await?;
         if let Some(t) = t {
             ids.insert(key, t.id);
             fresh.push(t);
@@ -628,6 +700,14 @@ mod tests {
         assert_eq!(markers("Olive"), Vec::<&str>::new());
         assert!(markers("7 Rings (Folded Dragons CoverRemix)").contains(&"cover"));
         assert!(markers("Шадэ (AVA Blend)").contains(&"blend"));
+    }
+
+    #[test]
+    fn similar_titles() {
+        assert!(dice("blindinglights", "blindinglights") > 0.99);
+        assert!(dice("blindinglights", "blindinglightz") >= 0.8);
+        assert!(dice("better", "betteroffalone") < 0.8);
+        assert!(dice("monokini", "monokini2") >= 0.8);
     }
 
     #[test]
