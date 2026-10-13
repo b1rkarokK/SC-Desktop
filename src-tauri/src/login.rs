@@ -21,6 +21,8 @@ use crate::{
 const LABEL: &str = "sc-login";
 const POLL: Duration = Duration::from_millis(1000);
 const GIVE_UP_AFTER: Duration = Duration::from_secs(15 * 60);
+/// How the sign-in popups introduce themselves: a current Firefox (ESR), which Google lets sign in.
+const POPUP_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0";
 
 pub fn open(app: &AppHandle) -> AppResult<()> {
     if let Some(w) = app.get_webview_window(LABEL) {
@@ -35,9 +37,31 @@ pub fn open(app: &AppHandle) -> AppResult<()> {
         .inner_size(900.0, 780.0)
         .min_inner_size(860.0, 600.0)
         .background_color(tauri::window::Color(18, 18, 18, 255))
-        // "Continue with Google / Facebook / Apple" opens an OAuth popup; allow it
-        // (only in this window) so window.opener keeps working.
-        .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Allow)
+        // "Continue with Google / Facebook / Apple" opens an OAuth popup (only in this window, window.opener keeps
+        // working). It is our own window that introduces itself as Firefox: Google refuses sign-in in an app's
+        // built-in browser ("this browser or app may not be secure") and lets a usual browser in.
+        .on_new_window({
+            let app = app.clone();
+            move |url, features| {
+                static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                let label = format!("sc-login-popup-{}", N.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+                match WebviewWindowBuilder::new(&app, label, WebviewUrl::External("about:blank".parse().expect("static url")))
+                    .additional_browser_args(crate::net::bypass::browser_args())
+                    .window_features(features)
+                    .user_agent(POPUP_UA)
+                    .title(url.host_str().unwrap_or("SoundCloud"))
+                    .inner_size(520.0, 680.0)
+                    .center()
+                    .build()
+                {
+                    Ok(window) => tauri::webview::NewWindowResponse::Create { window },
+                    Err(e) => {
+                        tracing::warn!(error = %e, "login popup: own window failed, the default one opens");
+                        tauri::webview::NewWindowResponse::Allow
+                    }
+                }
+            }
+        })
         .center()
         .build()?;
     let _ = window.set_focus();
