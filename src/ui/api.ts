@@ -479,6 +479,11 @@ export const api = {
 
   lyrics: (track: Track, force: boolean) => invoke<Lyrics>('lyrics_get', { track, force }),
   /** no lyrics under the name: the app listens to the track and searches by the words (hear.rs) */
+  localList: () => invoke<LocalTrack[]>('local_list'),
+  localAdd: () => invoke<{ added: number; refused: string[] }>('local_add'),
+  localOpen: () => invoke<void>('local_open'),
+  localClear: () => invoke<void>('local_clear'),
+  localRemove: (id: number) => invoke<void>('local_remove', { id }),
   vpnGet: () => invoke<VpnState>('vpn_get'),
   vpnSetUrl: (url: string) => invoke<VpnState>('vpn_set_url', { url }),
   vpnSelect: (index: number | null) => invoke<VpnState>('vpn_select', { index }),
@@ -572,3 +577,14 @@ export interface VpnState {
   selected: number | null;
   running: boolean;
 }
+
+/** «Мои файлы»: the user's own audio file kept in the app (not on SoundCloud) */
+export interface LocalTrack {
+  track: Track;
+  kind: string;
+  bytes: number;
+  origin: string;
+}
+
+/** Tracks of «Мои файлы» have ids of their own range: they are not on SoundCloud. */
+export const isLocal = (id: number): boolean => id >= 2 ** 52;

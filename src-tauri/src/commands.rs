@@ -584,6 +584,57 @@ pub fn vpn_resume(app: &AppHandle) {
     });
 }
 
+#[tauri::command]
+pub async fn local_list(state: State<'_, AppState>) -> Cmd<Vec<crate::local::LocalTrack>> {
+    crate::local::list(&state).await
+}
+
+/// «Мои файлы» → «Добавить»: files picked in the Windows dialog, each checked; returns what got in and what not.
+#[tauri::command]
+pub async fn local_add(app: AppHandle, state: State<'_, AppState>) -> Cmd<serde_json::Value> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(crate::lang::pick("Добавить свои треки", "Add your tracks"))
+        .add_filter(crate::lang::pick("Музыка", "Music"), &["mp3", "m4a", "aac", "opus", "ogg", "flac", "wav"])
+        .pick_files(move |p| {
+            let _ = tx.send(p.unwrap_or_default().into_iter().filter_map(|p| p.into_path().ok()).collect::<Vec<_>>());
+        });
+    let paths = rx.await.unwrap_or_default();
+    let (mut added, mut refused) = (0usize, Vec::new());
+    for p in paths {
+        match crate::local::add(&app, &state, &p).await {
+            Ok(_) => added += 1,
+            Err(e) => refused.push(format!("{}: {e}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
+        }
+    }
+    let _ = app.emit("local:changed", ());
+    Ok(serde_json::json!({ "added": added, "refused": refused }))
+}
+
+/// The folder of «Мои файлы» in Explorer.
+#[tauri::command]
+pub async fn local_open(app: AppHandle) -> Cmd<()> {
+    let dir = crate::local::folder(&app)?;
+    let _ = tokio::fs::create_dir_all(&dir).await;
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn local_clear(app: AppHandle, state: State<'_, AppState>) -> Cmd<()> {
+    crate::local::clear(&app, &state).await?;
+    let _ = app.emit("local:changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn local_remove(app: AppHandle, state: State<'_, AppState>, id: u64) -> Cmd<()> {
+    crate::local::remove(&app, &state, id).await?;
+    let _ = app.emit("local:changed", ());
+    Ok(())
+}
+
 /// Holding Alt over a track: a short listen without leaving the playing one.
 #[tauri::command]
 pub async fn preview_start(player: State<'_, Arc<Player>>, track: TrackDto) -> Cmd<()> {

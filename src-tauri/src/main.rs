@@ -36,6 +36,7 @@ mod updater;
 mod import;
 mod lang;
 mod hear;
+mod local;
 mod lyrics_align;
 mod mini;
 mod smtc;
@@ -323,6 +324,11 @@ fn main() {
             commands::lyrics_hear,
             commands::preview_start,
             commands::vpn_get,
+            commands::local_list,
+            commands::local_add,
+            commands::local_remove,
+            commands::local_open,
+            commands::local_clear,
             commands::vpn_set_url,
             commands::vpn_select,
             commands::preview_stop,

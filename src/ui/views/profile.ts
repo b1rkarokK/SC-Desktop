@@ -51,6 +51,7 @@ export class ProfileView implements View {
       [
         { key: 'mine', label: T('Мои треки') },
         { key: 'friends', label: T('Друзья') },
+        { key: 'files', label: T('Мои файлы') },
         { key: 'downloads', label: T('Скачанные') },
         { key: 'queue', label: T('В очереди') },
       ],
@@ -89,6 +90,7 @@ export class ProfileView implements View {
     if (this.tabs.value === 'mine') await this.renderMine();
     else if (this.tabs.value === 'friends') await this.renderFriends();
     else if (this.tabs.value === 'downloads') await this.renderDownloads();
+    else if (this.tabs.value === 'files') await this.renderFiles();
     else await this.renderQueue();
   }
 
@@ -279,6 +281,52 @@ export class ProfileView implements View {
       sub.classList.toggle('ok', !!now);
       sub.textContent = now ? T('слушает: {0} - {1}', now.title, now.artist) : T('друг');
     }
+  }
+
+  /** «Мои файлы»: the user's own audio kept in the app, played like any track, never uploaded. */
+  private async renderFiles(): Promise<void> {
+    const add = btn(T('Добавить файлы'), I.plus, true);
+    add.addEventListener('click', async () => {
+      try {
+        const r = await api.localAdd();
+        if (r.added) toast(T('Добавлено: {0}', r.added));
+        if (r.refused.length) toast(T('Не добавлены: {0}', r.refused.join('; ')), 'error');
+        void this.render();
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    });
+    const open = btn(T('Открыть папку'), I.folder);
+    open.addEventListener('click', () => void api.localOpen().catch((e) => toast(errorMessage(e), 'error')));
+    const clear = btn(T('Удалить все'), I.close);
+    clear.addEventListener('click', async () => {
+      if (!(await confirmDialog(T('Удалить все свои треки?'), T('Все файлы из «Моих файлов» удалятся из программы. Копии, которые есть у вас где-то ещё, останутся.'), T('Удалить все')))) return;
+      await api.localClear().catch((e) => toast(errorMessage(e), 'error'));
+      void this.render();
+    });
+    this.action.replaceChildren(add, open, clear);
+    const list = await api.localList().catch(() => []);
+    if (this.tabs.value !== 'files') return;
+    if (!list.length) {
+      this.body.replaceChildren(emptyState(T('Здесь ваши треки, которых нет на SoundCloud: добавьте MP3, M4A, Opus, FLAC или WAV. Они хранятся внутри программы, никуда не загружаются и играют как обычные треки. Каждый файл проверяется: принимается только настоящий звук.')));
+      return;
+    }
+    const tracks = list.map((l) => l.track);
+    this.body.replaceChildren(
+      ...list.map((l, i) => {
+        const rm = iconButton(I.close, T('Удалить из программы'));
+        rm.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!(await confirmDialog(T('Удалить «{0}» из «Моих файлов»?', l.track.title), T('Файл удалится из программы. Если он есть у вас где-то ещё, там он останется.'), T('Удалить')))) return;
+          await api.localRemove(l.track.id).catch((err) => toast(errorMessage(err), 'error'));
+          void this.render();
+        });
+        const r = row(l.track, l.origin === 'shared' ? T('{0} · из комнаты', l.kind) : l.kind, rm);
+        r.classList.toggle('is-current', store.currentId() === l.track.id);
+        r.addEventListener('click', () => void api.playTracks(tracks, i).catch((err) => toast(errorMessage(err), 'error')));
+        return r;
+      }),
+    );
   }
 
   private async renderDownloads(): Promise<void> {

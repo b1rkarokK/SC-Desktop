@@ -43,6 +43,9 @@ rodio = { version = "0.20", default-features = false, features = [
     "symphonia-mp3",
     "symphonia-aac",
     "symphonia-isomp4",
+    # «Мои файлы»: the user's own lossless files
+    "symphonia-flac",
+    "symphonia-wav",
 ] }
 
 rusqlite = { version = "0.32", features = ["bundled"] }

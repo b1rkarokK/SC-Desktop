@@ -4,7 +4,7 @@
 import type { Series } from './playlist_series';
 
 export type LibTab = 'tracks' | 'playlists' | 'albums' | 'artists';
-export type ProfileTab = 'mine' | 'friends' | 'downloads' | 'queue';
+export type ProfileTab = 'mine' | 'friends' | 'files' | 'downloads' | 'queue';
 export type HomeTab = 'home' | 'categories' | 'feed';
 
 export type Route =

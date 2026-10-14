@@ -1484,6 +1484,12 @@ impl Player {
     /// can play) and a second account with a subscription is set, that one is asked, quietly. Nobody is told.
     async fn fetch_audio(&self, track_id: u64) -> AppResult<Fetched> {
         let state = self.app.state::<AppState>();
+        // «Мои файлы»: the user's own file, nothing to ask anybody
+        if crate::local::is_local(track_id) {
+            return crate::local::audio(&self.app, track_id).await.map(Fetched::Bytes).ok_or_else(|| {
+                AppError::UnsupportedStream("этого файла нет на этом компьютере: его нет на SoundCloud, он только у того, кто его добавил".into())
+            });
+        }
         // downloaded: play the file (offline, no quota, no region blocks)
         if let Some(path) = crate::downloads::file_of(&state, track_id).await {
             match tokio::fs::read(&path).await {

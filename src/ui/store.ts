@@ -57,6 +57,11 @@ class Store {
 
   /** Optimistic like/unlike; rolled back if SoundCloud refuses. */
   async setLiked(track: Track, liked: boolean): Promise<void> {
+    // a track of «Мои файлы» is not on SoundCloud: it cannot be liked there
+    if (track.id >= 2 ** 52) {
+      toast(T('Этого трека нет на SoundCloud: он в «Моих файлах», лайкнуть его там нельзя'));
+      return;
+    }
     const had = this.liked.has(track.id);
     if (liked) {
       this.liked.add(track.id);
