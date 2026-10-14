@@ -3,6 +3,10 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.2.3] - 2026-10-14
+
+- Your own server: Koala / Clash subscriptions are read too, with all their servers in the list. Servers with xhttp or the new VLESS encryption are marked unsupported.
+
 ## [1.2.2] - 2026-10-14
 
 - Your own track from My files now reaches the others in a room and plays for everybody. It could get stuck on "loading" before.

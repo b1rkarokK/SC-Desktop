@@ -487,6 +487,7 @@ export class SettingsView implements View {
       ['hiddify', 'Hiddify'],
       ['nekobox', 'NekoBox'],
       ['streisand', 'Streisand'],
+      ['clash', 'Koala / Clash'],
     ] as const) {
       as.append(h('option', { value: val, text: label }));
     }

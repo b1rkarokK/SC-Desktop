@@ -76,12 +76,14 @@ pub fn save(s: &Saved) -> AppResult<()> {
 
 /// The servers of a subscription link (or of one server link pasted as it is).
 /// Which VPN app SC Desk introduces itself as to the subscription panel: "auto" tries them in turn.
-const CLIENTS: [(&str, &str); 5] = [
+const CLIENTS: [(&str, &str); 6] = [
     ("happ", "Happ/4.3.0"),
     ("v2rayn", "v2rayN/7.0"),
     ("hiddify", "HiddifyNext/2.5.7"),
     ("nekobox", "NekoBox/1.3.0"),
     ("streisand", "Streisand/1.6"),
+    // Clash-family apps (Koala Clash, Clash Verge) get a YAML profile: read too
+    ("clash", "clash-verge/v2.2.3"),
 ];
 
 pub async fn fetch(http: &HttpClient, url: &str, client: &str) -> AppResult<Vec<Server>> {
@@ -118,8 +120,11 @@ pub async fn fetch(http: &HttpClient, url: &str, client: &str) -> AppResult<Vec<
     }))
 }
 
-/// The servers of a subscription body (links, or base64 of them).
+/// The servers of a subscription body: links, base64 of them, or a Clash / mihomo YAML profile.
 fn servers_of(body: &str) -> Option<Vec<Server>> {
+    if let Some(s) = clash_servers(body) {
+        return Some(s);
+    }
     let text = if body.contains("://") { body.to_owned() } else { decode_b64(body.trim()).unwrap_or_default() };
     let servers: Vec<Server> = text
         .lines()
@@ -163,8 +168,106 @@ fn name_of(link: &str) -> String {
     link.rsplit_once('#').map(|(_, n)| urlencoding::decode(n).map(|c| c.into_owned()).unwrap_or_else(|_| n.to_owned())).unwrap_or_else(|| link.split("://").next().unwrap_or("").to_owned())
 }
 
+/// A Clash profile ("proxies:" list) as servers; each is kept as its sing-box outbound ("sb:" + JSON).
+fn clash_servers(body: &str) -> Option<Vec<Server>> {
+    if !body.contains("proxies:") {
+        return None;
+    }
+    let doc: serde_yaml::Value = serde_yaml::from_str(body).ok()?;
+    let list = doc.get("proxies")?.as_sequence()?;
+    let servers: Vec<Server> = list
+        .iter()
+        .filter_map(|p| {
+            let name = p.get("name")?.as_str()?.to_owned();
+            let out = clash_outbound(p);
+            let link = out.as_ref().map_or_else(String::new, |o| format!("sb:{o}"));
+            Some(Server { name, ok: out.is_some(), link })
+        })
+        .collect();
+    (!servers.is_empty()).then_some(servers)
+}
+
+/// One proxy of a Clash profile as a sing-box outbound; None: a kind or transport sing-box lacks (xhttp, the
+/// post-quantum VLESS "encryption", …).
+fn clash_outbound(p: &serde_yaml::Value) -> Option<Value> {
+    let s = |k: &str| p.get(k).and_then(|v| v.as_str()).unwrap_or("").to_owned();
+    let server = s("server");
+    let port = p.get("port")?.as_u64()? as u16;
+    let alpn: Vec<String> = p.get("alpn").and_then(|a| a.as_sequence()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    let fp = match s("client-fingerprint").as_str() {
+        "" => "chrome".to_owned(),
+        f => f.to_owned(),
+    };
+    let tls = |sni: String| {
+        let mut t = json!({ "enabled": true, "server_name": if sni.is_empty() { server.clone() } else { sni }, "utls": { "enabled": true, "fingerprint": fp } });
+        if !alpn.is_empty() {
+            t["alpn"] = json!(alpn);
+        }
+        if let Some(r) = p.get("reality-opts") {
+            t["reality"] = json!({ "enabled": true, "public_key": r.get("public-key").and_then(|v| v.as_str()).unwrap_or(""),
+                "short_id": r.get("short-id").and_then(|v| v.as_str()).unwrap_or("") });
+        }
+        t
+    };
+    let mut o = match s("type").as_str() {
+        "vless" => {
+            let enc = s("encryption");
+            if !enc.is_empty() && enc != "none" {
+                return None;
+            }
+            let mut o = json!({ "type": "vless", "server": server, "server_port": port, "uuid": s("uuid") });
+            if !s("flow").is_empty() {
+                o["flow"] = json!(s("flow"));
+            }
+            if p.get("tls").and_then(|v| v.as_bool()).unwrap_or(false) {
+                o["tls"] = tls(s("servername"));
+            }
+            o
+        }
+        "vmess" => {
+            let mut o = json!({ "type": "vmess", "server": server, "server_port": port, "uuid": s("uuid"),
+                "security": if s("cipher").is_empty() { "auto".to_owned() } else { s("cipher") }, "alter_id": p.get("alterId").and_then(|v| v.as_u64()).unwrap_or(0) });
+            if p.get("tls").and_then(|v| v.as_bool()).unwrap_or(false) {
+                o["tls"] = tls(s("servername"));
+            }
+            o
+        }
+        "trojan" => json!({ "type": "trojan", "server": server, "server_port": port, "password": s("password"), "tls": tls(s("sni")) }),
+        "hysteria2" | "hy2" => {
+            let mut o = json!({ "type": "hysteria2", "server": server, "server_port": port, "password": s("password"),
+                "tls": { "enabled": true, "server_name": if s("sni").is_empty() { server.clone() } else { s("sni") }, "alpn": if alpn.is_empty() { vec!["h3".to_owned()] } else { alpn.clone() },
+                         "insecure": p.get("skip-cert-verify").and_then(|v| v.as_bool()).unwrap_or(false) } });
+            if s("obfs") == "salamander" {
+                o["obfs"] = json!({ "type": "salamander", "password": s("obfs-password") });
+            }
+            return Some(o);
+        }
+        "ss" | "shadowsocks" => return Some(json!({ "type": "shadowsocks", "server": server, "server_port": port, "method": s("cipher"), "password": s("password") })),
+        _ => return None,
+    };
+    match s("network").as_str() {
+        "" | "tcp" => {}
+        "ws" => {
+            let ws = p.get("ws-opts");
+            let path = ws.and_then(|w| w.get("path")).and_then(|v| v.as_str()).unwrap_or("/");
+            let host = ws.and_then(|w| w.get("headers")).and_then(|h| h.get("Host")).and_then(|v| v.as_str()).unwrap_or("");
+            o["transport"] = json!({ "type": "ws", "path": path, "headers": if host.is_empty() { json!({}) } else { json!({ "Host": host }) } });
+        }
+        "grpc" => {
+            let svc = p.get("grpc-opts").and_then(|g| g.get("grpc-service-name")).and_then(|v| v.as_str()).unwrap_or("");
+            o["transport"] = json!({ "type": "grpc", "service_name": svc });
+        }
+        _ => return None,
+    }
+    Some(o)
+}
+
 /// The link as a sing-box outbound; None: a kind sing-box does not speak.
 pub fn outbound(link: &str) -> Option<Value> {
+    // a server of a Clash profile, already in sing-box's terms
+    if let Some(json) = link.strip_prefix("sb:") {
+        return serde_json::from_str(json).ok();
+    }
     if let Some(rest) = link.strip_prefix("vmess://") {
         let v: Value = serde_json::from_str(&decode_b64(rest)?).ok()?;
         let s = |k: &str| v[k].as_str().map(str::to_owned).or_else(|| v[k].as_u64().map(|n| n.to_string())).unwrap_or_default();
@@ -368,6 +471,18 @@ mod tests {
         let r = http.get("https://soundcloud.com/", crate::net::Profile::Document, None).await;
         println!("through sing-box: {:?}", r.map(|r| r.status()));
         super::stop();
+    }
+
+    #[test]
+    fn a_clash_profile_gives_its_servers() {
+        let yaml = "mixed-port: 7890\nproxies:\n- name: NL\n  type: vless\n  server: 1.2.3.4\n  port: 8443\n  uuid: 11111111-2222-3333-4444-555555555555\n  flow: xtls-rprx-vision\n  tls: true\n  servername: a.example\n  client-fingerprint: firefox\n  reality-opts:\n    public-key: KEY\n    short-id: ab\n- name: WS\n  type: vless\n  server: w.example\n  port: 443\n  uuid: u\n  tls: true\n  servername: w.example\n  network: ws\n  ws-opts:\n    path: /ws\n    headers:\n      Host: w.example\n- name: TR\n  type: trojan\n  server: t.example\n  port: 7443\n  password: p\n  sni: t.example\n- name: HY\n  type: hysteria2\n  server: h.example\n  port: 8443\n  password: p\n  sni: h.example\n- name: XH\n  type: vless\n  server: x.example\n  port: 443\n  uuid: u\n  network: xhttp\n- name: PQ\n  type: vless\n  server: q.example\n  port: 443\n  uuid: u\n  encryption: mlkem768x25519plus.native.0rtt.X\nproxy-groups: []\n";
+        let s = super::servers_of(yaml).unwrap();
+        assert_eq!(s.len(), 6);
+        assert_eq!(s.iter().filter(|x| x.ok).count(), 4, "xhttp and the post-quantum encryption are not for sing-box");
+        let nl = super::outbound(&s[0].link).unwrap();
+        assert_eq!(nl["tls"]["reality"]["public_key"], "KEY");
+        assert_eq!(super::outbound(&s[1].link).unwrap()["transport"]["headers"]["Host"], "w.example");
+        assert_eq!(super::outbound(&s[3].link).unwrap()["type"], "hysteria2");
     }
 
     #[test]

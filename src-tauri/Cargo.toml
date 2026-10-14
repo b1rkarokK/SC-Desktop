@@ -1,6 +1,6 @@
 [package]
 name = "sc-desk"
-version = "1.2.2"
+version = "1.2.3"
 description = "Lightweight native SoundCloud desktop client"
 edition = "2021"
 rust-version = "1.80"
@@ -77,6 +77,7 @@ whisper-rs = "0.16"
 # Ogg Opus streams (player/decode.rs): libopus, built from source by CMake
 ogg = "0.9"
 # «Свой сервер» (net/vpn.rs): the sing-box archive is unpacked; the same zip Tauri's updater already uses
+serde_yaml = "0.9"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 audiopus = "0.2"
 
