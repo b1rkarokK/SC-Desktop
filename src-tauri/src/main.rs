@@ -104,6 +104,7 @@ fn main() {
             autostart::sync(&handle);
             commands::start_likes_watch(&handle);
             downloads::start_offline_likes(&handle);
+            commands::vpn_resume(&handle);
             {
                 // with a proxy the connection pool may have been opened while the proxy program (a VPN client that
                 // starts later than this one) was not there yet: a fresh client a few seconds after the start, twice
@@ -321,6 +322,9 @@ fn main() {
             commands::lyrics_align,
             commands::lyrics_hear,
             commands::preview_start,
+            commands::vpn_get,
+            commands::vpn_set_url,
+            commands::vpn_select,
             commands::preview_stop,
             #[cfg(debug_assertions)]
             commands::lyrics_align_probe,
@@ -367,6 +371,9 @@ fn main() {
     match app {
         // the main window is destroyed in tray mode: keep running until "Выход" (app.exit)
         Ok(app) => app.run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                net::vpn::stop();
+            }
             if let tauri::RunEvent::ExitRequested { api, code: None, .. } = event {
                 api.prevent_exit();
             }

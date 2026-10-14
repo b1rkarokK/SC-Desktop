@@ -72,7 +72,9 @@ pub fn doh_wanted(host: &str) -> bool {
 /// The local proxy for this URL, if its connection is to be cut.
 pub fn proxy_for(url: &url::Url) -> Option<String> {
     let port = PORT.load(Ordering::Relaxed);
-    (port != 0 && active() && url.scheme() == "https" && url.host_str().is_some_and(is_soundcloud)).then(|| format!("http://127.0.0.1:{port}"))
+    // «Свой сервер» (vpn.rs) running: SoundCloud goes there through this proxy, whatever the bypass says
+    let via = active() || super::vpn::port() != 0;
+    (port != 0 && via && url.scheme() == "https" && url.host_str().is_some_and(is_soundcloud)).then(|| format!("http://127.0.0.1:{port}"))
 }
 
 /// A connection to SoundCloud broke off: in «Авто» the cutting is turned on (once). True: ask again at once.
@@ -93,7 +95,8 @@ pub fn browser_args() -> &'static str {
     ARGS.get_or_init(|| {
         let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection");
         let port = PORT.load(Ordering::Relaxed);
-        if port != 0 && MODE.load(Ordering::Relaxed) != OFF {
+        // always while the local proxy is there: «Свой сервер» may be picked later in this run
+        if port != 0 {
             use base64::Engine as _;
             let pac = format!(concat!(
                 "function FindProxyForURL(url, host) {{ host = host.toLowerCase(); ",
@@ -155,6 +158,15 @@ async fn serve(mut client: TcpStream) -> std::io::Result<()> {
     }
     tracing::debug!(%target, cut = active(), "bypass: connection");
     let port: u16 = target.rsplit_once(':').and_then(|(_, p)| p.parse().ok()).unwrap_or(443);
+    // «Свой сервер»: on through sing-box (SOCKS5, the name resolved over there), nothing cut
+    let vpn = super::vpn::port();
+    if vpn != 0 {
+        let mut server = TcpStream::connect(("127.0.0.1", vpn)).await?;
+        socks_connect(&mut server, &host, port).await?;
+        client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
+        tokio::io::copy_bidirectional(&mut client, &mut server).await?;
+        return Ok(());
+    }
     let ips = if active() { super::doh::lookup(&host).await } else { Vec::new() };
     let mut server = match ips.first() {
         Some(ip) => TcpStream::connect((*ip, port)).await?,
@@ -178,6 +190,39 @@ async fn serve(mut client: TcpStream) -> std::io::Result<()> {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
     tokio::io::copy_bidirectional(&mut client, &mut server).await?;
+    Ok(())
+}
+
+/// SOCKS5 CONNECT to `host:port`, no password (sing-box's local inbound).
+async fn socks_connect(s: &mut TcpStream, host: &str, port: u16) -> std::io::Result<()> {
+    let bad = || std::io::Error::other("socks refused");
+    s.write_all(&[5, 1, 0]).await?;
+    let mut r = [0u8; 2];
+    s.read_exact(&mut r).await?;
+    if r != [5, 0] {
+        return Err(bad());
+    }
+    let mut req = vec![5, 1, 0, 3, host.len() as u8];
+    req.extend_from_slice(host.as_bytes());
+    req.extend_from_slice(&port.to_be_bytes());
+    s.write_all(&req).await?;
+    let mut head = [0u8; 4];
+    s.read_exact(&mut head).await?;
+    if head[1] != 0 {
+        return Err(bad());
+    }
+    let skip = match head[3] {
+        1 => 4 + 2,
+        4 => 16 + 2,
+        3 => {
+            let mut l = [0u8; 1];
+            s.read_exact(&mut l).await?;
+            usize::from(l[0]) + 2
+        }
+        _ => return Err(bad()),
+    };
+    let mut rest = vec![0u8; skip];
+    s.read_exact(&mut rest).await?;
     Ok(())
 }
 

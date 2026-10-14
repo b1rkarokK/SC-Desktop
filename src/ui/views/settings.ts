@@ -57,6 +57,7 @@ export class SettingsView implements View {
   private discordBox = h('div');
   private lyricsBox = h('div');
   private netBox = h('div');
+  private vpnBox = h('div');
   private systemBox = h('div');
   private themeBox = h('div');
   private langBox = h('div');
@@ -400,6 +401,7 @@ export class SettingsView implements View {
         toast(errorMessage(e), 'error');
       }
     });
+    void this.renderVpn();
     this.netBox.replaceChildren(
       group(
         T('Сеть'),
@@ -425,6 +427,7 @@ export class SettingsView implements View {
             T('Если провайдер блокирует SoundCloud, программа сама режет начало соединения так, что фильтр не видит имя сайта. Без чужих серверов и VPN. «Авто» включает это, только когда SoundCloud не открывается напрямую, поэтому с «запретом» и VPN не конфликтует. С прокси не используется. Не поможет, если заблокирован сам адрес сервера.'),
           );
         })(),
+        this.vpnBox,
         faq(T('Как пользоваться прокси?'), [
           [T('Зачем'), T('весь трафик приложения пойдёт через указанный адрес — например, через ваш VPN-клиент, если он не включён системно.')],
           [T('Где взять адрес'), T('в настройках VPN-клиента найдите «локальный SOCKS-порт» (v2rayN — 10808, NekoBox — 2080, Clash — 7890).')],
@@ -432,6 +435,50 @@ export class SettingsView implements View {
           [T('Проверка'), T('нажмите «Проверить». Ошибка 403 — SoundCloud не пускает этот адрес, нужен другой сервер.')],
         ]),
       ),
+    );
+  }
+
+  /** «Свой сервер»: a VPN subscription pasted here, a server picked from the list, no VPN app needed. */
+  private async renderVpn(): Promise<void> {
+    const v = await api.vpnGet().catch(() => null);
+    if (!v) return;
+    const url = h('input', { class: 'input', type: 'password', placeholder: T('Ссылка на подписку или сервер (vless://, https://…)'), spellcheck: 'false' }) as HTMLInputElement;
+    const status = h('span', { class: 'muted small' });
+    const load = btn(v.has_url ? T('Обновить') : T('Загрузить'), null);
+    const sel = h('select', { class: 'input' }) as HTMLSelectElement;
+    const fill = (s: typeof v) => {
+      sel.replaceChildren(h('option', { value: '', text: T('Не использовать') }));
+      s.servers.forEach((srv, i) => {
+        const o = h('option', { value: String(i), text: srv.ok ? srv.name : `${srv.name} ${T('(не поддерживается)')}` }) as HTMLOptionElement;
+        o.disabled = !srv.ok;
+        o.selected = s.selected === i;
+        sel.append(o);
+      });
+      sel.disabled = !s.servers.length;
+      status.textContent = s.running ? T('Подключено: SoundCloud идёт через выбранный сервер') : s.servers.length ? T('Серверов: {0}', s.servers.length) : '';
+    };
+    fill(v);
+    load.addEventListener('click', async () => {
+      status.textContent = T('Загружаю…');
+      try {
+        fill(await api.vpnSetUrl(url.value));
+        url.value = '';
+      } catch (e) {
+        status.textContent = errorMessage(e);
+      }
+    });
+    sel.addEventListener('change', async () => {
+      status.textContent = sel.value ? T('Подключаю… (в первый раз скачивается движок, около 30 МБ)') : '';
+      try {
+        fill(await api.vpnSelect(sel.value === '' ? null : Number(sel.value)));
+      } catch (e) {
+        status.textContent = errorMessage(e);
+      }
+    });
+    this.vpnBox.replaceChildren(
+      row(T('Свой сервер (без VPN-программы)'), sel, T('Вставьте подписку из Happ, v2rayN и т.п. и выберите сервер: через него пойдёт только SoundCloud, а VPN-программу можно закрыть. Работает при «Прямом подключении». Ссылка хранится в защищённом хранилище Windows.')),
+      h('div', { class: 'row-actions proxy-row' }, url, load),
+      status,
     );
   }
 

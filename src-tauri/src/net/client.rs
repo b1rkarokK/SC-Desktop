@@ -349,6 +349,15 @@ impl HttpClient {
         Ok(hex::encode(hash.finalize()))
     }
 
+    /// A plain GET with this user agent (a VPN panel answers by the client it sees).
+    pub async fn get_text_ua(&self, url: &str, ua: &str) -> AppResult<String> {
+        let resp = self.client.get(url).header("user-agent", ua).send().await?;
+        if !resp.status().is_success() {
+            return Err(AppError::from_status(resp.status()));
+        }
+        Ok(resp.text().await?)
+    }
+
     pub async fn get_text(&self, url: &str, profile: Profile, auth: Option<&str>) -> AppResult<String> {
         Ok(self.get(url, profile, auth).await?.text().await?)
     }

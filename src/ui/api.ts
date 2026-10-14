@@ -479,6 +479,9 @@ export const api = {
 
   lyrics: (track: Track, force: boolean) => invoke<Lyrics>('lyrics_get', { track, force }),
   /** no lyrics under the name: the app listens to the track and searches by the words (hear.rs) */
+  vpnGet: () => invoke<VpnState>('vpn_get'),
+  vpnSetUrl: (url: string) => invoke<VpnState>('vpn_set_url', { url }),
+  vpnSelect: (index: number | null) => invoke<VpnState>('vpn_select', { index }),
   previewStart: (track: Track) => invoke<void>('preview_start', { track }),
   previewStop: () => invoke<void>('preview_stop'),
   lyricsHear: (track: Track, force: boolean) => invoke<{ wait: boolean; lyrics: Lyrics | null }>('lyrics_hear', { track, force }),
@@ -561,3 +564,11 @@ export function fmtCount(n: number | null | undefined): string {
 
 /** 1 трек, 2 трека, 5 треков (or the English pair) */
 export { plural } from './i18n';
+
+/** «Свой сервер»: the servers of the pasted subscription and the one SoundCloud goes through */
+export interface VpnState {
+  has_url: boolean;
+  servers: { name: string; link: string; ok: boolean }[];
+  selected: number | null;
+  running: boolean;
+}

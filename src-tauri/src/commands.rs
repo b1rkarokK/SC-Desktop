@@ -522,6 +522,68 @@ pub async fn download_many(app: AppHandle, tracks: Vec<TrackDto>) -> Cmd<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+pub struct VpnDto {
+    pub has_url: bool,
+    pub servers: Vec<crate::net::vpn::Server>,
+    pub selected: Option<usize>,
+    pub running: bool,
+}
+
+fn vpn_dto(s: &crate::net::vpn::Saved) -> VpnDto {
+    VpnDto { has_url: !s.url.is_empty(), servers: s.servers.clone(), selected: s.selected, running: crate::net::vpn::port() != 0 }
+}
+
+fn vpn_dir(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+    Ok(app.path().app_data_dir()?.join("bin"))
+}
+
+#[tauri::command]
+pub fn vpn_get() -> Cmd<VpnDto> {
+    Ok(vpn_dto(&crate::net::vpn::load()))
+}
+
+/// A subscription (or one server link) pasted: its servers; an empty link forgets it all.
+#[tauri::command]
+pub async fn vpn_set_url(state: State<'_, AppState>, url: String) -> Cmd<VpnDto> {
+    if url.trim().is_empty() {
+        crate::net::vpn::stop();
+        crate::net::vpn::save(&crate::net::vpn::Saved::default())?;
+        return Ok(vpn_dto(&crate::net::vpn::Saved::default()));
+    }
+    let servers = crate::net::vpn::fetch(&state.http(), &url).await?;
+    let s = crate::net::vpn::Saved { url: url.trim().to_owned(), servers, selected: None };
+    crate::net::vpn::stop();
+    crate::net::vpn::save(&s)?;
+    Ok(vpn_dto(&s))
+}
+
+/// The server SoundCloud goes through (None: not used); sing-box is downloaded the first time.
+#[tauri::command]
+pub async fn vpn_select(app: AppHandle, state: State<'_, AppState>, index: Option<usize>) -> Cmd<VpnDto> {
+    let mut s = crate::net::vpn::load();
+    s.selected = index.filter(|i| *i < s.servers.len());
+    crate::net::vpn::save(&s)?;
+    match s.selected {
+        Some(i) => crate::net::vpn::start(&state.http(), &vpn_dir(&app)?, &s.servers[i].link).await?,
+        None => crate::net::vpn::stop(),
+    }
+    Ok(vpn_dto(&s))
+}
+
+/// The picked server again at the start of the app.
+pub fn vpn_resume(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let s = crate::net::vpn::load();
+        let Some(server) = s.selected.and_then(|i| s.servers.get(i)) else { return };
+        let (Ok(dir), state) = (vpn_dir(&app), app.state::<AppState>()) else { return };
+        if let Err(e) = crate::net::vpn::start(&state.http(), &dir, &server.link).await {
+            tracing::warn!(error = %e, "vpn: the picked server did not start");
+        }
+    });
+}
+
 /// Holding Alt over a track: a short listen without leaving the playing one.
 #[tauri::command]
 pub async fn preview_start(player: State<'_, Arc<Player>>, track: TrackDto) -> Cmd<()> {

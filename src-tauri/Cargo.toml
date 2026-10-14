@@ -65,7 +65,7 @@ tokio-tungstenite = { version = "0.24", default-features = false, features = ["c
 
 [target.'cfg(windows)'.dependencies]
 # mini player: is a full-screen app (game, video) in front?
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Security"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 # Windows media panel (System Media Transport Controls); the version Tauri already uses
 windows = { version = "0.62", features = ["Foundation", "Media", "Media_Playback", "Storage_Streams", "Win32_UI_Shell"] }
 rustfft = "6"
@@ -73,6 +73,8 @@ rustfft = "6"
 whisper-rs = "0.16"
 # Ogg Opus streams (player/decode.rs): libopus, built from source by CMake
 ogg = "0.9"
+# «Свой сервер» (net/vpn.rs): the sing-box archive is unpacked; the same zip Tauri's updater already uses
+zip = { version = "4", default-features = false, features = ["deflate"] }
 audiopus = "0.2"
 
 [profile.release]
