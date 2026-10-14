@@ -16,6 +16,8 @@
 //! * after the hotkey «Мини-плеер: нажимать в игре» (Ctrl+Alt+K by default) for the time set in
 //!   Settings (20 seconds by default) or until the hotkey is pressed again; pressing it during that time
 //!   switches it back at once.
+//! * while the pointer rests on the capsule for a third of a second (the user reaches for it; a quick pass of
+//!   the mouse in the game is not caught).
 //! A few cheap system calls a second.
 //!
 //! Pinned (the default): on top of every window. Unpinned: an ordinary window
@@ -128,12 +130,19 @@ pub async fn open(app: &AppHandle) -> tauri::Result<()> {
 fn watch_fullscreen(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut through = false;
+        let mut over_since: Option<std::time::Instant> = None;
         loop {
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
             let Some(w) = app.get_webview_window(LABEL) else { return };
             let own = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+            // the pointer rests on the capsule a moment: the user means it, whatever is under it (a game draws
+            // its own pointer there, so the arrow test alone flickered and clicks went through to the game)
+            let over = cursor_over(own);
+            over_since = if over { over_since.or(Some(std::time::Instant::now())) } else { None };
+            let resting = over_since.is_some_and(|t| t.elapsed() >= std::time::Duration::from_millis(330));
             // a window that is not pinned goes behind the game by itself: nothing to let through
             let now = fullscreen_in_front(own)
+                && !resting
                 && !system_arrow_shown()
                 && CLICKABLE_UNTIL.load(std::sync::atomic::Ordering::Relaxed) <= now_ms()
                 && PIN.load(std::sync::atomic::Ordering::Relaxed);
@@ -198,6 +207,29 @@ fn system_arrow_shown() -> bool {
         ci.cbSize = std::mem::size_of::<CURSORINFO>() as u32;
         GetCursorInfo(&mut ci) != 0 && ci.flags & CURSOR_SHOWING != 0 && ci.hCursor == LoadCursorW(std::ptr::null_mut(), IDC_ARROW)
     }
+}
+
+/// The pointer is over this window (its rectangle on the screen).
+#[cfg(windows)]
+fn cursor_over(own: isize) -> bool {
+    use windows_sys::Win32::{
+        Foundation::{POINT, RECT},
+        UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect},
+    };
+    if own == 0 {
+        return false;
+    }
+    // SAFETY: plain Win32 queries filling zeroed locals; the handle is our own live window.
+    unsafe {
+        let mut p: POINT = std::mem::zeroed();
+        let mut r: RECT = std::mem::zeroed();
+        GetCursorPos(&mut p) != 0 && GetWindowRect(own as _, &mut r) != 0 && p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom
+    }
+}
+
+#[cfg(not(windows))]
+fn cursor_over(_own: isize) -> bool {
+    false
 }
 
 #[cfg(not(windows))]

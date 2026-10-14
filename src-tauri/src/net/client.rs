@@ -236,7 +236,7 @@ impl HttpClient {
                     tokio::time::sleep(wait).await;
                     attempt += 1;
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(cut_off(url, e.into())),
             }
         }
     }
@@ -314,19 +314,35 @@ impl HttpClient {
     }
 
     /// Body download also retried: CDN connections drop mid-body more often than on connect.
+    /// A body cut off midway is resumed from where it stopped (Range), not fetched again from the start: a
+    /// provider that kills a connection after some seconds then costs a reconnect, not the whole download.
     pub async fn get_bytes(&self, url: &str, profile: Profile, auth: Option<&str>) -> AppResult<Vec<u8>> {
-        let mut attempt = 0u32;
+        let mut data: Vec<u8> = Vec::new();
+        let mut breaks = 0u32;
         loop {
-            let resp = self.get(url, profile, auth).await?;
-            match resp.bytes().await {
-                Ok(b) => return Ok(b.to_vec()),
-                Err(e) if attempt < 2 => {
-                    tracing::warn!(error = %e.without_url(), host = host_of(url), "body read failed, retrying");
-                    tokio::time::sleep(backoff(attempt)).await;
-                    attempt += 1;
-                }
-                Err(e) => return Err(e.into()),
+            let range = format!("bytes={}-", data.len());
+            let extra: &[(&'static str, &str)] = if data.is_empty() { &[] } else { &[("range", range.as_str())] };
+            let mut resp = self.request_with(Method::GET, url, profile, auth, extra).await?;
+            // the server ignored the range: from the start again
+            if !data.is_empty() && resp.status() != StatusCode::PARTIAL_CONTENT {
+                data.clear();
             }
+            let cut = loop {
+                match resp.chunk().await {
+                    Ok(Some(c)) => data.extend_from_slice(&c),
+                    Ok(None) => break None,
+                    Err(e) => break Some(e),
+                }
+            };
+            let Some(e) = cut else { return Ok(data) };
+            // the address may carry a one-time key: never in the log
+            let e = e.without_url();
+            breaks += 1;
+            tracing::warn!(error = %e, host = host_of(url), have = data.len(), breaks, "body cut off, resuming");
+            if breaks > 30 {
+                return Err(cut_off(url, e.into()));
+            }
+            tokio::time::sleep(backoff(breaks.min(2))).await;
         }
     }
 
@@ -416,5 +432,56 @@ mod tests {
         let id = BrowserIdentity::new(150);
         assert!(id.user_agent.contains("Chrome/150.0.0.0"));
         assert!(id.sec_ch_ua.contains("v=\"150\""));
+    }
+}
+
+/// SoundCloud keeps breaking off even with the built-in bypass on: the provider blocks it by address, which
+/// cutting the greeting cannot get around. Said plainly, with what helps.
+fn cut_off(url: &str, e: AppError) -> AppError {
+    let sc = url::Url::parse(url).ok().and_then(|u| u.host_str().map(super::bypass::is_soundcloud)).unwrap_or(false);
+    if sc && super::bypass::is_on() {
+        AppError::Network("SoundCloud обрывает соединение даже через встроенный обход: провайдер блокирует его по адресу. Поможет «Свой сервер» или VPN (Настройки → Сеть)".into())
+    } else {
+        e
+    }
+}
+
+#[cfg(test)]
+mod resume_tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A server that breaks off every connection after 3000 bytes (as a provider does): the download still
+    /// arrives whole, resumed by Range each time instead of starting over.
+    #[tokio::test]
+    async fn a_body_cut_off_again_and_again_arrives_whole() {
+        let body: Vec<u8> = (0..20_000u32).map(|i| (i % 251) as u8).collect();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = body.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut s, _)) = listener.accept().await else { return };
+                let body = served.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = s.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+                    let from: usize = req.split("range: bytes=").nth(1).and_then(|r| r.split('-').next()).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+                    let rest = &body[from..];
+                    let head = if from > 0 {
+                        format!("HTTP/1.1 206 Partial Content\r\ncontent-length: {}\r\ncontent-range: bytes {}-{}/{}\r\n\r\n", rest.len(), from, body.len() - 1, body.len())
+                    } else {
+                        format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", rest.len())
+                    };
+                    let _ = s.write_all(head.as_bytes()).await;
+                    let _ = s.write_all(&rest[..rest.len().min(3000)]).await;
+                    // and then the line goes dead
+                });
+            }
+        });
+        let http = super::HttpClient::new(&crate::config::AppConfig::default()).unwrap();
+        let got = http.get_bytes(&format!("http://127.0.0.1:{port}/a.mp3"), super::Profile::Media, None).await.unwrap();
+        assert_eq!(got.len(), body.len());
+        assert!(got == body, "the pieces join into the same file");
     }
 }

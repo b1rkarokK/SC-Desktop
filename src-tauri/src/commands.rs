@@ -1705,7 +1705,8 @@ pub async fn lyrics_hear(app: AppHandle, state: State<'_, AppState>, player: Sta
     if state.config.get().ui["lyricsHear"] == serde_json::Value::Bool(false) || !crate::hear::supported() {
         return Ok(none);
     }
-    let key = format!("lyr:hear:{}", track.id);
+    // "2": the search got better in 1.2.1, tracks it gave up on are heard once more
+    let key = format!("lyr:hear2:{}", track.id);
     if !force && state.db.kv_get::<bool>(&key).await?.is_some() {
         return Ok(none);
     }

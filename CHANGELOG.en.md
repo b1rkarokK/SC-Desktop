@@ -3,6 +3,17 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.2.1] - 2026-10-14
+
+- The mini player over a full-screen game or video listens again: rest the pointer on it for a moment and the buttons, volume and seeking work. Clicks used to go through it.
+- When the provider breaks the connection, a track resumes from where it stopped instead of starting over. When the built-in bypass can't cope, the app says so and suggests your own server.
+- The app takes far less disk space: browser cache up to 8 MB, covers up to 12 MB, the library compacted. The old overgrown cache is cleared by itself. A new Storage section in Settings shows the sizes and has clean-up buttons.
+- Your own server: choose what to introduce itself as to the subscription (Happ, v2rayN, Hiddify and others). Stubs like "Install Happ" are recognised, and a dead server is dropped at once instead of cutting SoundCloud off.
+- Tracks in likes and your playlists can be dragged: hold a track and move it. A playlist's order is saved on SoundCloud, the likes' order stays in the app.
+- A liked track shows in Likes at once, no sync needed.
+- When you skip, the list follows the playing track.
+- Recognising a song by its words finds more, and for remixes and sped-up edits shows the text without timings so the lines don't run past the voice.
+
 ## [1.2.0] - 2026-10-14
 
 - Your own server instead of a VPN app: paste a subscription from Happ, v2rayN and the like (Settings → Network) and pick a server from the list. Only SoundCloud goes through it, the VPN app can be closed. The engine (sing-box) is downloaded once, when you pick a server.

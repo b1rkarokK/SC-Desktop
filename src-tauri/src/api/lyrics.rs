@@ -74,7 +74,7 @@ impl Lyrics {
     /// The original's timed lyrics for a sped-up / slowed version: every time is multiplied by the ratio of the
     /// lengths (a sped-up track is the original squeezed evenly), when that ratio fits the kind of the version.
     /// Anything else (no length known, a ratio that does not fit, an edit with another intro) goes without timings.
-    fn with_tempo(mut self, ours_ms: u64, kind: VersionKind) -> Self {
+    pub(crate) fn with_tempo(mut self, ours_ms: u64, kind: VersionKind) -> Self {
         let (Some(src), true) = (self.source_duration_ms, self.synced) else { return self.as_original() };
         if ours_ms == 0 || src == 0 {
             return self.as_original();

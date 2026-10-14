@@ -56,6 +56,11 @@ pub fn set_mode_from_ui(ui: &serde_json::Value) {
     }
 }
 
+/// The cutting is on now (set so, or turned on by «Авто»).
+pub fn is_on() -> bool {
+    active() && super::vpn::port() == 0
+}
+
 fn active() -> bool {
     match MODE.load(Ordering::Relaxed) {
         ON => true,

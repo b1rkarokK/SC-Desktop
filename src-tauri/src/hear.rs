@@ -227,7 +227,7 @@ pub async fn find(
     let model = model(http, models).await?;
     let secs = (duration_ms / 1000) as u32;
     // a verse or a chorus rather than the intro; a second try further in if the first clip has no words
-    for start in [(secs * 3 / 10).max(10), secs * 6 / 10] {
+    for start in [(secs * 3 / 10).max(10), secs * 55 / 100, secs * 75 / 100] {
         if start + CLIP_SECS > secs {
             continue;
         }
@@ -251,8 +251,10 @@ async fn by_words(http: &HttpClient, state: &LyricsState, heard: &str, duration_
     let mut tried = std::collections::HashSet::new();
     for phrase in phrases(heard) {
         // Musixmatch searches inside the texts; while it gives no token, Genius does the same
+        // Musixmatch searches inside the texts; when it fails or finds nothing, Genius does the same
         let songs = match lyrics::search_by_lyrics(http, state, &phrase).await {
-            Ok(s) => s,
+            Ok(s) if !s.is_empty() => s,
+            Ok(_) => genius_by_lyrics(http, &phrase).await.unwrap_or_default(),
             Err(e) => {
                 tracing::info!(error = %e, "hear: Musixmatch search failed, asking Genius");
                 genius_by_lyrics(http, &phrase).await?
@@ -269,8 +271,11 @@ async fn by_words(http: &HttpClient, state: &LyricsState, heard: &str, duration_
             let Ok(Some(l)) = lyrics::find(http, state, &q).await else { continue };
             let (share, hits) = overlap(heard, &l);
             tracing::info!(artist = %q.artist, title = %q.title, share, hits, "hear: candidate");
-            if share >= 0.4 && hits >= 4 {
-                return Ok(Some(l));
+            // only different words of five letters or more count, so a third of them is already telling
+            if (share >= 0.3 && hits >= 5) || hits >= 10 {
+                // heard in a remix, a sped-up or another edit: the words are right, the original's timings are
+                // not; they stay only when the lengths agree (within 3 %), else the text goes without them
+                return Ok(Some(l.with_tempo(duration_ms, lyrics::VersionKind::Same)));
             }
         }
     }
