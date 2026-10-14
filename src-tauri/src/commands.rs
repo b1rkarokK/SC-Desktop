@@ -545,13 +545,13 @@ pub fn vpn_get() -> Cmd<VpnDto> {
 
 /// A subscription (or one server link) pasted: its servers; an empty link forgets it all.
 #[tauri::command]
-pub async fn vpn_set_url(state: State<'_, AppState>, url: String) -> Cmd<VpnDto> {
+pub async fn vpn_set_url(state: State<'_, AppState>, url: String, client: Option<String>) -> Cmd<VpnDto> {
     if url.trim().is_empty() {
         crate::net::vpn::stop();
         crate::net::vpn::save(&crate::net::vpn::Saved::default())?;
         return Ok(vpn_dto(&crate::net::vpn::Saved::default()));
     }
-    let servers = crate::net::vpn::fetch(&state.http(), &url).await?;
+    let servers = crate::net::vpn::fetch(&state.http(), &url, client.as_deref().unwrap_or("auto")).await?;
     let s = crate::net::vpn::Saved { url: url.trim().to_owned(), servers, selected: None };
     crate::net::vpn::stop();
     crate::net::vpn::save(&s)?;
@@ -590,6 +590,16 @@ pub fn vpn_resume(app: &AppHandle) {
         let (Ok(dir), state) = (vpn_dir(&app), app.state::<AppState>()) else { return };
         if let Err(e) = crate::net::vpn::start(&state.http(), &dir, &server.link).await {
             tracing::warn!(error = %e, "vpn: the picked server did not start");
+            return;
+        }
+        // a dead server (or a stub picked by an older version) must not cut the app off SoundCloud
+        let check = tokio::time::timeout(std::time::Duration::from_secs(12), state.http().get("https://soundcloud.com/", Profile::Document, None)).await;
+        if !matches!(check, Ok(Ok(_))) {
+            tracing::warn!("vpn: the picked server does not carry SoundCloud, dropped");
+            crate::net::vpn::stop();
+            let mut s = s.clone();
+            s.selected = None;
+            let _ = crate::net::vpn::save(&s);
         }
     });
 }

@@ -445,6 +445,18 @@ export class SettingsView implements View {
     const url = h('input', { class: 'input', type: 'password', placeholder: T('Ссылка на подписку или сервер (vless://, https://…)'), spellcheck: 'false' }) as HTMLInputElement;
     const status = h('span', { class: 'muted small' });
     const load = btn(v.has_url ? T('Обновить') : T('Загрузить'), null);
+    // which VPN app to introduce itself as: some panels give the servers only to the apps they allow
+    const as = h('select', { class: 'input', title: T('Представляться подписке как') }) as HTMLSelectElement;
+    for (const [val, label] of [
+      ['auto', T('Как: авто')],
+      ['happ', 'Happ'],
+      ['v2rayn', 'v2rayN'],
+      ['hiddify', 'Hiddify'],
+      ['nekobox', 'NekoBox'],
+      ['streisand', 'Streisand'],
+    ] as const) {
+      as.append(h('option', { value: val, text: label }));
+    }
     const sel = h('select', { class: 'input' }) as HTMLSelectElement;
     const fill = (s: typeof v) => {
       sel.replaceChildren(h('option', { value: '', text: T('Не использовать') }));
@@ -461,7 +473,7 @@ export class SettingsView implements View {
     load.addEventListener('click', async () => {
       status.textContent = T('Загружаю…');
       try {
-        fill(await api.vpnSetUrl(url.value));
+        fill(await api.vpnSetUrl(url.value, as.value));
         url.value = '';
       } catch (e) {
         status.textContent = errorMessage(e);
@@ -477,7 +489,7 @@ export class SettingsView implements View {
     });
     this.vpnBox.replaceChildren(
       row(T('Свой сервер (без VPN-программы)'), sel, T('Вставьте подписку из Happ, v2rayN и т.п. и выберите сервер: через него пойдёт только SoundCloud, а VPN-программу можно закрыть. Работает при «Прямом подключении». Ссылка хранится в защищённом хранилище Windows.')),
-      h('div', { class: 'row-actions proxy-row' }, url, load),
+      h('div', { class: 'row-actions proxy-row' }, url, as, load),
       status,
     );
   }

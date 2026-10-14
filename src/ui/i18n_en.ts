@@ -516,6 +516,8 @@ export const EN: Record<string, string> = {
   'Узнавать песню по словам': 'Recognise the song by its words',
   'Лайки без интернета': 'Likes without the internet',
   'Мои файлы': 'My files',
+  'Представляться подписке как': 'Introduce itself to the subscription as',
+  'Как: авто': 'As: auto',
   'Удалить все': 'Remove all',
   'Открыть расположение': 'Show location',
   'Удалить все свои треки?': 'Remove all your tracks?',

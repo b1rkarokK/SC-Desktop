@@ -75,7 +75,16 @@ pub fn save(s: &Saved) -> AppResult<()> {
 // ------------------------------------------------------------------ subscription
 
 /// The servers of a subscription link (or of one server link pasted as it is).
-pub async fn fetch(http: &HttpClient, url: &str) -> AppResult<Vec<Server>> {
+/// Which VPN app SC Desk introduces itself as to the subscription panel: "auto" tries them in turn.
+const CLIENTS: [(&str, &str); 5] = [
+    ("happ", "Happ/4.3.0"),
+    ("v2rayn", "v2rayN/7.0"),
+    ("hiddify", "HiddifyNext/2.5.7"),
+    ("nekobox", "NekoBox/1.3.0"),
+    ("streisand", "Streisand/1.6"),
+];
+
+pub async fn fetch(http: &HttpClient, url: &str, client: &str) -> AppResult<Vec<Server>> {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return servers_of(url).ok_or_else(|| AppError::Other("в ссылке не нашлось сервера".into()));
@@ -84,12 +93,15 @@ pub async fn fetch(http: &HttpClient, url: &str) -> AppResult<Vec<Server>> {
     // Обновите Happ") to anybody else: SC Desk asks as Happ first (with the device headers Happ sends), then
     // as v2rayN (panels answer it with plain links; to Clash they send YAML, which is not read here).
     let hwid = device_id();
-    let tries: [(&str, Vec<(&str, &str)>); 2] = [
-        ("Happ/4.3.0", vec![("x-hwid", hwid.as_str()), ("x-device-os", "Windows"), ("x-ver-os", "10"), ("x-device-model", "PC")]),
-        ("v2rayN/7.0", vec![]),
-    ];
+    let device = [("x-hwid", hwid.as_str()), ("x-device-os", "Windows"), ("x-ver-os", "10"), ("x-device-model", "PC")];
+    let tries: Vec<&str> = match CLIENTS.iter().find(|(k, _)| *k == client) {
+        Some((_, ua)) => vec![*ua],
+        None => CLIENTS.iter().map(|(_, ua)| *ua).collect(),
+    };
     let mut encrypted = false;
-    for (ua, headers) in tries {
+    for ua in tries {
+        // the device headers too: panels that count devices want them (Happ and others send them)
+        let headers = device.to_vec();
         let Ok(body) = http.get_text_ua(url, ua, &headers).await else { continue };
         if body.trim_start().starts_with("happ://crypt") {
             encrypted = true;
