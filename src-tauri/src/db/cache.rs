@@ -315,6 +315,33 @@ impl Db {
         .await
     }
 
+    /// The liked tracks in the order they are shown.
+    pub async fn likes_order(&self) -> AppResult<Vec<u64>> {
+        self.run(|c| c.prepare("SELECT track_id FROM likes ORDER BY position")?.query_map([], |r| r.get::<_, i64>(0).map(|v| v as u64))?.collect())
+            .await
+    }
+
+    /// A liked track dragged from place `from` to place `to` (the user's own order, kept in the app only).
+    pub async fn likes_move(&self, from: usize, to: usize) -> AppResult<()> {
+        self.run(move |c| {
+            let mut ids: Vec<i64> = c.prepare("SELECT track_id FROM likes ORDER BY position")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            if from >= ids.len() || to >= ids.len() {
+                return Ok(());
+            }
+            let id = ids.remove(from);
+            ids.insert(to, id);
+            let tx = c.transaction()?;
+            {
+                let mut st = tx.prepare_cached("UPDATE likes SET position = ?2 WHERE track_id = ?1")?;
+                for (pos, id) in ids.iter().enumerate() {
+                    st.execute(params![id, pos as i64])?;
+                }
+            }
+            tx.commit()
+        })
+        .await
+    }
+
     pub async fn likes_ids(&self) -> AppResult<HashSet<u64>> {
         self.ids("SELECT track_id FROM likes").await
     }

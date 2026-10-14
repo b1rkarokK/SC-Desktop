@@ -4527,3 +4527,8 @@ kbd {
 
 /* Alt held over a track: it plays a short preview */
 .row.is-previewing { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* hold a track and drag it to reorder (likes, own playlists) */
+.reorder-line { position: fixed; height: 2px; background: var(--accent); border-radius: 1px; pointer-events: none; z-index: 1000; }
+.row.is-dragging { opacity: 0.45; }
+body.is-reordering, body.is-reordering * { cursor: grabbing !important; user-select: none; }

@@ -71,9 +71,19 @@ export function staticTrackList(tracks: Track[], onPlay?: () => void): HTMLEleme
     const row = (e.target as HTMLElement).closest('[data-index]') as HTMLElement | null;
     if (row && e.key === 'Enter') void play(Number(row.dataset.index));
   });
+  // the playing row follows the skips: off the screen, the page moves to it (only when the track changes)
+  let shown = store.currentId();
   const refresh = () => {
     if (!box.isConnected) return;
     rows.forEach((row, i) => r.update(row, tracks[i], i));
+    const now = store.currentId();
+    if (now === shown) return;
+    shown = now;
+    const i = tracks.findIndex((t) => t.id === now);
+    const row = i >= 0 ? rows[i] : undefined;
+    if (!row) return;
+    const b = row.getBoundingClientRect();
+    if (b.top < 60 || b.bottom > window.innerHeight - 100) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
   store.on('player', refresh);
   store.on('likes', refresh);

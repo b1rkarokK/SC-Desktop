@@ -481,6 +481,7 @@ export const api = {
   /** no lyrics under the name: the app listens to the track and searches by the words (hear.rs) */
   localList: () => invoke<LocalTrack[]>('local_list'),
   localAdd: () => invoke<{ added: number; refused: string[] }>('local_add'),
+  likesMove: (from: number, to: number) => invoke<void>('likes_move', { from, to }),
   storageInfo: () => invoke<{ database: number; covers: number; browser: number; model: number; local: number }>('storage_info'),
   storageClearCache: () => invoke<void>('storage_clear_cache'),
   storageDeleteModel: () => invoke<void>('storage_delete_model'),

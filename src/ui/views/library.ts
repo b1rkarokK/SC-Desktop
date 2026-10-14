@@ -1,4 +1,5 @@
 // «Лайки»: Треки / Плейлисты / Альбомы / Артисты.
+import { holdReorder } from '../hold_reorder';
 import { api, errorMessage, fmtCount, type Playlist, type Track, type User } from '../api';
 import { artistGrid, playlistGrid } from '../cards';
 import { groupSeries } from '../playlist_series';
@@ -45,7 +46,31 @@ export class LibraryView implements View {
     this.el = h('section', { class: 'view' }, viewHead(T('Лайки'), h('div', { class: 'row-actions' }, this.importBtn, this.syncBtn)), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
     const refresh = () => this.list.refresh();
     store.on('player', refresh);
-    store.on('likes', refresh);
+    // the playing like follows the skips: when it leaves the screen, the list moves to it
+    let shownId: number | null = null;
+    store.on('player', () => {
+      const s = store.snapshot;
+      const id = s?.track?.id ?? null;
+      if (id === shownId) return;
+      shownId = id;
+      if (s && s.source === 'likes' && !s.shuffle && this.tabs.value === 'tracks') this.list.reveal(s.queue_pos);
+    });
+    // a like or an unlike shows in the list at once, no «Синхронизировать» needed
+    let likesTimer = 0;
+    store.on('likes', () => {
+      refresh();
+      window.clearTimeout(likesTimer);
+      likesTimer = window.setTimeout(() => void this.reloadTracks(true), 400);
+    });
+    // hold a track and drag it: the likes in an order of your own (kept in the app; SoundCloud sorts by date)
+    holdReorder(this.list.el, {
+      scroller: this.list.el,
+      onMove: (from, to) =>
+        void api
+          .likesMove(from, to)
+          .then(() => this.reloadTracks(true))
+          .catch((e) => toast(errorMessage(e), 'error')),
+    });
     store.on('dislikes', refresh);
     window.addEventListener('sc:playlists', () => void this.loadPlaylists(false));
   }
@@ -101,11 +126,13 @@ export class LibraryView implements View {
     }
   }
 
-  private async reloadTracks(): Promise<void> {
+  private async reloadTracks(keepScroll = false): Promise<void> {
     try {
       this.trackTotal = await api.likesCount();
       this.loadedTracks = true;
-      this.list.setSource(new PagedSource<Track>(this.trackTotal, (o, l) => api.likesPage(o, l)));
+      const source = new PagedSource<Track>(this.trackTotal, (o, l) => api.likesPage(o, l));
+      if (keepScroll) this.list.replaceSource(source);
+      else this.list.setSource(source);
       if (this.tabs.value === 'tracks') this.renderTab();
     } catch (e) {
       toast(errorMessage(e), 'error');

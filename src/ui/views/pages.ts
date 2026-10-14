@@ -1,4 +1,5 @@
 // Detail pages: track, artist, playlist/album.
+import { holdReorder } from '../hold_reorder';
 import { listen } from '@tauri-apps/api/event';
 import { api, coverUrl, errorMessage, fmtCount, fmtTime, plural, type Track, type User } from '../api';
 import { playlistGrid } from '../cards';
@@ -276,10 +277,29 @@ export class PlaylistPageView implements View {
         const sub = [p.year, T('{0} {1}', tracks.length, plural(tracks.length, 'трек', 'трека', 'треков')), fmtTime(total)].filter(Boolean).join(' · ');
         // own playlist: «Изменить» → drag to reorder, ✕ to remove, saved on SoundCloud
         const listBox = h('div');
-        const showList = () =>
-          listBox.replaceChildren(tracks.length ? staticTrackList(tracks, remember) : emptyState(T('Плейлист пуст или недоступен.')));
         // a series of parts is one playlist for listening; changing the order is done in its parts
         const own = !p.is_album && store.auth.user_id === p.user_id;
+        const showList = () => {
+          const el = tracks.length ? staticTrackList(tracks, remember) : emptyState(T('Плейлист пуст или недоступен.'));
+          // own playlist: hold a track and drag it, the order is saved on SoundCloud
+          if (own && !series?.parts && tracks.length > 1) {
+            holdReorder(el, {
+              onMove: (from, to) => {
+                const before = tracks.slice();
+                const [t] = tracks.splice(from, 1);
+                if (!t) return;
+                tracks.splice(to, 0, t);
+                showList();
+                api.playlistSetTracks(p.id, tracks.map((x) => x.id)).catch((e) => {
+                  tracks.splice(0, tracks.length, ...before);
+                  showList();
+                  toast(errorMessage(e), 'error');
+                });
+              },
+            });
+          }
+          listBox.replaceChildren(el);
+        };
         const editBtn = own && !series?.parts ? btn(T('Изменить'), I.edit) : null;
         editBtn?.addEventListener('click', () =>
           listBox.replaceChildren(

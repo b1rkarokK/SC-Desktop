@@ -179,6 +179,16 @@ pub async fn likes_sync(app: AppHandle, state: State<'_, AppState>) -> Cmd<u64> 
     Ok(n)
 }
 
+/// The likes are in the user's own order (dragged): a sync keeps it.
+const LIKES_CUSTOM: &str = "likes:custom_order";
+
+/// A liked track dragged to another place. SoundCloud keeps likes by date only: the order lives in the app.
+#[tauri::command]
+pub async fn likes_move(state: State<'_, AppState>, from: usize, to: usize) -> Cmd<()> {
+    state.db.likes_move(from, to).await?;
+    state.db.kv_put(LIKES_CUSTOM, &true).await
+}
+
 pub async fn sync_likes(app: &AppHandle, state: &AppState) -> AppResult<u64> {
     let me = state.current_user().await?;
     let progress_app = app.clone();
@@ -188,7 +198,18 @@ pub async fn sync_likes(app: &AppHandle, state: &AppState) -> AppResult<u64> {
             let _ = progress_app.emit("likes:progress", n);
         })
         .await?;
-    let ids: Vec<(u64, String)> = items.iter().map(|(t, at)| (t.id, at.clone())).collect();
+    let mut ids: Vec<(u64, String)> = items.iter().map(|(t, at)| (t.id, at.clone())).collect();
+    // the user put the likes in an order of their own: kept; likes new on SoundCloud go on top
+    if state.db.kv_get::<bool>(LIKES_CUSTOM).await?.is_some() {
+        let local = state.db.likes_order().await?;
+        let mut rest: std::collections::HashMap<u64, String> = ids.iter().cloned().collect();
+        let fresh: Vec<(u64, String)> = ids.iter().filter(|(id, _)| !local.contains(id)).cloned().collect();
+        for (id, _) in &fresh {
+            rest.remove(id);
+        }
+        let kept: Vec<(u64, String)> = local.into_iter().filter_map(|id| rest.remove(&id).map(|at| (id, at))).collect();
+        ids = fresh.into_iter().chain(kept).collect();
+    }
     state.db.upsert_tracks(items.into_iter().map(|(t, _)| t).collect()).await?;
     state.db.replace_likes(ids).await?;
     for (id, liked) in pending_likes(state).await? {

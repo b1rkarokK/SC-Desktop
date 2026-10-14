@@ -354,6 +354,7 @@ fn main() {
             commands::local_open,
             commands::local_keep,
             commands::storage_info,
+            commands::likes_move,
             commands::storage_clear_cache,
             commands::storage_delete_model,
             commands::local_clear,

@@ -61,6 +61,23 @@ export class VirtualList<T> {
     this.refresh();
   }
 
+  /** Row `index` brought into view if it is off the screen (the playing track after a skip): the list moves just
+   *  enough, smoothly, and stays put while the row is visible. */
+  reveal(index: number): void {
+    const rh = this.rowHeight;
+    const top = index * rh;
+    const view = this.el.clientHeight;
+    const margin = rh;
+    if (top < this.el.scrollTop + margin) this.el.scrollTo({ top: Math.max(0, top - margin), behavior: 'smooth' });
+    else if (top + rh > this.el.scrollTop + view - margin) this.el.scrollTo({ top: top + rh - view + margin, behavior: 'smooth' });
+  }
+
+  /** The same list with fresh data, staying where it was scrolled (a like added, a row moved). */
+  replaceSource(source: RowSource<T>): void {
+    this.source = source;
+    this.refresh();
+  }
+
   /** Re-render visible rows (after data or "current track" changes). */
   refresh(): void {
     this.schedule();
