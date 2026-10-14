@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// a few thousand covers: the screens anybody scrolls through again; older ones are fetched again if needed
-pub const MAX_BYTES: u64 = 60 * 1024 * 1024;
+pub const MAX_BYTES: u64 = 12 * 1024 * 1024;
 const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
 pub struct CoverCache {
@@ -75,6 +75,11 @@ impl CoverCache {
             self.db.cover_delete(keys).await?;
         }
         Ok(())
+    }
+
+    /// Down to the limit now (it was higher in older versions).
+    pub async fn trim(&self) -> AppResult<()> {
+        self.evict().await
     }
 
     pub fn dir(&self) -> &std::path::Path {

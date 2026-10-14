@@ -724,17 +724,23 @@ pub async fn storage_delete_model(app: AppHandle) -> Cmd<()> {
 /// At the start, before any window: the browser's cache asked to be cleared last time.
 pub async fn clear_web_cache_if_asked(app: &AppHandle) {
     let state = app.state::<AppState>();
-    if state.db.kv_get::<bool>(WEB_CACHE_KEY).await.ok().flatten().is_none() {
+    let Ok(dir) = app.path().app_local_data_dir() else { return };
+    let web = dir.join("EBWebView");
+    let profile = web.join("Default");
+    // asked in Settings, or the cache grew past its limit (older versions had none: hundreds of MB)
+    let asked = state.db.kv_get::<bool>(WEB_CACHE_KEY).await.ok().flatten().is_some();
+    let big = dir_size(&profile.join("Cache")) + dir_size(&profile.join("Code Cache")) > 24 * 1024 * 1024;
+    if !asked && !big {
         return;
     }
-    if let Ok(dir) = app.path().app_local_data_dir() {
-        let profile = dir.join("EBWebView").join("Default");
-        for sub in ["Cache", "Code Cache", "GPUCache", "Service Worker"] {
-            let _ = tokio::fs::remove_dir_all(profile.join(sub)).await;
-        }
+    for sub in ["Cache", "Code Cache", "GPUCache", "Service Worker", "DawnWebGPUCache", "DawnGraphiteCache"] {
+        let _ = tokio::fs::remove_dir_all(profile.join(sub)).await;
+    }
+    for sub in ["Subresource Filter", "component_crx_cache", "GrShaderCache"] {
+        let _ = tokio::fs::remove_dir_all(web.join(sub)).await;
     }
     let _ = state.db.kv_delete(WEB_CACHE_KEY).await;
-    tracing::info!("browser cache cleared");
+    tracing::info!(asked, "browser cache cleared");
 }
 
 /// Holding Alt over a track: a short listen without leaving the playing one.

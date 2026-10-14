@@ -188,7 +188,7 @@ impl Db {
         }
         let rows: Vec<(TrackDto, String)> = tracks
             .iter()
-            .map(|t| Ok((TrackDto::from(t), serde_json::to_string(t)?)))
+            .map(|t| Ok((TrackDto::from(t), serde_json::to_string(&slim(t))?)))
             .collect::<Result<_, serde_json::Error>>()?;
         self.run(move |c| {
             let tx = c.transaction()?;
@@ -222,6 +222,62 @@ impl Db {
     }
 
     /// Full tracks in the order of `ids` (missing ids are skipped).
+    /// Older rows kept the stream links and the one-time key: rewritten without them, then the file shrinks.
+    /// Once (kv "db:slim1").
+    pub async fn compact_tracks(&self) -> AppResult<()> {
+        if self.kv_get::<bool>("db:slim1").await?.is_some() {
+            return Ok(());
+        }
+        self.run(|c| {
+            let rows: Vec<(i64, String)> = c.prepare("SELECT id, json FROM tracks")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+            let tx = c.transaction()?;
+            {
+                let mut st = tx.prepare("UPDATE tracks SET json = ?2 WHERE id = ?1")?;
+                for (id, json) in rows {
+                    if let Ok(t) = serde_json::from_str::<ScTrack>(&json) {
+                        if let Ok(s) = serde_json::to_string(&slim(&t)) {
+                            st.execute(rusqlite::params![id, s])?;
+                        }
+                    }
+                }
+            }
+            tx.commit()?;
+            c.execute_batch("VACUUM;")?;
+            Ok(())
+        })
+        .await?;
+        self.kv_put("db:slim1", &true).await?;
+        tracing::info!("library cache compacted");
+        Ok(())
+    }
+
+    /// Tracks that were only seen (the wave, search, recommendations) and nothing holds: older than a week go,
+    /// and at most 3000 of the newest stay. Liked, played, disliked, with lyrics or wave signals stay always.
+    /// The file shrinks when much went. Returns how many went.
+    pub async fn prune_tracks(&self) -> AppResult<usize> {
+        let gone = self
+            .run(|c| {
+                let refs: Vec<String> = c
+                    .prepare("SELECT m.name FROM sqlite_master m WHERE m.type = 'table' AND m.name != 'tracks' AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) WHERE name = 'track_id')")?
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                let free = refs.iter().map(|t| format!("id NOT IN (SELECT track_id FROM \"{t}\")")).collect::<Vec<_>>().join(" AND ");
+                let free = if free.is_empty() { "1".to_owned() } else { free };
+                let week_ago = now() - 7 * 86_400;
+                let mut n = c.execute(&format!("DELETE FROM tracks WHERE {free} AND updated_at < ?1"), [week_ago])?;
+                n += c.execute(&format!("DELETE FROM tracks WHERE {free} AND id NOT IN (SELECT id FROM tracks WHERE {free} ORDER BY updated_at DESC LIMIT 3000)"), [])?;
+                if n > 1000 {
+                    c.execute_batch("VACUUM;")?;
+                }
+                Ok(n)
+            })
+            .await?;
+        if gone > 0 {
+            tracing::info!(gone, "seen-only tracks dropped from the cache");
+        }
+        Ok(gone)
+    }
+
     pub async fn tracks_by_ids(&self, ids: Vec<u64>) -> AppResult<Vec<ScTrack>> {
         if ids.is_empty() {
             return Ok(Vec::new());
@@ -1132,4 +1188,17 @@ mod stats_tests {
         assert_eq!(chrono_days("2026-10-10").unwrap() - chrono_days("2026-10-09").unwrap(), 1);
         assert_eq!(chrono_days("2024-03-01").unwrap() - chrono_days("2024-02-28").unwrap(), 2);
     }
+}
+
+/// A track as it is kept: without the stream links and the one-time key (they expire, playing always asks
+/// SoundCloud afresh), the formats stay for what is playable. A third of the size.
+fn slim(t: &ScTrack) -> ScTrack {
+    let mut t = t.clone();
+    t.track_authorization = None;
+    if let Some(m) = t.media.as_mut() {
+        for tc in &mut m.transcodings {
+            tc.url.clear();
+        }
+    }
+    t
 }

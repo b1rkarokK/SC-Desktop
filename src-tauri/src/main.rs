@@ -96,6 +96,21 @@ fn main() {
             app.manage(state);
             // the browser's cache asked to be cleared: now, before any window holds it
             tauri::async_runtime::block_on(commands::clear_web_cache_if_asked(&handle));
+            {
+                // the library cache without what older versions kept needlessly, once
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    let db = &app.state::<state::AppState>().db;
+                    if let Err(e) = db.prune_tracks().await {
+                        tracing::warn!(error = %e, "library cache pruning failed");
+                    }
+                    if let Err(e) = db.compact_tracks().await {
+                        tracing::warn!(error = %e, "library cache compaction failed");
+                    }
+                    // covers over the new limit go too
+                    let _ = app.state::<state::AppState>().covers.trim().await;
+                });
+            }
             app.manage(player::Player::start(handle.clone())?);
             // the output device picked last time (it follows the system's if it is gone)
             if let Some(name) = app.state::<state::AppState>().config.get().output_device {

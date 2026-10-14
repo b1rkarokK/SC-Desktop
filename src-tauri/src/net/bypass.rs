@@ -93,8 +93,9 @@ pub fn on_failure(url: &str) -> bool {
 pub fn browser_args() -> &'static str {
     static ARGS: OnceLock<String> = OnceLock::new();
     ARGS.get_or_init(|| {
-        // the built-in browser keeps at most 32 MB of web cache (left alone it grew to hundreds of MB)
-        let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disk-cache-size=33554432");
+        // the built-in browser keeps at most 8 MB of web cache (left alone it grew to hundreds of MB) and does not
+        // fetch Edge's own components (ad filter lists and the like, 20 MB the app never uses)
+        let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disk-cache-size=8388608 --disable-component-update");
         let port = PORT.load(Ordering::Relaxed);
         // always while the local proxy is there: «Свой сервер» may be picked later in this run
         if port != 0 {
