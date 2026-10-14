@@ -577,6 +577,8 @@ pub async fn vpn_set_url(state: State<'_, AppState>, url: String, client: Option
         crate::net::vpn::save(&crate::net::vpn::Saved::default())?;
         return Ok(vpn_dto(&crate::net::vpn::Saved::default()));
     }
+    // «Взять из Koala»: the servers Koala keeps on this computer
+    let url = if client.as_deref() == Some("koala") { "koala:".to_owned() } else { url };
     let servers = crate::net::vpn::fetch(&state.http(), &url, client.as_deref().unwrap_or("auto")).await?;
     let s = crate::net::vpn::Saved { url: url.trim().to_owned(), servers, selected: None };
     crate::net::vpn::stop();

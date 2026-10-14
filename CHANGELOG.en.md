@@ -3,6 +3,11 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.2.4] - 2026-10-14
+
+- Charts are full again: after the cache clean-up in 1.2.1 most songs showed as "not found on SoundCloud".
+- Your own server: "Take from a VPN app" takes the servers Koala (and other Clash apps) already saved on the computer, for services that give the subscription only to their own apps.
+
 ## [1.2.3] - 2026-10-14
 
 - Your own server: Koala / Clash subscriptions are read too, with all their servers in the list. Servers with xhttp or the new VLESS encryption are marked unsupported.

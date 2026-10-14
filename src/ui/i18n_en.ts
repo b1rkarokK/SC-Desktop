@@ -516,6 +516,7 @@ export const EN: Record<string, string> = {
   'Узнавать песню по словам': 'Recognise the song by its words',
   'Лайки без интернета': 'Likes without the internet',
   'Мои файлы': 'My files',
+  'Взять из VPN-программы': 'Take from a VPN app',
   'Занимают: {0}': 'Taking: {0}',
   'меньше 0,1 МБ': 'under 0.1 MB',
   'МБ': 'MB',

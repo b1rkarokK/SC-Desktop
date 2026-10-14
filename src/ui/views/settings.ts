@@ -521,9 +521,19 @@ export class SettingsView implements View {
         status.textContent = errorMessage(e);
       }
     });
+    // a service that gives the servers only to registered apps: take the copy Koala keeps on this computer
+    const koala = btn(T('Взять из VPN-программы'), null);
+    koala.addEventListener('click', async () => {
+      status.textContent = T('Загружаю…');
+      try {
+        fill(await api.vpnSetUrl('koala:', 'koala'));
+      } catch (e) {
+        status.textContent = errorMessage(e);
+      }
+    });
     this.vpnBox.replaceChildren(
       row(T('Свой сервер (без VPN-программы)'), sel, T('Вставьте подписку из Happ, v2rayN и т.п. и выберите сервер: через него пойдёт только SoundCloud, а VPN-программу можно закрыть. Работает при «Прямом подключении». Ссылка хранится в защищённом хранилище Windows.')),
-      h('div', { class: 'row-actions proxy-row' }, url, as, load),
+      h('div', { class: 'row-actions proxy-row' }, url, as, load, koala),
       status,
     );
   }

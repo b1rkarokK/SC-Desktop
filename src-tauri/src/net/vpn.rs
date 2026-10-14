@@ -86,8 +86,50 @@ const CLIENTS: [(&str, &str); 6] = [
     ("clash", "clash-verge/v2.2.3"),
 ];
 
+/// The servers Koala Clash already downloaded on this computer (its profiles), for a service that gives them only
+/// to registered devices: SC Desk reads the copy Koala keeps, the service never sees another device.
+/// Every Clash-family app keeps its profiles as YAML (Koala Clash, Clash Verge, Mihomo Party, FlClash …): the
+/// folders of AppData whose name says clash or mihomo are looked through, the profile with the most servers wins.
+pub fn koala_servers() -> AppResult<Vec<Server>> {
+    let mut files = Vec::new();
+    for base in ["APPDATA", "LOCALAPPDATA"] {
+        let Ok(rd) = std::fs::read_dir(std::env::var(base).unwrap_or_default()) else { continue };
+        for app in rd.flatten() {
+            let name = app.file_name().to_string_lossy().to_lowercase();
+            if !(name.contains("clash") || name.contains("mihomo")) {
+                continue;
+            }
+            collect_yaml(&app.path(), 3, &mut files);
+        }
+    }
+    let best = files
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .filter_map(|t| clash_servers(&t))
+        .filter(|s| !is_stub(s))
+        .max_by_key(|s| s.len());
+    best.ok_or_else(|| AppError::Other("не нашлось VPN-программы с сохранённой подпиской (Koala, Clash Verge и похожие): откройте её и обновите подписку".into()))
+}
+
+fn collect_yaml(dir: &std::path::Path, depth: u32, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if depth > 0 {
+                collect_yaml(&p, depth - 1, out);
+            }
+        } else if p.extension().is_some_and(|x| x == "yaml" || x == "yml") && e.metadata().is_ok_and(|m| m.len() < 5_000_000) {
+            out.push(p);
+        }
+    }
+}
+
 pub async fn fetch(http: &HttpClient, url: &str, client: &str) -> AppResult<Vec<Server>> {
     let url = url.trim();
+    if url == "koala:" {
+        return koala_servers();
+    }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return servers_of(url).ok_or_else(|| AppError::Other("в ссылке не нашлось сервера".into()));
     }
@@ -116,7 +158,7 @@ pub async fn fetch(http: &HttpClient, url: &str, client: &str) -> AppResult<Vec<
     Err(AppError::Other(if encrypted {
         "подписка зашифрована для Happ (happ://crypt…): её может открыть только сам Happ. Попросите у сервиса обычную ссылку на подписку или вставьте ссылку на один сервер (vless://…) из Happ: долгое нажатие на сервер → «Поделиться» / «Копировать»".into()
     } else {
-        "сервис отдаёт сервера только своим программам (вместо них пришла заглушка). Вставьте ссылку на один сервер (vless://…): в Happ долгое нажатие на сервер → «Поделиться» / «Копировать»".into()
+        "сервис отдаёт сервера только своим программам (пришла заглушка). Если у вас стоит Koala или другой Clash, нажмите «Взять из VPN-программы»; или вставьте ссылку на один сервер (vless://…) из Happ: долгое нажатие на сервер → «Копировать»".into()
     }))
 }
 
@@ -508,5 +550,17 @@ mod tests {
         assert!(outbound("vless://u@h:443?type=xhttp&security=tls").is_none());
         let hy = outbound("hysteria2://secret@9.9.9.9:443?sni=a.com&obfs=salamander&obfs-password=x#h").unwrap();
         assert_eq!(hy["obfs"]["type"], "salamander");
+    }
+}
+
+#[cfg(test)]
+mod koala_live {
+    /// `cargo test koala_profile_live -- --ignored --nocapture`: reads this computer's Koala profile.
+    #[test]
+    #[ignore]
+    fn koala_profile_live() {
+        let s = super::koala_servers().unwrap();
+        println!("servers: {}, usable: {}", s.len(), s.iter().filter(|x| x.ok).count());
+        assert!(s.iter().any(|x| x.ok));
     }
 }

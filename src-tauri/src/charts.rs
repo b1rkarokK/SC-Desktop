@@ -474,7 +474,7 @@ pub(crate) async fn find_all(state: &AppState, songs: &[ChartSong], progress: im
     }
     state.db.upsert_tracks(fresh).await?;
     let order: Vec<u64> = songs.iter().filter_map(|s| ids.get(&s.key).copied()).collect();
-    let cached = state.db.tracks_by_ids(order.clone()).await?;
+    let cached = cached_or_fetched(state, &order).await?;
     let by_id: HashMap<u64, TrackDto> = cached.iter().map(|t| (t.id, TrackDto::from(t))).collect();
     let mut seen = std::collections::HashSet::new();
     let tracks = order.iter().filter(|id| seen.insert(**id)).filter_map(|id| by_id.get(id).cloned()).collect();
@@ -519,7 +519,7 @@ async fn on_soundcloud(state: &AppState, songs: &[ChartSong]) -> AppResult<(Vec<
     state.db.upsert_tracks(fresh).await?;
 
     let order: Vec<u64> = songs.iter().filter_map(|s| ids.get(&s.key).copied()).collect();
-    let cached = state.db.tracks_by_ids(order.clone()).await?;
+    let cached = cached_or_fetched(state, &order).await?;
     let by_id: HashMap<u64, TrackDto> = cached.iter().map(|t| (t.id, TrackDto::from(t))).collect();
     let mut seen = std::collections::HashSet::new();
     let tracks: Vec<TrackDto> = order.iter().filter(|id| seen.insert(**id)).filter_map(|id| by_id.get(id).cloned()).collect();
@@ -736,4 +736,22 @@ mod tests {
         assert_eq!(plural_days(11), "11 дней");
         assert_eq!(plural_days(30), "30 дней");
     }
+}
+
+/// The tracks of these ids from the cache; the ones the cache let go (it keeps only so many) are asked again.
+async fn cached_or_fetched(state: &AppState, ids: &[u64]) -> AppResult<Vec<ScTrack>> {
+    let mut have = state.db.tracks_by_ids(ids.to_vec()).await?;
+    let known: std::collections::HashSet<u64> = have.iter().map(|t| t.id).collect();
+    let gone: Vec<u64> = ids.iter().copied().filter(|id| !known.contains(id)).collect();
+    if !gone.is_empty() {
+        if let Ok(sc) = state.sc() {
+            for part in gone.chunks(50) {
+                if let Ok(fresh) = sc.tracks_by_ids(part).await {
+                    state.db.upsert_tracks(fresh.clone()).await?;
+                    have.extend(fresh);
+                }
+            }
+        }
+    }
+    Ok(have)
 }
