@@ -585,8 +585,8 @@ pub fn vpn_resume(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub async fn local_list(state: State<'_, AppState>) -> Cmd<Vec<crate::local::LocalTrack>> {
-    crate::local::list(&state).await
+pub async fn local_list(app: AppHandle, state: State<'_, AppState>) -> Cmd<Vec<crate::local::LocalTrack>> {
+    crate::local::sweep(&app, &state).await
 }
 
 /// «Мои файлы» → «Добавить»: files picked in the Windows dialog, each checked; returns what got in and what not.
@@ -613,12 +613,12 @@ pub async fn local_add(app: AppHandle, state: State<'_, AppState>) -> Cmd<serde_
     Ok(serde_json::json!({ "added": added, "refused": refused }))
 }
 
-/// The folder of «Мои файлы» in Explorer.
+/// The storage file of «Мои файлы» shown in Explorer (created empty if there is none yet).
 #[tauri::command]
-pub async fn local_open(app: AppHandle) -> Cmd<()> {
-    let dir = crate::local::folder(&app)?;
-    let _ = tokio::fs::create_dir_all(&dir).await;
-    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| AppError::Other(e.to_string()))
+pub async fn local_open(app: AppHandle, state: State<'_, AppState>) -> Cmd<()> {
+    crate::local::sweep(&app, &state).await?;
+    let path = crate::local::store_path(&app)?;
+    app.opener().reveal_item_in_dir(path).map_err(|e| AppError::Other(e.to_string()))
 }
 
 #[tauri::command]

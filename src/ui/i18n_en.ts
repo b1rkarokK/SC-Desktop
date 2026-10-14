@@ -517,6 +517,7 @@ export const EN: Record<string, string> = {
   'Лайки без интернета': 'Likes without the internet',
   'Мои файлы': 'My files',
   'Удалить все': 'Remove all',
+  'Открыть расположение': 'Show location',
   'Удалить все свои треки?': 'Remove all your tracks?',
   'Все файлы из «Моих файлов» удалятся из программы. Копии, которые есть у вас где-то ещё, останутся.': 'All files of My files are removed from the app. Copies you keep elsewhere stay.',
   'Файл удалится из программы. Если он есть у вас где-то ещё, там он останется.': 'The file is removed from the app. A copy you keep elsewhere stays.',
@@ -527,7 +528,7 @@ export const EN: Record<string, string> = {
   'Удалить «{0}» из «Моих файлов»?': 'Remove "{0}" from My files?',
   '{0} · из комнаты': '{0} · from a room',
   'Этого трека нет на SoundCloud: он в «Моих файлах», лайкнуть его там нельзя': "This track isn't on SoundCloud: it's in My files, it can't be liked there",
-  'Здесь ваши треки, которых нет на SoundCloud: добавьте MP3, M4A, Opus, FLAC или WAV. Они хранятся внутри программы, никуда не загружаются и играют как обычные треки. Каждый файл проверяется: принимается только настоящий звук.':
+  'Здесь ваши треки, которых нет на SoundCloud: добавьте MP3, M4A, Opus, FLAC или WAV. Они хранятся в одном файле-хранилище программы, никуда не загружаются и играют как обычные треки. Каждый файл проверяется: принимается только настоящий звук.':
     "Your tracks that aren't on SoundCloud: add MP3, M4A, Opus, FLAC or WAV. They are kept inside the app, never uploaded, and play like any track. Every file is checked: only real sound gets in.",
   'Ссылка на подписку или сервер (vless://, https://…)': 'Subscription or server link (vless://, https://…)',
   'Не использовать': "Don't use",

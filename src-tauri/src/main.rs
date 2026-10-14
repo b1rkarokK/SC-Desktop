@@ -107,6 +107,13 @@ fn main() {
             downloads::start_offline_likes(&handle);
             commands::vpn_resume(&handle);
             {
+                // «Мои файлы»: whatever was put into the folder by hand goes away
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = local::sweep(&app, &app.state::<state::AppState>()).await;
+                });
+            }
+            {
                 // with a proxy the connection pool may have been opened while the proxy program (a VPN client that
                 // starts later than this one) was not there yet: a fresh client a few seconds after the start, twice
                 let app = handle.clone();

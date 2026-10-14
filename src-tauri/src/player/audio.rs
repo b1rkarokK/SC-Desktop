@@ -9,7 +9,6 @@
 //! * Crossfade: for the few seconds two tracks overlap, 20 Hz volume steps.
 
 use std::{
-    io::Cursor,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, RecvTimeoutError},
@@ -19,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{OutputStream, OutputStreamHandle, Sink};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use super::{

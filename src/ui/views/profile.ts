@@ -296,7 +296,7 @@ export class ProfileView implements View {
         toast(errorMessage(e), 'error');
       }
     });
-    const open = btn(T('Открыть папку'), I.folder);
+    const open = btn(T('Открыть расположение'), I.folder);
     open.addEventListener('click', () => void api.localOpen().catch((e) => toast(errorMessage(e), 'error')));
     const clear = btn(T('Удалить все'), I.close);
     clear.addEventListener('click', async () => {
@@ -308,7 +308,7 @@ export class ProfileView implements View {
     const list = await api.localList().catch(() => []);
     if (this.tabs.value !== 'files') return;
     if (!list.length) {
-      this.body.replaceChildren(emptyState(T('Здесь ваши треки, которых нет на SoundCloud: добавьте MP3, M4A, Opus, FLAC или WAV. Они хранятся внутри программы, никуда не загружаются и играют как обычные треки. Каждый файл проверяется: принимается только настоящий звук.')));
+      this.body.replaceChildren(emptyState(T('Здесь ваши треки, которых нет на SoundCloud: добавьте MP3, M4A, Opus, FLAC или WAV. Они хранятся в одном файле-хранилище программы, никуда не загружаются и играют как обычные треки. Каждый файл проверяется: принимается только настоящий звук.')));
       return;
     }
     const tracks = list.map((l) => l.track);

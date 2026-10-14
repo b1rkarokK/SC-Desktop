@@ -9,7 +9,6 @@
 //! tens of ms) and gives the gain that brings it to a common level.
 
 use std::{
-    io::Cursor,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -17,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use rodio::{source::SeekError, Decoder, Source};
+use rodio::{source::SeekError, Source};
 
 /// Live effect settings shared with the audio thread.
 pub struct FxShared {

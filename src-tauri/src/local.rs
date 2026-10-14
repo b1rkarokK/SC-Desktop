@@ -1,13 +1,18 @@
-//! «Мои файлы»: the user's own audio files kept inside the app's folder and played like any track, never
-//! uploaded anywhere. A file gets in only if it is really music: its signature is one of the audio formats the
-//! player reads (MP3, M4A/AAC, Ogg Opus, FLAC, WAV) and it decodes as sound from start to end. It is kept
-//! under a number with no extension of its own and is only ever read by the decoder, never opened by Windows.
+//! «Мои файлы»: the user's own audio kept inside the app and played like any track, never uploaded anywhere.
+//!
+//! A song gets in only through the app and only if it is really music: its signature is one of the audio
+//! formats the player reads (MP3, M4A/AAC, Ogg Opus, FLAC, WAV) and it decodes as sound from start to end.
+//! The songs are not files in a folder: they live inside one storage file (`local.sqlite3`), so nothing can be
+//! dropped in by hand. The list of songs and the SHA-256 of each sit apart, in the app's own database: a song
+//! slipped into the storage some other way is not on the list, and one changed there no longer matches its
+//! checksum, so neither is ever played (the changed one is removed).
 //!
 //! A local track has an id of its own range (2^52 and up, still exact in JavaScript): SoundCloud's ids are far
 //! below, so the player, likes and rooms can tell one from the other.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tauri::{AppHandle, Manager};
@@ -20,7 +25,7 @@ use crate::{
 
 pub const BASE: u64 = 1 << 52;
 const KEY: &str = "local:tracks";
-/// a song is never bigger than this (a two-hour WAV mix is about 1.2 GB: WAV is not for keeping here)
+/// a song is never bigger than this
 const MAX_BYTES: u64 = 200 * 1024 * 1024;
 
 pub fn is_local(id: u64) -> bool {
@@ -35,14 +40,26 @@ pub struct LocalTrack {
     pub bytes: u64,
     /// "mine": added here; "shared": received in a room and kept
     pub origin: String,
+    /// SHA-256 of the song as added: one changed in the storage is not played
+    #[serde(default)]
+    pub sha: String,
 }
 
-pub fn folder(app: &AppHandle) -> AppResult<PathBuf> {
-    Ok(app.path().app_data_dir()?.join("local"))
+/// The storage file of «Мои файлы».
+pub fn store_path(app: &AppHandle) -> AppResult<PathBuf> {
+    Ok(app.path().app_data_dir()?.join("local.sqlite3"))
 }
 
-fn file(dir: &Path, id: u64) -> PathBuf {
-    dir.join(format!("{id}.bin"))
+fn open(path: &PathBuf) -> AppResult<Connection> {
+    let c = Connection::open(path)?;
+    c.execute_batch("CREATE TABLE IF NOT EXISTS songs (id INTEGER PRIMARY KEY, data BLOB NOT NULL);")?;
+    Ok(c)
+}
+
+/// Runs on a blocking thread with the storage open.
+async fn with_store<T: Send + 'static>(app: &AppHandle, f: impl FnOnce(&Connection) -> AppResult<T> + Send + 'static) -> AppResult<T> {
+    let path = store_path(app)?;
+    tokio::task::spawn_blocking(move || f(&open(&path)?)).await.map_err(|e| AppError::Other(e.to_string()))?
 }
 
 pub async fn list(state: &AppState) -> AppResult<Vec<LocalTrack>> {
@@ -53,9 +70,40 @@ async fn save_list(state: &AppState, l: &[LocalTrack]) -> AppResult<()> {
     state.db.kv_put(KEY, &l.to_vec()).await
 }
 
-/// The audio of a local track, if it is here.
+/// The audio of a local track, if it is here and still the very song that was added.
 pub async fn audio(app: &AppHandle, id: u64) -> Option<Vec<u8>> {
-    tokio::fs::read(file(&folder(app).ok()?, id)).await.ok()
+    let state = app.state::<AppState>();
+    let t = list(&state).await.ok()?.into_iter().find(|t| t.track.id == id)?;
+    let key = id as i64;
+    let data = with_store(app, move |c| Ok(c.query_row("SELECT data FROM songs WHERE id = ?1", [key], |r| r.get::<_, Vec<u8>>(0)).optional()?)).await.ok()??;
+    if hex::encode(sha2::Sha256::digest(&data)) != t.sha {
+        tracing::warn!(id, "local track changed in the storage: refused and removed");
+        let _ = remove(app, &state, id).await;
+        return None;
+    }
+    Some(data)
+}
+
+/// The storage and the list agree again: songs that are not on the list (slipped in some other way) are
+/// dropped, list entries without their song leave. Done when the list is opened and at the start.
+pub async fn sweep(app: &AppHandle, state: &AppState) -> AppResult<Vec<LocalTrack>> {
+    let mut all = list(state).await?;
+    let keep: Vec<i64> = all.iter().map(|t| t.track.id as i64).collect();
+    let present: Vec<i64> = with_store(app, move |c| {
+        let ids: Vec<i64> = c.prepare("SELECT id FROM songs")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        for id in ids.iter().filter(|id| !keep.contains(id)) {
+            tracing::info!(id, "local storage: a song not added through the app, removed");
+            c.execute("DELETE FROM songs WHERE id = ?1", [id])?;
+        }
+        Ok(ids)
+    })
+    .await?;
+    let before = all.len();
+    all.retain(|t| present.contains(&(t.track.id as i64)));
+    if all.len() != before {
+        save_list(state, &all).await?;
+    }
+    Ok(all)
 }
 
 /// The format by its first bytes; None: not an audio file the player reads.
@@ -88,7 +136,7 @@ fn decoded_ms(data: std::sync::Arc<Vec<u8>>) -> Option<u64> {
 }
 
 /// "Artist - Title.mp3" → (artist, title); a bare name is the title.
-fn names(path: &Path) -> (String, String) {
+fn names(path: &std::path::Path) -> (String, String) {
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     match stem.split_once(" - ") {
         Some((a, t)) => (a.trim().to_owned(), t.trim().to_owned()),
@@ -96,8 +144,8 @@ fn names(path: &Path) -> (String, String) {
     }
 }
 
-/// Adds a file: checked, copied into the app's folder. The same file twice is one track.
-pub async fn add(app: &AppHandle, state: &AppState, path: &Path) -> AppResult<LocalTrack> {
+/// Adds a file: checked, copied into the storage. The same file twice is one track.
+pub async fn add(app: &AppHandle, state: &AppState, path: &std::path::Path) -> AppResult<LocalTrack> {
     let size = tokio::fs::metadata(path).await?.len();
     if size > MAX_BYTES {
         return Err(AppError::Other("файл больше 200 МБ".into()));
@@ -122,33 +170,44 @@ pub async fn add_bytes(app: &AppHandle, state: &AppState, data: Vec<u8>, artist:
         .await
         .map_err(|e| AppError::Other(e.to_string()))?
         .ok_or_else(|| AppError::Other("файл не читается как музыка (повреждён или это не звук)".into()))?;
-    let dir = folder(app)?;
-    tokio::fs::create_dir_all(&dir).await?;
-    tokio::fs::write(file(&dir, id), data.as_slice()).await?;
+    let bytes = data.len() as u64;
+    let stored = data.clone();
+    with_store(app, move |c| {
+        c.execute("INSERT OR REPLACE INTO songs (id, data) VALUES (?1, ?2)", params![id as i64, stored.as_slice()])?;
+        Ok(())
+    })
+    .await?;
     let t = LocalTrack {
         track: TrackDto { id, title, artist, user_id: 0, duration_ms: ms, artwork_url: None, permalink_url: None, genre: None },
         kind: kind.to_owned(),
-        bytes: data.len() as u64,
+        bytes,
         origin: origin.to_owned(),
+        sha: hex::encode(hash),
     };
     let mut all = list(state).await?;
     all.insert(0, t.clone());
     save_list(state, &all).await?;
-    tracing::info!(id, kind, bytes = t.bytes, "local track added");
+    tracing::info!(id, kind, bytes, "local track added");
     Ok(t)
 }
 
-/// Every local track gone: the files and the list.
+/// Every local track gone; the storage file shrinks back.
 pub async fn clear(app: &AppHandle, state: &AppState) -> AppResult<()> {
-    let dir = folder(app)?;
-    for t in list(state).await? {
-        let _ = tokio::fs::remove_file(file(&dir, t.track.id)).await;
-    }
+    with_store(app, |c| {
+        c.execute_batch("DELETE FROM songs; VACUUM;")?;
+        Ok(())
+    })
+    .await?;
     save_list(state, &[]).await
 }
 
 pub async fn remove(app: &AppHandle, state: &AppState, id: u64) -> AppResult<()> {
-    let _ = tokio::fs::remove_file(file(&folder(app)?, id)).await;
+    let key = id as i64;
+    with_store(app, move |c| {
+        c.execute("DELETE FROM songs WHERE id = ?1", [key])?;
+        Ok(())
+    })
+    .await?;
     let mut all = list(state).await?;
     all.retain(|t| t.track.id != id);
     save_list(state, &all).await
