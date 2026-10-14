@@ -168,7 +168,10 @@ fn words(text: &str) -> Vec<String> {
 /// some: a phrase of 3-5 words is the most likely to come out whole. The model's own pieces (between commas)
 /// of that size first, then longer pieces cut in fours.
 fn phrases(text: &str) -> Vec<String> {
-    if words(text).len() < 5 {
+    let all = words(text);
+    // the model loops on a beat with no voice ("n-n-n-n", "x 2 x 2"): few different words is noise, not a song
+    let distinct: std::collections::HashSet<&String> = all.iter().collect();
+    if all.len() < 5 || distinct.len() * 2 < all.len() {
         return vec![];
     }
     let pieces: Vec<Vec<String>> = text.split(['.', ',', '!', '?', ';', '…']).map(words).collect();
@@ -176,6 +179,10 @@ fn phrases(text: &str) -> Vec<String> {
     let cut = pieces.iter().filter(|p| p.len() > 5).flat_map(|p| p.chunks(4).filter(|c| c.len() >= 3).map(|c| c.to_vec()).collect::<Vec<_>>());
     let mut out: Vec<String> = Vec::new();
     for p in short.chain(cut) {
+        // a phrase of the same word over and over finds anything
+        if p.iter().collect::<std::collections::HashSet<_>>().len() < p.len() {
+            continue;
+        }
         let s = p.join(" ");
         if !out.contains(&s) {
             out.push(s);
@@ -189,7 +196,8 @@ fn phrases(text: &str) -> Vec<String> {
 fn overlap(heard: &str, l: &Lyrics) -> (f32, usize) {
     let text: String = l.lines.iter().map(|x| x.text.as_str()).collect::<Vec<_>>().join(" ");
     let have: std::collections::HashSet<String> = words(&text).into_iter().collect();
-    let heard: Vec<String> = words(heard).into_iter().filter(|w| w.chars().count() >= 3).collect();
+    // different words of five letters or more: "the", "you", "with" are in every song and prove nothing
+    let heard: std::collections::HashSet<String> = words(heard).into_iter().filter(|w| w.chars().count() >= 5).collect();
     if heard.is_empty() {
         return (0.0, 0);
     }
@@ -242,7 +250,14 @@ pub async fn find(
 async fn by_words(http: &HttpClient, state: &LyricsState, heard: &str, duration_ms: u64) -> AppResult<Option<Lyrics>> {
     let mut tried = std::collections::HashSet::new();
     for phrase in phrases(heard) {
-        let songs = lyrics::search_by_lyrics(http, state, &phrase).await?;
+        // Musixmatch searches inside the texts; while it gives no token, Genius does the same
+        let songs = match lyrics::search_by_lyrics(http, state, &phrase).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::info!(error = %e, "hear: Musixmatch search failed, asking Genius");
+                genius_by_lyrics(http, &phrase).await?
+            }
+        };
         tracing::debug!(%phrase, found = songs.len(), "hear: searched");
         // a known length that is far off is another song (or another version: those are found by name already)
         let fits = songs.into_iter().filter(|(_, _, len)| *len == 0 || len.abs_diff(duration_ms) <= 5_000).take(3);
@@ -254,12 +269,27 @@ async fn by_words(http: &HttpClient, state: &LyricsState, heard: &str, duration_
             let Ok(Some(l)) = lyrics::find(http, state, &q).await else { continue };
             let (share, hits) = overlap(heard, &l);
             tracing::info!(artist = %q.artist, title = %q.title, share, hits, "hear: candidate");
-            if share >= 0.35 && hits >= 4 {
+            if share >= 0.4 && hits >= 4 {
                 return Ok(Some(l));
             }
         }
     }
     Ok(None)
+}
+
+/// Songs whose lyrics hold these words, by Genius's own search (no length known).
+async fn genius_by_lyrics(http: &HttpClient, words: &str) -> AppResult<Vec<(String, String, u64)>> {
+    let url = crate::api::genius::search_url("", words)?;
+    let res: serde_json::Value = http.get_json_with(url.as_str(), &[("referer", "https://genius.com/")]).await?;
+    Ok(res["response"]["sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|s| s["hits"].as_array().into_iter().flatten())
+        .filter(|h| h["type"] == "song" || h["type"] == "lyric")
+        .filter_map(|h| Some((h["result"]["primary_artist"]["name"].as_str()?.to_owned(), h["result"]["title"].as_str()?.to_owned(), 0)))
+        .take(6)
+        .collect())
 }
 
 #[cfg(test)]
@@ -271,6 +301,8 @@ mod tests {
         let p = phrases(" Равалную изстал с обменомин. Этот цивюду нахал на плевал на всех. Запомни, есть два типа и людей. [Music]");
         assert_eq!(p, ["равалную изстал с обменомин", "есть два типа и людей", "этот цивюду нахал на", "плевал на всех"]);
         assert!(phrases("[Music]").is_empty());
+        assert!(phrases("N-n-n-n-n-n-n-n-n-n-n-n").is_empty());
+        assert!(phrases("1/2 x 2 x 2 x 2 x 2 x 2 x 2 x 2").is_empty());
     }
 
     /// Real model and network, every `*.pcm` (f32 16 kHz mono) of a folder with one Musixmatch token:
