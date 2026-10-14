@@ -548,6 +548,8 @@ export const EN: Record<string, string> = {
   'Этого трека нет на SoundCloud, он только у того, кто его добавил. Чтобы оставить его себе: правая кнопка → «Сохранить в «Мои файлы»»': "This track isn't on SoundCloud, only the one who added it has it. To keep it: right click → \"Save to My files\"",
   'Сохранить в «Мои файлы»': 'Save to My files',
   'Сохранено в «Мои файлы»': 'Saved to My files',
+  'Убрать свой трек можно в Профиль → Мои файлы': 'Remove your track in Profile → My files',
+  'В комнату': 'To the room',
   'Этого трека нет на SoundCloud': "This track isn't on SoundCloud",
   'Здесь ваши треки, которых нет на SoundCloud: добавьте MP3, M4A, Opus, FLAC или WAV. Они хранятся в одном файле-хранилище программы, никуда не загружаются и играют как обычные треки. Каждый файл проверяется: принимается только настоящий звук.':
     "Your tracks that aren't on SoundCloud: add MP3, M4A, Opus, FLAC or WAV. They are kept inside the app, never uploaded, and play like any track. Every file is checked: only real sound gets in.",
@@ -1111,7 +1113,6 @@ export const EN: Record<string, string> = {
   'на связи': 'connected',
   'слушаете': 'listening',
   'Добавлено в очередь комнаты: {0}': 'Added to the room queue: {0}',
-  'В комнату': 'To the room',
   'В очередь комнаты': 'To the room queue',
   'Скорость недоступна в комнате: у всех она обычная': 'Speed is not available in a room: it is normal for everyone',
   'В комнате «{0}»': 'In the room "{0}"',

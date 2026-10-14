@@ -58,8 +58,16 @@ class Store {
   /** Optimistic like/unlike; rolled back if SoundCloud refuses. */
   async setLiked(track: Track, liked: boolean): Promise<void> {
     // a track of «Мои файлы» is not on SoundCloud: it cannot be liked there
+    // a track of «Мои файлы» is not on SoundCloud: its heart keeps it in «Мои файлы» (one from a room too)
     if (track.id >= 2 ** 52) {
-      toast(T('Этого трека нет на SoundCloud, он только у того, кто его добавил. Чтобы оставить его себе: правая кнопка → «Сохранить в «Мои файлы»»'));
+      try {
+        await api.localLike(track.id, liked);
+        if (liked) this.liked.add(track.id);
+        else this.liked.delete(track.id);
+        this.emit('likes');
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
       return;
     }
     const had = this.liked.has(track.id);

@@ -60,8 +60,11 @@ pub trait Port: Send + Sync + 'static {
     fn local_received(&self, _item: &QueueItem, _audio: Vec<u8>) {}
 }
 
-/// «Мои файлы» go through the room in pieces this big (a message of the relay is at most 1 MB once sealed)
-const FILE_CHUNK: usize = 256 * 1024;
+/// «Мои файлы» go through the room in pieces this big: the relay takes a message of up to 400 K characters,
+/// and a piece is base64 twice over (in the message, then sealed), about 230 K
+const FILE_CHUNK: usize = 128 * 1024;
+/// a file that did not come is asked for again after this long, three times, then the track counts as failed
+const FILE_WAIT: Duration = Duration::from_secs(20);
 
 /// A track of «Мои файлы» arriving piece by piece.
 struct Incoming {
@@ -187,6 +190,8 @@ struct Engine {
     port: Arc<dyn Port>,
     /// «Мои файлы»: the track waiting for its file before it is loaded, and the pieces coming in
     pending_file: Option<QueueItem>,
+    /// when the file was last asked for, and how many times
+    file_asked: Option<(Instant, u32)>,
     incoming: std::collections::HashMap<u64, Incoming>,
     /// audio read for somebody who asked: (to, track id, bytes), sent from the loop
     file_tx: mpsc::UnboundedSender<(String, u64, Vec<u8>)>,
@@ -253,6 +258,7 @@ impl Engine {
     fn prepare(&mut self, item: &QueueItem) {
         if crate::local::is_local(item.track_id) && !self.port.has_local(item.track_id) {
             self.pending_file = Some(item.clone());
+            self.file_asked = Some((Instant::now(), 1));
             let m = Msg::FileWant { from: self.p.me.id.clone(), owner: item.added_by.clone(), track_id: item.track_id };
             self.send(&m, false);
             return;
@@ -290,6 +296,7 @@ impl Engine {
                     let inc = self.incoming.remove(track_id).expect("just checked");
                     let audio: Vec<u8> = inc.parts.into_iter().flatten().flatten().collect();
                     if let Some(item) = self.pending_file.take().filter(|i| i.track_id == *track_id) {
+                        self.file_asked = None;
                         tracing::info!(track = track_id, bytes = audio.len(), "room: a track of «Мои файлы» received");
                         self.port.local_received(&item, audio);
                         self.port.prepare(&item);
@@ -298,6 +305,30 @@ impl Engine {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// A file that does not come: asked again, and after three tries the track counts as failed (the room goes on).
+    fn file_tick(&mut self) {
+        let Some((at, tries)) = self.file_asked else { return };
+        if at.elapsed() < FILE_WAIT {
+            return;
+        }
+        let Some(item) = self.pending_file.clone() else {
+            self.file_asked = None;
+            return;
+        };
+        if tries < 3 {
+            tracing::info!(track = item.track_id, tries, "room: a track of «Мои файлы» did not come, asking again");
+            self.incoming.remove(&item.track_id);
+            self.file_asked = Some((Instant::now(), tries + 1));
+            let m = Msg::FileWant { from: self.p.me.id.clone(), owner: item.added_by.clone(), track_id: item.track_id };
+            self.send(&m, false);
+        } else {
+            tracing::warn!(track = item.track_id, "room: a track of «Мои файлы» never came");
+            self.pending_file = None;
+            self.file_asked = None;
+            let _ = if self.p.host { self.host_cmd(Cmd::Loaded { ok: false }) } else { self.member_cmd(Cmd::Loaded { ok: false }) };
         }
     }
 
@@ -1076,6 +1107,7 @@ pub fn start(
         transport,
         port,
         pending_file: None,
+        file_asked: None,
         incoming: std::collections::HashMap::new(),
         file_tx,
         view,
@@ -1167,6 +1199,7 @@ pub fn start(
                     if !go_on { break; }
                 }
                 _ = tick.tick() => {
+                    eng.file_tick();
                     if eng.p.host {
                         eng.host_tick();
                         if last_play.elapsed() >= PLAY_EVERY { eng.host_repeat_state(); last_play = Instant::now(); }
@@ -1269,7 +1302,7 @@ pub(crate) mod tests {
     }
 
     pub fn item(n: u64) -> QueueItem {
-        QueueItem { track_id: n, title: format!("track{n}"), artist: "a".into(), added_by: "host".into() }
+        QueueItem { track_id: n, title: format!("track{n}"), artist: "a".into(), added_by: "host".into(), duration_ms: 0 }
     }
 
     fn quiet() -> Arc<dyn Fn(&RoomView) + Send + Sync> {
@@ -1338,7 +1371,7 @@ pub(crate) mod tests {
             // 600 KB: three pieces
             let audio: Vec<u8> = (0..600_000u32).map(|i| (i % 251) as u8).collect();
             hp.have.lock().unwrap().insert(id, audio.clone());
-            host.tx.send(Cmd::Enqueue(QueueItem { track_id: id, title: "мой трек".into(), artist: "я".into(), added_by: "host".into() })).unwrap();
+            host.tx.send(Cmd::Enqueue(QueueItem { track_id: id, title: "мой трек".into(), artist: "я".into(), added_by: "host".into(), duration_ms: 1000 })).unwrap();
             assert!(wait(|| !ap.received.lock().unwrap().is_empty(), 5000).await, "the file reached anna");
             assert_eq!(ap.have.lock().unwrap().get(&id), Some(&audio), "whole and the same");
             assert!(wait(|| ap.inner.prepared.lock().unwrap().len() == 1, 2000).await, "then she loads it");

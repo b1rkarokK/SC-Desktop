@@ -117,6 +117,9 @@ pub struct QueueItem {
     pub title: String,
     pub artist: String,
     pub added_by: String,
+    /// ms; a track of «Мои файлы» is not on SoundCloud, its length comes with it (0: not known)
+    #[serde(default)]
+    pub duration_ms: u64,
 }
 
 /// Where the current track is, on the host's clock.
@@ -501,7 +504,7 @@ mod tests {
     }
 
     fn item(n: u64) -> QueueItem {
-        QueueItem { track_id: n, title: format!("t{n}"), artist: "a".into(), added_by: "x".into() }
+        QueueItem { track_id: n, title: format!("t{n}"), artist: "a".into(), added_by: "x".into(), duration_ms: 0 }
     }
 
     #[test]

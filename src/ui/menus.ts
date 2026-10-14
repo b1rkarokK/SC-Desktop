@@ -11,7 +11,7 @@ import { openArtist, openPlaylist, openTrack, openTrackArtist } from './router';
 import { store } from './store';
 import { T } from './i18n';
 import { shareDialog } from './share_dialog';
-import { room } from './views/rooms';
+import { addToRoom, room } from './views/rooms';
 
 async function copy(text: string, done: string): Promise<void> {
   try {
@@ -81,6 +81,7 @@ function localMenu(e: MouseEvent, t: Track, play?: () => void): void {
     { label: T('Слушать'), icon: I.play, action: play ?? (() => void api.playTracks([t], 0).catch(fail)) },
     { label: T('Играть следующим'), icon: I.queueNext, action: () => void api.enqueue(t, true).catch(fail) },
     { label: T('В конец очереди'), icon: I.queueEnd, action: () => void api.enqueue(t, false).catch(fail) },
+    { label: T('В комнату'), icon: I.users, action: () => void addToRoom(t), disabled: !room.active() },
     'separator',
     {
       label: T('Сохранить в «Мои файлы»'),

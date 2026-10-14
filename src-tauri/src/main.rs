@@ -353,6 +353,7 @@ fn main() {
             commands::local_remove,
             commands::local_open,
             commands::local_keep,
+            commands::local_like,
             commands::storage_info,
             commands::likes_move,
             commands::storage_clear_cache,

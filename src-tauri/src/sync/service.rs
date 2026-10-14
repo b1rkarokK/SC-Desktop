@@ -144,7 +144,7 @@ impl Port for PlayerPort {
         let (app, id) = (self.app.clone(), item.track_id);
         // «Мои файлы»: not on SoundCloud, the player takes it from this device
         if crate::local::is_local(id) {
-            let track = TrackDto { id, title: item.title.clone(), artist: item.artist.clone(), user_id: 0, duration_ms: 0, artwork_url: None, permalink_url: None, genre: None };
+            let track = TrackDto { id, title: item.title.clone(), artist: item.artist.clone(), user_id: 0, duration_ms: item.duration_ms, artwork_url: None, permalink_url: None, genre: None };
             app.state::<Arc<Player>>().inner().clone().room_prepare(track);
             return;
         }
@@ -176,7 +176,7 @@ impl Port for PlayerPort {
     }
 
     fn local_received(&self, item: &QueueItem, audio: Vec<u8>) {
-        let track = TrackDto { id: item.track_id, title: item.title.clone(), artist: item.artist.clone(), user_id: 0, duration_ms: 0, artwork_url: None, permalink_url: None, genre: None };
+        let track = TrackDto { id: item.track_id, title: item.title.clone(), artist: item.artist.clone(), user_id: 0, duration_ms: item.duration_ms, artwork_url: None, permalink_url: None, genre: None };
         crate::local::put_temp(track, audio);
     }
 
@@ -481,12 +481,12 @@ impl Rooms {
                     // anybody may add a track (the host decides whether members' additions are accepted)
                     A::Enqueue(tracks) => {
                         for t in tracks {
-                            let _ = tx.send(Cmd::Enqueue(QueueItem { track_id: t.id, title: t.title, artist: t.artist, added_by: me_id.clone() }));
+                            let _ = tx.send(Cmd::Enqueue(QueueItem { track_id: t.id, title: t.title, artist: t.artist, added_by: me_id.clone(), duration_ms: t.duration_ms }));
                         }
                         notice(crate::lang::pick("Добавлено в очередь комнаты", "Added to the room's queue"));
                     }
                     A::PlayNow(t) => {
-                        let item = QueueItem { track_id: t.id, title: t.title, artist: t.artist, added_by: me_id.clone() };
+                        let item = QueueItem { track_id: t.id, title: t.title, artist: t.artist, added_by: me_id.clone(), duration_ms: t.duration_ms };
                         if host {
                             let _ = tx.send(Cmd::PlayNow(item));
                         } else {

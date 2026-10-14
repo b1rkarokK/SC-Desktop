@@ -3,6 +3,12 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.2.2] - 2026-10-14
+
+- Your own track from My files now reaches the others in a room and plays for everybody. It could get stuck on "loading" before.
+- Your own track shows its length in a room, and its menu has "To the room".
+- The heart of your own track puts it in Likes (a track from a room is saved to My files too), and a sync keeps such likes.
+
 ## [1.2.1] - 2026-10-14
 
 - The mini player over a full-screen game or video listens again: rest the pointer on it for a moment and the buttons, volume and seeking work. Clicks used to go through it.

@@ -485,6 +485,7 @@ export const api = {
   storageInfo: () => invoke<{ database: number; covers: number; browser: number; model: number; local: number }>('storage_info'),
   storageClearCache: () => invoke<void>('storage_clear_cache'),
   storageDeleteModel: () => invoke<void>('storage_delete_model'),
+  localLike: (id: number, liked: boolean) => invoke<void>('local_like', { id, liked }),
   localKeep: (id: number) => invoke<void>('local_keep', { id }),
   localOpen: () => invoke<void>('local_open'),
   localClear: () => invoke<void>('local_clear'),

@@ -210,8 +210,13 @@ pub async fn sync_likes(app: &AppHandle, state: &AppState) -> AppResult<u64> {
         let kept: Vec<(u64, String)> = local.into_iter().filter_map(|id| rest.remove(&id).map(|at| (id, at))).collect();
         ids = fresh.into_iter().chain(kept).collect();
     }
+    // likes of «Мои файлы» are not on SoundCloud: a sync keeps them
+    let local_likes: Vec<u64> = state.db.likes_order().await?.into_iter().filter(|id| crate::local::is_local(*id)).collect();
     state.db.upsert_tracks(items.into_iter().map(|(t, _)| t).collect()).await?;
     state.db.replace_likes(ids).await?;
+    for id in local_likes.into_iter().rev() {
+        state.db.like_add(id).await?;
+    }
     for (id, liked) in pending_likes(state).await? {
         if liked {
             state.db.like_add(id).await?;
@@ -666,6 +671,20 @@ pub async fn local_open(app: AppHandle, state: State<'_, AppState>) -> Cmd<()> {
 pub async fn local_clear(app: AppHandle, state: State<'_, AppState>) -> Cmd<()> {
     crate::local::clear(&app, &state).await?;
     let _ = app.emit("local:changed", ());
+    Ok(())
+}
+
+/// The heart of a track of «Мои файлы»: kept (one from a room too) and shown in «Лайки»; SoundCloud knows nothing.
+#[tauri::command]
+pub async fn local_like(app: AppHandle, state: State<'_, AppState>, id: u64, liked: bool) -> Cmd<()> {
+    if liked {
+        let t = crate::local::keep_temp(&app, &state, id).await?;
+        state.db.local_track_put(t.track).await?;
+        state.db.like_add(id).await?;
+    } else {
+        state.db.like_remove(id).await?;
+    }
+    let _ = app.emit("like:set", serde_json::json!({ "id": id, "liked": liked }));
     Ok(())
 }
 
@@ -2298,7 +2317,7 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
     use crate::sync::engine::Cmd as C;
     let me = state.me().map(|u| u.id.to_string()).unwrap_or_default();
     match cmd {
-        RoomCmd::Enqueue { track } => rooms.cmd(C::Enqueue(crate::rooms::QueueItem { track_id: track.id, title: track.title, artist: track.artist, added_by: me })),
+        RoomCmd::Enqueue { track } => rooms.cmd(C::Enqueue(crate::rooms::QueueItem { track_id: track.id, title: track.title, artist: track.artist, added_by: me, duration_ms: track.duration_ms })),
         RoomCmd::Next => rooms.cmd(C::Next),
         RoomCmd::Prev => rooms.cmd(C::Prev),
         RoomCmd::Play { playing } => rooms.cmd(C::Play(playing)),

@@ -315,6 +315,21 @@ impl Db {
         .await
     }
 
+    /// A track of «Мои файлы» as a row of the library (so a like of it shows in «Лайки»).
+    pub async fn local_track_put(&self, t: TrackDto) -> AppResult<()> {
+        let json = serde_json::json!({ "id": t.id, "title": t.title, "duration": t.duration_ms }).to_string();
+        self.run(move |c| {
+            c.execute(
+                "INSERT INTO tracks (id, user_id, title, artist, genre, duration_ms, artwork_url, permalink_url, json, updated_at)
+                 VALUES (?1, 0, ?2, ?3, NULL, ?4, NULL, NULL, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET title=excluded.title, artist=excluded.artist, duration_ms=excluded.duration_ms",
+                params![t.id as i64, t.title, t.artist, t.duration_ms as i64, json, now()],
+            )
+            .map(|_| ())
+        })
+        .await
+    }
+
     /// The liked tracks in the order they are shown.
     pub async fn likes_order(&self) -> AppResult<Vec<u64>> {
         self.run(|c| c.prepare("SELECT track_id FROM likes ORDER BY position")?.query_map([], |r| r.get::<_, i64>(0).map(|v| v as u64))?.collect())
