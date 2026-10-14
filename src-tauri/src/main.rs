@@ -335,6 +335,7 @@ fn main() {
             commands::local_add,
             commands::local_remove,
             commands::local_open,
+            commands::local_keep,
             commands::local_clear,
             commands::vpn_set_url,
             commands::vpn_select,

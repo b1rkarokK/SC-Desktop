@@ -1,5 +1,5 @@
 // Context menus for tracks, playlists, artists and lyrics.
-import { api, errorMessage, type Track, type User } from './api';
+import { api, errorMessage, isLocal, type Track, type User } from './api';
 import { clock } from './clock';
 import { confirmDialog } from './confirm';
 import { loadSeries, type Series } from './playlist_series';
@@ -28,6 +28,8 @@ function fail(e: unknown): void {
 
 /** `play`: how "Слушать" starts this track in its list context. */
 export function trackMenu(e: MouseEvent, t: Track, play?: () => void): void {
+  // «Мои файлы»: not on SoundCloud, so only what makes sense for a file
+  if (isLocal(t.id)) return localMenu(e, t, play);
   const liked = store.liked.has(t.id);
   const disliked = store.disliked.has(t.id);
   const isCurrent = store.currentId() === t.id;
@@ -71,6 +73,22 @@ export function trackMenu(e: MouseEvent, t: Track, play?: () => void): void {
     items.push({ label: T('Открыть на SoundCloud'), icon: I.external, action: () => void api.openExternal(url) });
   }
   openMenu(e, items);
+}
+
+function localMenu(e: MouseEvent, t: Track, play?: () => void): void {
+  const fail = (err: unknown) => toast(errorMessage(err), 'error');
+  openMenu(e, [
+    { label: T('Слушать'), icon: I.play, action: play ?? (() => void api.playTracks([t], 0).catch(fail)) },
+    { label: T('Играть следующим'), icon: I.queueNext, action: () => void api.enqueue(t, true).catch(fail) },
+    { label: T('В конец очереди'), icon: I.queueEnd, action: () => void api.enqueue(t, false).catch(fail) },
+    'separator',
+    {
+      label: T('Сохранить в «Мои файлы»'),
+      icon: I.download,
+      action: () => void api.localKeep(t.id).then(() => toast(T('Сохранено в «Мои файлы»')), fail),
+    },
+    { label: T('Этого трека нет на SoundCloud'), icon: I.track, action: () => {}, disabled: true },
+  ]);
 }
 
 export function playlistMenu(e: MouseEvent, p: Series): void {

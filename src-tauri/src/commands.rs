@@ -628,6 +628,14 @@ pub async fn local_clear(app: AppHandle, state: State<'_, AppState>) -> Cmd<()> 
     Ok(())
 }
 
+/// A track received in a room kept in «Мои файлы».
+#[tauri::command]
+pub async fn local_keep(app: AppHandle, state: State<'_, AppState>, id: u64) -> Cmd<()> {
+    crate::local::keep_temp(&app, &state, id).await?;
+    let _ = app.emit("local:changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn local_remove(app: AppHandle, state: State<'_, AppState>, id: u64) -> Cmd<()> {
     crate::local::remove(&app, &state, id).await?;

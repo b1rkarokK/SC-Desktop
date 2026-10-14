@@ -527,7 +527,10 @@ export const EN: Record<string, string> = {
   'Удалить из программы': 'Remove from the app',
   'Удалить «{0}» из «Моих файлов»?': 'Remove "{0}" from My files?',
   '{0} · из комнаты': '{0} · from a room',
-  'Этого трека нет на SoundCloud: он в «Моих файлах», лайкнуть его там нельзя': "This track isn't on SoundCloud: it's in My files, it can't be liked there",
+  'Этого трека нет на SoundCloud, он только у того, кто его добавил. Чтобы оставить его себе: правая кнопка → «Сохранить в «Мои файлы»»': "This track isn't on SoundCloud, only the one who added it has it. To keep it: right click → \"Save to My files\"",
+  'Сохранить в «Мои файлы»': 'Save to My files',
+  'Сохранено в «Мои файлы»': 'Saved to My files',
+  'Этого трека нет на SoundCloud': "This track isn't on SoundCloud",
   'Здесь ваши треки, которых нет на SoundCloud: добавьте MP3, M4A, Opus, FLAC или WAV. Они хранятся в одном файле-хранилище программы, никуда не загружаются и играют как обычные треки. Каждый файл проверяется: принимается только настоящий звук.':
     "Your tracks that aren't on SoundCloud: add MP3, M4A, Opus, FLAC or WAV. They are kept inside the app, never uploaded, and play like any track. Every file is checked: only real sound gets in.",
   'Ссылка на подписку или сервер (vless://, https://…)': 'Subscription or server link (vless://, https://…)',

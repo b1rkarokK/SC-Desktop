@@ -142,6 +142,12 @@ impl PlayerPort {
 impl Port for PlayerPort {
     fn prepare(&self, item: &QueueItem) {
         let (app, id) = (self.app.clone(), item.track_id);
+        // «Мои файлы»: not on SoundCloud, the player takes it from this device
+        if crate::local::is_local(id) {
+            let track = TrackDto { id, title: item.title.clone(), artist: item.artist.clone(), user_id: 0, duration_ms: 0, artwork_url: None, permalink_url: None, genre: None };
+            app.state::<Arc<Player>>().inner().clone().room_prepare(track);
+            return;
+        }
         tauri::async_runtime::spawn(async move {
             let state = app.state::<AppState>();
             let track = match state.db.tracks_by_ids(vec![id]).await.ok().and_then(|v| v.into_iter().next()) {
@@ -158,6 +164,20 @@ impl Port for PlayerPort {
             let _ = state.db.upsert_tracks(vec![t.clone()]).await;
             app.state::<Arc<Player>>().inner().clone().room_prepare(TrackDto::from(&t));
         });
+    }
+
+    fn has_local(&self, track_id: u64) -> bool {
+        !crate::local::is_local(track_id) || crate::local::has(track_id)
+    }
+
+    fn local_audio(&self, track_id: u64, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move { done(crate::local::audio(&app, track_id).await) });
+    }
+
+    fn local_received(&self, item: &QueueItem, audio: Vec<u8>) {
+        let track = TrackDto { id: item.track_id, title: item.title.clone(), artist: item.artist.clone(), user_id: 0, duration_ms: 0, artwork_url: None, permalink_url: None, genre: None };
+        crate::local::put_temp(track, audio);
     }
 
     fn start_after(&self, delay: Duration) {

@@ -48,6 +48,25 @@ pub trait Port: Send + Sync + 'static {
     /// Run 1 ± a little faster / slower for a while (1.0 = normal).
     fn trim(&self, factor: f32);
     fn stop(&self);
+    /// «Мои файлы»: this device has that track (its own, or one received in a room)
+    fn has_local(&self, _track_id: u64) -> bool {
+        true
+    }
+    /// «Мои файлы»: the audio of a track this device has, handed to `done` (None: not here)
+    fn local_audio(&self, _track_id: u64, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) {
+        done(None)
+    }
+    /// «Мои файлы»: a track received in the room, kept for this session
+    fn local_received(&self, _item: &QueueItem, _audio: Vec<u8>) {}
+}
+
+/// «Мои файлы» go through the room in pieces this big (a message of the relay is at most 1 MB once sealed)
+const FILE_CHUNK: usize = 256 * 1024;
+
+/// A track of «Мои файлы» arriving piece by piece.
+struct Incoming {
+    total: u32,
+    parts: Vec<Option<Vec<u8>>>,
 }
 
 pub enum Cmd {
@@ -166,6 +185,11 @@ struct Engine {
     p: Params,
     transport: Arc<dyn Transport>,
     port: Arc<dyn Port>,
+    /// «Мои файлы»: the track waiting for its file before it is loaded, and the pieces coming in
+    pending_file: Option<QueueItem>,
+    incoming: std::collections::HashMap<u64, Incoming>,
+    /// audio read for somebody who asked: (to, track id, bytes), sent from the loop
+    file_tx: mpsc::UnboundedSender<(String, u64, Vec<u8>)>,
     view: Arc<Mutex<RoomView>>,
     on_view: Arc<dyn Fn(&RoomView) + Send + Sync>,
     key: Key,
@@ -223,6 +247,69 @@ impl Engine {
         } else {
             self.clock.to_host(self.now())
         }
+    }
+
+    /// Loads a track; one of «Мои файлы» this device lacks is asked for first and loaded once it is here.
+    fn prepare(&mut self, item: &QueueItem) {
+        if crate::local::is_local(item.track_id) && !self.port.has_local(item.track_id) {
+            self.pending_file = Some(item.clone());
+            let m = Msg::FileWant { from: self.p.me.id.clone(), owner: item.added_by.clone(), track_id: item.track_id };
+            self.send(&m, false);
+            return;
+        }
+        self.port.prepare(item);
+    }
+
+    /// The file messages, the same for the host and the members. True: handled.
+    fn file_msg(&mut self, m: &Msg) -> bool {
+        match m {
+            Msg::FileWant { from, owner, track_id } => {
+                // the one who put it on answers; the host too when it has it (the owner may have left)
+                let me = &self.p.me.id;
+                if (owner == me || self.p.host) && from != me && self.port.has_local(*track_id) {
+                    let (tx, to, id) = (self.file_tx.clone(), from.clone(), *track_id);
+                    self.port.local_audio(id, Box::new(move |a| {
+                        if let Some(a) = a {
+                            let _ = tx.send((to, id, a));
+                        }
+                    }));
+                }
+                true
+            }
+            Msg::FileChunk { to, track_id, index, total, data } => {
+                if to != &self.p.me.id {
+                    return true;
+                }
+                use base64::Engine as _;
+                let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else { return true };
+                let inc = self.incoming.entry(*track_id).or_insert_with(|| Incoming { total: *total, parts: vec![None; *total as usize] });
+                if let Some(slot) = inc.parts.get_mut(*index as usize) {
+                    *slot = Some(bytes);
+                }
+                if inc.parts.iter().all(Option::is_some) && inc.total as usize == inc.parts.len() {
+                    let inc = self.incoming.remove(track_id).expect("just checked");
+                    let audio: Vec<u8> = inc.parts.into_iter().flatten().flatten().collect();
+                    if let Some(item) = self.pending_file.take().filter(|i| i.track_id == *track_id) {
+                        tracing::info!(track = track_id, bytes = audio.len(), "room: a track of «Мои файлы» received");
+                        self.port.local_received(&item, audio);
+                        self.port.prepare(&item);
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sends a track of «Мои файлы» to the one who asked, piece by piece.
+    fn send_file(&mut self, to: String, track_id: u64, audio: Vec<u8>) {
+        use base64::Engine as _;
+        let total = audio.len().div_ceil(FILE_CHUNK) as u32;
+        for (index, part) in audio.chunks(FILE_CHUNK).enumerate() {
+            let data = base64::engine::general_purpose::STANDARD.encode(part);
+            self.send(&Msg::FileChunk { to: to.clone(), track_id, index: index as u32, total, data }, false);
+        }
+        tracing::info!(track = track_id, bytes = audio.len(), pieces = total, "room: a track of «Мои файлы» sent");
     }
 
     fn send(&mut self, m: &Msg, keep: bool) {
@@ -312,7 +399,7 @@ impl Engine {
         };
         let seq = round.seq;
         self.round = Some(round);
-        self.port.prepare(&item);
+        self.prepare(&item);
         self.send(&Msg::Load { seq, item }, false);
         self.roster();
     }
@@ -782,7 +869,7 @@ impl Engine {
                 if let Some((seq, item)) = current {
                     self.seq_loading = Some(seq);
                     self.awaiting_load = true;
-                    self.port.prepare(&item);
+                    self.prepare(&item);
                     self.send(&Msg::Status { id: me, status: Status::Loading }, false);
                 } else {
                     // nothing is on: we are simply here, ready (not "connecting" for ever)
@@ -846,7 +933,7 @@ impl Engine {
                     s.current = Some((seq, item.clone()));
                     s.play = None;
                 }
-                self.port.prepare(&item);
+                self.prepare(&item);
                 self.send(&Msg::Status { id: me, status: Status::Loading }, false);
                 self.publish();
             }
@@ -969,6 +1056,7 @@ pub fn start(
     on_view: Arc<dyn Fn(&RoomView) + Send + Sync>,
 ) -> Handle {
     let (tx, mut cmds) = mpsc::unbounded_channel::<Cmd>();
+    let (file_tx, mut file_rx) = mpsc::unbounded_channel::<(String, u64, Vec<u8>)>();
     let view = Arc::new(Mutex::new(RoomView { active: true, host: p.host, channel: p.channel.clone(), ..Default::default() }));
     let handle = Handle { tx, view: view.clone() };
     let key = crypto::room_key(&p.channel, &p.password);
@@ -987,6 +1075,9 @@ pub fn start(
         p,
         transport,
         port,
+        pending_file: None,
+        incoming: std::collections::HashMap::new(),
+        file_tx,
         view,
         on_view,
         key,
@@ -1060,11 +1151,15 @@ pub fn start(
                             if old.is_some() && !matches!(m, Msg::Hello { .. }) { continue; }
                             eng.reply_key = old;
                             eng.decrypted += 1;
+                            if eng.file_msg(&m) { eng.reply_key = None; continue; }
                             // who is it from? the host needs it for the queue permission
                             let from = match &m { Msg::Enqueue { item } => item.added_by.clone(), _ => String::new() };
                             if eng.p.host { eng.host_msg(&from, m); eng.reply_key = None; } else if !eng.member_msg(m) { break; }
                         }
                     }
+                }
+                f = file_rx.recv() => {
+                    if let Some((to, id, audio)) = f { eng.send_file(to, id, audio); }
                 }
                 c = cmds.recv() => {
                     let Some(c) = c else { break };
@@ -1202,6 +1297,53 @@ pub(crate) mod tests {
             quiet(),
         );
         (h, port)
+    }
+
+    /// A player with «Мои файлы»: what it has, and what came to it through the room.
+    #[derive(Default)]
+    struct FilePlayer {
+        inner: FakePlayer,
+        have: Mutex<std::collections::HashMap<u64, Vec<u8>>>,
+        received: Mutex<Vec<(u64, usize)>>,
+    }
+    impl Port for FilePlayer {
+        fn prepare(&self, item: &QueueItem) { self.inner.prepare(item) }
+        fn start_after(&self, d: Duration) { self.inner.start_after(d) }
+        fn set_playing(&self, p: bool, pos: i64) { self.inner.set_playing(p, pos) }
+        fn position_ms(&self) -> Option<i64> { self.inner.position_ms() }
+        fn trim(&self, f: f32) { self.inner.trim(f) }
+        fn stop(&self) { self.inner.stop() }
+        fn has_local(&self, id: u64) -> bool { !crate::local::is_local(id) || self.have.lock().unwrap().contains_key(&id) }
+        fn local_audio(&self, id: u64, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) { done(self.have.lock().unwrap().get(&id).cloned()) }
+        fn local_received(&self, item: &QueueItem, audio: Vec<u8>) {
+            self.received.lock().unwrap().push((item.track_id, audio.len()));
+            self.have.lock().unwrap().insert(item.track_id, audio);
+        }
+    }
+
+    #[test]
+    fn a_track_of_my_files_reaches_a_member_who_lacks_it_and_then_loads() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let mk = |id: &str, host: bool| {
+                let (tr, rx) = net.join();
+                let port = Arc::new(FilePlayer::default());
+                let h = start(Params { channel: "chan-files".into(), password: String::new(), me: member(id), host, settings: Settings::default() }, tr, rx, port.clone(), quiet());
+                (h, port)
+            };
+            let (host, hp) = mk("host", true);
+            let (anna, ap) = mk("anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 4000).await, "anna joined");
+            let id = crate::local::BASE + 7;
+            // 600 KB: three pieces
+            let audio: Vec<u8> = (0..600_000u32).map(|i| (i % 251) as u8).collect();
+            hp.have.lock().unwrap().insert(id, audio.clone());
+            host.tx.send(Cmd::Enqueue(QueueItem { track_id: id, title: "мой трек".into(), artist: "я".into(), added_by: "host".into() })).unwrap();
+            assert!(wait(|| !ap.received.lock().unwrap().is_empty(), 5000).await, "the file reached anna");
+            assert_eq!(ap.have.lock().unwrap().get(&id), Some(&audio), "whole and the same");
+            assert!(wait(|| ap.inner.prepared.lock().unwrap().len() == 1, 2000).await, "then she loads it");
+            drop(anna);
+        });
     }
 
     #[test]

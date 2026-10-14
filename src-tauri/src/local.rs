@@ -36,6 +36,50 @@ pub fn is_local(id: u64) -> bool {
     id >= BASE
 }
 
+/// Ids this device has (kept or received in a room), for the room engine that cannot wait on the database.
+static HAVE: std::sync::Mutex<Option<std::collections::HashSet<u64>>> = std::sync::Mutex::new(None);
+/// Tracks received in a room this session (not kept): (track, its audio).
+static TEMP: std::sync::Mutex<Vec<(LocalTrack, std::sync::Arc<Vec<u8>>)>> = std::sync::Mutex::new(Vec::new());
+
+fn mark(id: u64, have: bool) {
+    let mut g = HAVE.lock().unwrap_or_else(|e| e.into_inner());
+    let set = g.get_or_insert_with(Default::default);
+    if have {
+        set.insert(id);
+    } else {
+        set.remove(&id);
+    }
+}
+
+pub fn has(id: u64) -> bool {
+    HAVE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|s| s.contains(&id)) || TEMP.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(t, _)| t.track.id == id)
+}
+
+/// A track received in a room: kept in memory for this session, under the owner's id.
+pub fn put_temp(track: TrackDto, audio: Vec<u8>) {
+    let kind = kind_of(&audio).unwrap_or("OPUS").to_owned();
+    let t = LocalTrack { track, kind, bytes: audio.len() as u64, origin: "shared".into(), sha: String::new() };
+    let mut g = TEMP.lock().unwrap_or_else(|e| e.into_inner());
+    g.retain(|(x, _)| x.track.id != t.track.id);
+    // the last few only: a long room session must not fill the memory
+    if g.len() >= 5 {
+        g.remove(0);
+    }
+    g.push((t, std::sync::Arc::new(audio)));
+}
+
+/// «Сохранить в Мои файлы» for a track received in a room.
+pub async fn keep_temp(app: &AppHandle, state: &AppState, id: u64) -> AppResult<LocalTrack> {
+    if let Some(t) = list(state).await?.into_iter().find(|t| t.track.id == id) {
+        return Ok(t); // already kept
+    }
+    let found = TEMP.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(t, _)| t.track.id == id).cloned();
+    let Some((t, audio)) = found else {
+        return Err(AppError::Other("этого трека уже нет в памяти: включите его в комнате ещё раз".into()));
+    };
+    store(app, state, id, audio.as_slice().to_vec(), t.track.artist, t.track.title, "shared").await
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalTrack {
     pub track: TrackDto,
@@ -114,6 +158,9 @@ async fn save_list(state: &AppState, l: &[LocalTrack]) -> AppResult<()> {
 
 /// The audio of a local track, if it is here and still the very song that was added.
 pub async fn audio(app: &AppHandle, id: u64) -> Option<Vec<u8>> {
+    if let Some((_, a)) = TEMP.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(t, _)| t.track.id == id) {
+        return Some(a.as_slice().to_vec());
+    }
     let state = app.state::<AppState>();
     let t = list(&state).await.ok()?.into_iter().find(|t| t.track.id == id)?;
     let key = id as i64;
@@ -143,6 +190,7 @@ pub async fn sweep(app: &AppHandle, state: &AppState) -> AppResult<Vec<LocalTrac
     .await?;
     let before = all.len();
     all.retain(|t| present.contains(&(t.track.id as i64)));
+    *HAVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(all.iter().map(|t| t.track.id).collect());
     if all.len() != before {
         save_list(state, &all).await?;
     }
@@ -201,9 +249,14 @@ pub async fn add(app: &AppHandle, state: &AppState, path: &std::path::Path) -> A
 
 /// Adds audio already in hand (a file, or one received in a room).
 pub async fn add_bytes(app: &AppHandle, state: &AppState, data: Vec<u8>, artist: String, title: String, origin: &str) -> AppResult<LocalTrack> {
-    let kind = kind_of(&data).ok_or_else(|| AppError::Other("это не аудиофайл: подходят MP3, M4A, Opus, FLAC и WAV".into()))?;
     let hash = sha2::Sha256::digest(&data);
     let id = BASE | (u64::from_be_bytes(hash[..8].try_into().unwrap_or([0; 8])) & (BASE - 1));
+    store(app, state, id, data, artist, title, origin).await
+}
+
+/// Checks, packs, seals and keeps audio under `id` (a room keeps the owner's id, so everybody means one track).
+async fn store(app: &AppHandle, state: &AppState, id: u64, data: Vec<u8>, artist: String, title: String, origin: &str) -> AppResult<LocalTrack> {
+    let kind = kind_of(&data).ok_or_else(|| AppError::Other("это не аудиофайл: подходят MP3, M4A, Opus, FLAC и WAV".into()))?;
     if let Some(t) = list(state).await?.into_iter().find(|t| t.track.id == id) {
         return Ok(t);
     }
@@ -238,6 +291,7 @@ pub async fn add_bytes(app: &AppHandle, state: &AppState, data: Vec<u8>, artist:
     let mut all = list(state).await?;
     all.insert(0, t.clone());
     save_list(state, &all).await?;
+    mark(id, true);
     tracing::info!(id, kind, bytes, "local track added");
     Ok(t)
 }
@@ -249,6 +303,7 @@ pub async fn clear(app: &AppHandle, state: &AppState) -> AppResult<()> {
         Ok(())
     })
     .await?;
+    *HAVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Default::default());
     save_list(state, &[]).await
 }
 
@@ -261,6 +316,7 @@ pub async fn remove(app: &AppHandle, state: &AppState, id: u64) -> AppResult<()>
     .await?;
     let mut all = list(state).await?;
     all.retain(|t| t.track.id != id);
+    mark(id, false);
     save_list(state, &all).await
 }
 

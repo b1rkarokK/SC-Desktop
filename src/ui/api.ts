@@ -481,6 +481,7 @@ export const api = {
   /** no lyrics under the name: the app listens to the track and searches by the words (hear.rs) */
   localList: () => invoke<LocalTrack[]>('local_list'),
   localAdd: () => invoke<{ added: number; refused: string[] }>('local_add'),
+  localKeep: (id: number) => invoke<void>('local_keep', { id }),
   localOpen: () => invoke<void>('local_open'),
   localClear: () => invoke<void>('local_clear'),
   localRemove: (id: number) => invoke<void>('local_remove', { id }),

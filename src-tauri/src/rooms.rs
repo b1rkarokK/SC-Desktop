@@ -188,6 +188,10 @@ pub enum Msg {
     HostLeft { id: String },
     /// host -> relay log (kept): the room as it is, for whoever enters an empty room next
     State { snapshot: RoomSnapshot },
+    /// anyone -> the one who put it on: send me this track of «Мои файлы» (it is not on SoundCloud)
+    FileWant { from: String, owner: String, track_id: u64 },
+    /// owner -> the one who asked: a piece of that track (base64), `index` of `total`
+    FileChunk { to: String, track_id: u64, index: u32, total: u32, data: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
