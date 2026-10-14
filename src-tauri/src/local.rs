@@ -7,6 +7,10 @@
 //! slipped into the storage some other way is not on the list, and one changed there no longer matches its
 //! checksum, so neither is ever played (the changed one is removed).
 //!
+//! Inside the storage every song is packed as Opus 96 kbit/s (unless the file is small already) and encrypted
+//! (ChaCha20-Poly1305) with a key kept in the Windows credential store, the song's id bound into it: without
+//! the key the storage is noise, and a row edited, swapped or slipped in fails its tag and is removed.
+//!
 //! A local track has an id of its own range (2^52 and up, still exact in JavaScript): SoundCloud's ids are far
 //! below, so the player, likes and rooms can tell one from the other.
 
@@ -45,6 +49,44 @@ pub struct LocalTrack {
     pub sha: String,
 }
 
+/// The key of the storage, made once and kept in the Windows credential store.
+fn key() -> AppResult<[u8; 32]> {
+    use base64::Engine as _;
+    let service = match crate::secrets::profile() {
+        Some(p) => format!("dev.scdesk.app.{p}.local"),
+        None => "dev.scdesk.app.local".to_owned(),
+    };
+    let entry = keyring::Entry::new(&service, "storage").map_err(|e| AppError::Keyring(e.to_string()))?;
+    if let Ok(k) = entry.get_password() {
+        if let Ok(b) = base64::engine::general_purpose::STANDARD.decode(k) {
+            if let Ok(k) = <[u8; 32]>::try_from(b.as_slice()) {
+                return Ok(k);
+            }
+        }
+    }
+    let k: [u8; 32] = rand::random();
+    entry.set_password(&base64::engine::general_purpose::STANDARD.encode(k)).map_err(|e| AppError::Keyring(e.to_string()))?;
+    Ok(k)
+}
+
+fn seal(id: u64, plain: &[u8]) -> AppResult<Vec<u8>> {
+    use chacha20poly1305::{aead::{Aead, KeyInit, Payload}, ChaCha20Poly1305, Nonce};
+    let cipher = ChaCha20Poly1305::new(&key()?.into());
+    let nonce: [u8; 12] = rand::random();
+    let mut out = nonce.to_vec();
+    out.extend(cipher.encrypt(Nonce::from_slice(&nonce), Payload { msg: plain, aad: &id.to_be_bytes() }).map_err(|_| AppError::Other("шифрование".into()))?);
+    Ok(out)
+}
+
+fn open_sealed(id: u64, sealed: &[u8]) -> Option<Vec<u8>> {
+    use chacha20poly1305::{aead::{Aead, KeyInit, Payload}, ChaCha20Poly1305, Nonce};
+    if sealed.len() < 12 {
+        return None;
+    }
+    let cipher = ChaCha20Poly1305::new(&key().ok()?.into());
+    cipher.decrypt(Nonce::from_slice(&sealed[..12]), Payload { msg: &sealed[12..], aad: &id.to_be_bytes() }).ok()
+}
+
 /// The storage file of «Мои файлы».
 pub fn store_path(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(app.path().app_data_dir()?.join("local.sqlite3"))
@@ -75,8 +117,9 @@ pub async fn audio(app: &AppHandle, id: u64) -> Option<Vec<u8>> {
     let state = app.state::<AppState>();
     let t = list(&state).await.ok()?.into_iter().find(|t| t.track.id == id)?;
     let key = id as i64;
-    let data = with_store(app, move |c| Ok(c.query_row("SELECT data FROM songs WHERE id = ?1", [key], |r| r.get::<_, Vec<u8>>(0)).optional()?)).await.ok()??;
-    if hex::encode(sha2::Sha256::digest(&data)) != t.sha {
+    let sealed = with_store(app, move |c| Ok(c.query_row("SELECT data FROM songs WHERE id = ?1", [key], |r| r.get::<_, Vec<u8>>(0)).optional()?)).await.ok()??;
+    let data = open_sealed(id, &sealed).unwrap_or_default();
+    if data.is_empty() || hex::encode(sha2::Sha256::digest(&data)) != t.sha {
         tracing::warn!(id, "local track changed in the storage: refused and removed");
         let _ = remove(app, &state, id).await;
         return None;
@@ -170,10 +213,18 @@ pub async fn add_bytes(app: &AppHandle, state: &AppState, data: Vec<u8>, artist:
         .await
         .map_err(|e| AppError::Other(e.to_string()))?
         .ok_or_else(|| AppError::Other("файл не читается как музыка (повреждён или это не звук)".into()))?;
-    let bytes = data.len() as u64;
-    let stored = data.clone();
+    // packed small, unless it is small already (a second lossy pass would only cost quality)
+    let src = data.clone();
+    let packed = tokio::task::spawn_blocking(move || crate::player::decode::pack_opus(src)).await.map_err(|e| AppError::Other(e.to_string()))?;
+    let (stored, kind): (Vec<u8>, &str) = match packed {
+        Some(p) if (p.len() as f64) < data.len() as f64 * 0.7 => (p, "OPUS"),
+        _ => (data.as_slice().to_vec(), kind),
+    };
+    let bytes = stored.len() as u64;
+    let sha = hex::encode(sha2::Sha256::digest(&stored));
+    let sealed = seal(id, &stored)?;
     with_store(app, move |c| {
-        c.execute("INSERT OR REPLACE INTO songs (id, data) VALUES (?1, ?2)", params![id as i64, stored.as_slice()])?;
+        c.execute("INSERT OR REPLACE INTO songs (id, data) VALUES (?1, ?2)", params![id as i64, sealed])?;
         Ok(())
     })
     .await?;
@@ -182,7 +233,7 @@ pub async fn add_bytes(app: &AppHandle, state: &AppState, data: Vec<u8>, artist:
         kind: kind.to_owned(),
         bytes,
         origin: origin.to_owned(),
-        sha: hex::encode(hash),
+        sha,
     };
     let mut all = list(state).await?;
     all.insert(0, t.clone());
