@@ -247,6 +247,7 @@ pub async fn upload(app: &AppHandle, state: &AppState, form: UploadForm) -> AppR
     }
     emit(app, "save", 100);
     tracing::info!(track = created.id, private = form.private, "upload: track created");
+    UPLOADED.lock().unwrap_or_else(|e| e.into_inner()).push((created.id, std::time::Instant::now()));
     // the create answer is thin (no title yet): the full track as its owner sees it
     let full = sc.track_as_owner(created.id).await.unwrap_or(created);
     let _ = state.db.upsert_tracks(vec![full.clone()]).await;
@@ -303,4 +304,12 @@ mod tests {
     fn tags_quote_phrases() {
         assert_eq!(tag_list("drift, memphis , lo fi"), r#"drift memphis "lo fi""#);
     }
+}
+
+/// Tracks uploaded in this run and when: SoundCloud answers 404 for a while after an upload.
+static UPLOADED: std::sync::Mutex<Vec<(u64, std::time::Instant)>> = std::sync::Mutex::new(Vec::new());
+
+/// Uploaded from here in the last half an hour.
+pub fn just_uploaded(track_id: u64) -> bool {
+    UPLOADED.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(id, at)| *id == track_id && at.elapsed().as_secs() < 1800)
 }

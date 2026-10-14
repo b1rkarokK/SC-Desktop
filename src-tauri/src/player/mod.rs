@@ -1529,10 +1529,22 @@ impl Player {
             return Err(AppError::StreamQuota(used));
         }
         // always fresh: track_authorization in cached JSON expires
-        let mut full = sc.track(track_id).await?;
+        let mut full = match sc.track(track_id).await {
+            Ok(t) => t,
+            // the track itself is gone: say why it may be, and what still plays it
+            Err(AppError::NotFound) => {
+                let fresh = crate::upload::just_uploaded(track_id);
+                return Err(AppError::UnsupportedStream(if fresh {
+                    "SoundCloud ещё обрабатывает этот трек, попробуйте через несколько минут. Если не появится, его сняла проверка авторских прав: на soundcloud.com у трека будет кнопка оспорить (Dispute)".into()
+                } else {
+                    "его больше нет на SoundCloud: удалён автором или снят по жалобе на авторские права. Если вы его сохраняли («Скачать» или «Лайки без интернета»), он играет из файла".into()
+                }));
+            }
+            Err(e) => return Err(e),
+        };
         let mut ready: Option<Vec<u8>> = None;
         if full.is_preview() && !stand_in_ok {
-            return Err(AppError::UnsupportedStream("в SoundCloud это только 30-секундное превью".into()));
+            return Err(AppError::UnsupportedStream("в SoundCloud он целиком только для подписчиков Go+".into()));
         }
         if full.is_preview() {
             // 30 s Go+ preview: play someone else's full upload of the very same recording
@@ -1541,7 +1553,7 @@ impl Player {
                 Some(found) => found,
                 None => {
                     return Err(AppError::UnsupportedStream(
-                        "в SoundCloud это только 30-секундное превью для Go+, а полной загрузки этой записи нет".into(),
+                        "целиком он только для подписчиков Go+, а полной загрузки этой записи на SoundCloud нет. Если подписка есть на другом аккаунте, добавьте его как второй: Настройки → Аккаунт SoundCloud".into(),
                     ))
                 }
             };
@@ -1565,7 +1577,7 @@ impl Player {
                 Fetched::Widget(full.id)
             }
             Err(AppError::NotFound) => {
-                return Err(AppError::UnsupportedStream("он удалён, закрыт автором или недоступен в вашей стране".into()))
+                return Err(AppError::UnsupportedStream("SoundCloud не отдаёт его звук: обычно трек закрыт в вашей стране. Включите «Свой сервер» или прокси в другой стране: Настройки → Сеть".into()))
             }
             Err(e) => return Err(e),
         };

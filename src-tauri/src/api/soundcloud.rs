@@ -583,7 +583,7 @@ impl SoundCloud {
     /// (≈ 4–10 MB for a typical track; makes seeking trivial and robust).
     pub async fn download_audio(&self, track: &ScTrack) -> AppResult<Vec<u8>> {
         if track.policy.as_deref() == Some("BLOCK") {
-            return Err(AppError::UnsupportedStream("заблокирован в вашем регионе".into()));
+            return Err(AppError::UnsupportedStream("закрыт в вашей стране. Включите «Свой сервер» или прокси в другой стране: Настройки → Сеть".into()));
         }
         // the best format first; one that SoundCloud does not serve (404 when it is resolved) hands over to the next
         let candidates = ranked_transcodings(track)?;
