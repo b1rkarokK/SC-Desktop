@@ -565,7 +565,17 @@ pub async fn vpn_select(app: AppHandle, state: State<'_, AppState>, index: Optio
     s.selected = index.filter(|i| *i < s.servers.len());
     crate::net::vpn::save(&s)?;
     match s.selected {
-        Some(i) => crate::net::vpn::start(&state.http(), &vpn_dir(&app)?, &s.servers[i].link).await?,
+        Some(i) => {
+            crate::net::vpn::start(&state.http(), &vpn_dir(&app)?, &s.servers[i].link).await?;
+            // a server that does not carry SoundCloud would cut the app off it: checked at once, dropped if dead
+            let check = tokio::time::timeout(std::time::Duration::from_secs(12), state.http().get("https://soundcloud.com/", Profile::Document, None)).await;
+            if !matches!(check, Ok(Ok(_))) {
+                crate::net::vpn::stop();
+                s.selected = None;
+                crate::net::vpn::save(&s)?;
+                return Err(AppError::Other("через этот сервер SoundCloud не открывается (сервер не отвечает или это заглушка). Выберите другой".into()));
+            }
+        }
         None => crate::net::vpn::stop(),
     }
     Ok(vpn_dto(&s))

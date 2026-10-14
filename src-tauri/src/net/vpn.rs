@@ -77,23 +77,63 @@ pub fn save(s: &Saved) -> AppResult<()> {
 /// The servers of a subscription link (or of one server link pasted as it is).
 pub async fn fetch(http: &HttpClient, url: &str) -> AppResult<Vec<Server>> {
     let url = url.trim();
-    let body = if url.starts_with("http://") || url.starts_with("https://") {
-        // the v2rayN user agent: panels answer it with plain links (to Clash they send YAML)
-        http.get_text_ua(url, "v2rayN/7.0").await?
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return servers_of(url).ok_or_else(|| AppError::Other("в ссылке не нашлось сервера".into()));
+    }
+    // Many panels give the real servers only to the clients they allow and a stub ("Установите Incy или
+    // Обновите Happ") to anybody else: SC Desk asks as Happ first (with the device headers Happ sends), then
+    // as v2rayN (panels answer it with plain links; to Clash they send YAML, which is not read here).
+    let hwid = device_id();
+    let tries: [(&str, Vec<(&str, &str)>); 2] = [
+        ("Happ/4.3.0", vec![("x-hwid", hwid.as_str()), ("x-device-os", "Windows"), ("x-ver-os", "10"), ("x-device-model", "PC")]),
+        ("v2rayN/7.0", vec![]),
+    ];
+    let mut encrypted = false;
+    for (ua, headers) in tries {
+        let Ok(body) = http.get_text_ua(url, ua, &headers).await else { continue };
+        if body.trim_start().starts_with("happ://crypt") {
+            encrypted = true;
+            continue;
+        }
+        if let Some(s) = servers_of(&body).filter(|s| !is_stub(s)) {
+            return Ok(s);
+        }
+    }
+    Err(AppError::Other(if encrypted {
+        "подписка зашифрована для Happ (happ://crypt…): её может открыть только сам Happ. Попросите у сервиса обычную ссылку на подписку или вставьте ссылку на один сервер (vless://…) из Happ: долгое нажатие на сервер → «Поделиться» / «Копировать»".into()
     } else {
-        url.to_owned()
-    };
-    let text = if body.contains("://") { body } else { decode_b64(body.trim()).unwrap_or_default() };
+        "сервис отдаёт сервера только своим программам (вместо них пришла заглушка). Вставьте ссылку на один сервер (vless://…): в Happ долгое нажатие на сервер → «Поделиться» / «Копировать»".into()
+    }))
+}
+
+/// The servers of a subscription body (links, or base64 of them).
+fn servers_of(body: &str) -> Option<Vec<Server>> {
+    let text = if body.contains("://") { body.to_owned() } else { decode_b64(body.trim()).unwrap_or_default() };
     let servers: Vec<Server> = text
         .lines()
         .map(str::trim)
         .filter(|l| l.contains("://"))
         .map(|l| Server { name: name_of(l), link: l.to_owned(), ok: outbound(l).is_some() })
         .collect();
-    if servers.is_empty() {
-        return Err(AppError::Other("в подписке не нашлось ни одного сервера".into()));
-    }
-    Ok(servers)
+    (!servers.is_empty()).then_some(servers)
+}
+
+/// A stub instead of servers: a few entries that only tell to install or update an app, or point nowhere.
+fn is_stub(servers: &[Server]) -> bool {
+    let words = ["установите", "обновите", "install", "update", "download", "скачайте"];
+    servers.len() <= 3
+        && servers.iter().all(|s| {
+            let n = s.name.to_lowercase();
+            let nowhere = outbound(&s.link).is_some_and(|o| matches!(o["server"].as_str(), Some("0.0.0.0" | "127.0.0.1" | "localhost" | "")));
+            words.iter().any(|w| n.contains(w)) || nowhere
+        })
+}
+
+/// The same id every time on this computer (some panels count devices by it), nothing personal in it.
+fn device_id() -> String {
+    use sha2::Digest;
+    let seed = format!("{}|{}|sc-desk", std::env::var("COMPUTERNAME").unwrap_or_default(), std::env::var("USERNAME").unwrap_or_default());
+    hex::encode(&sha2::Sha256::digest(seed.as_bytes())[..16])
 }
 
 fn decode_b64(s: &str) -> Option<String> {
@@ -316,6 +356,14 @@ mod tests {
         let r = http.get("https://soundcloud.com/", crate::net::Profile::Document, None).await;
         println!("through sing-box: {:?}", r.map(|r| r.status()));
         super::stop();
+    }
+
+    #[test]
+    fn a_stub_is_told_from_servers() {
+        let stub = vec![super::Server { name: "Установите Incy или Обновите Happ".into(), link: "vless://u@0.0.0.0:1#x".into(), ok: true }];
+        assert!(super::is_stub(&stub));
+        let real = vec![super::Server { name: "NL 1".into(), link: "vless://u@1.2.3.4:443?security=tls#NL".into(), ok: true }];
+        assert!(!super::is_stub(&real));
     }
 
     #[test]
