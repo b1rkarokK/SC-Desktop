@@ -3,6 +3,14 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.2.0] - 2026-10-14
+
+- Your own server instead of a VPN app: paste a subscription from Happ, v2rayN and the like (Settings → Network) and pick a server from the list. Only SoundCloud goes through it, the VPN app can be closed. The engine (sing-box) is downloaded once, when you pick a server.
+- My files (Profile): your own tracks that aren't on SoundCloud. They get in only through the app, checked to be real sound, packed into Opus with no audible loss (pitch, loudness and length kept) and kept in one encrypted file. Nothing can be slipped in around the app.
+- In a room you can play a track from My files: it goes to the others over the room's encrypted channel and plays for everybody. Liked it? Right click → "Save to My files".
+- When a track won't play, the app says why and what to do: removed from SoundCloud, still processing after an upload, blocked in your country, Go+ only.
+- Recognising a song by its words is more accurate: when Musixmatch fails it searches Genius, beat noise is not taken for words, and songs are not matched by common words.
+
 ## [1.1.0] - 2026-10-14
 
 - If your provider blocks SoundCloud, the app gets around it by itself, with no VPN and no third-party servers: the start of the connection is cut so the filter can't see the site name, and SoundCloud's address is asked over secure DNS. Works in the sign-in window too. Settings → Network → "Get around a SoundCloud block". "Auto" turns on only when SoundCloud doesn't open directly, so it doesn't clash with zapret or a VPN.
