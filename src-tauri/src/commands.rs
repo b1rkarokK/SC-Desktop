@@ -663,6 +663,80 @@ pub async fn local_remove(app: AppHandle, state: State<'_, AppState>, id: u64) -
     Ok(())
 }
 
+/// Bytes in a folder, all the way down.
+fn dir_size(p: &std::path::Path) -> u64 {
+    let Ok(rd) = std::fs::read_dir(p) else { return 0 };
+    rd.flatten()
+        .map(|e| match e.metadata() {
+            Ok(m) if m.is_dir() => dir_size(&e.path()),
+            Ok(m) => m.len(),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+#[derive(Serialize)]
+pub struct StorageDto {
+    /// bytes: the library cache (tracks, lyrics, history), covers, the browser's cache, the speech model, «Мои файлы»
+    pub database: u64,
+    pub covers: u64,
+    pub browser: u64,
+    pub model: u64,
+    pub local: u64,
+}
+
+const WEB_CACHE_KEY: &str = "storage:clear_web_cache";
+
+/// Settings → Хранилище: what the app keeps on this computer.
+#[tauri::command]
+pub async fn storage_info(app: AppHandle, state: State<'_, AppState>) -> Cmd<StorageDto> {
+    let data = app.path().app_data_dir()?;
+    let local_data = app.path().app_local_data_dir()?;
+    let covers = state.covers.dir().to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let file = |n: &str| std::fs::metadata(data.join(n)).map(|m| m.len()).unwrap_or(0);
+        StorageDto {
+            database: file("cache.sqlite3") + file("cache.sqlite3-wal"),
+            covers: dir_size(&covers),
+            browser: dir_size(&local_data.join("EBWebView")),
+            model: dir_size(&data.join("models")),
+            local: file("local.sqlite3"),
+        }
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))
+}
+
+/// Covers now; the browser's cache at the next start (it is in use while the app runs).
+#[tauri::command]
+pub async fn storage_clear_cache(state: State<'_, AppState>) -> Cmd<()> {
+    state.covers.clear().await?;
+    state.db.kv_put(WEB_CACHE_KEY, &true).await
+}
+
+/// The speech model (57 MB): downloaded again only if a song is to be recognised again.
+#[tauri::command]
+pub async fn storage_delete_model(app: AppHandle) -> Cmd<()> {
+    let _ = tokio::fs::remove_dir_all(app.path().app_data_dir()?.join("models")).await;
+    Ok(())
+}
+
+/// At the start, before any window: the browser's cache asked to be cleared last time.
+pub async fn clear_web_cache_if_asked(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.db.kv_get::<bool>(WEB_CACHE_KEY).await.ok().flatten().is_none() {
+        return;
+    }
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        let profile = dir.join("EBWebView").join("Default");
+        for sub in ["Cache", "Code Cache", "GPUCache", "Service Worker"] {
+            let _ = tokio::fs::remove_dir_all(profile.join(sub)).await;
+        }
+    }
+    let _ = state.db.kv_delete(WEB_CACHE_KEY).await;
+    tracing::info!("browser cache cleared");
+}
+
 /// Holding Alt over a track: a short listen without leaving the playing one.
 #[tauri::command]
 pub async fn preview_start(player: State<'_, Arc<Player>>, track: TrackDto) -> Cmd<()> {

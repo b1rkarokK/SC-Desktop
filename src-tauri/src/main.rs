@@ -94,6 +94,8 @@ fn main() {
             let state = state::AppState::init(&handle)?;
             let start_hidden = state.config.get().start_minimized && std::env::args().any(|a| a == MINIMIZED_FLAG);
             app.manage(state);
+            // the browser's cache asked to be cleared: now, before any window holds it
+            tauri::async_runtime::block_on(commands::clear_web_cache_if_asked(&handle));
             app.manage(player::Player::start(handle.clone())?);
             // the output device picked last time (it follows the system's if it is gone)
             if let Some(name) = app.state::<state::AppState>().config.get().output_device {
@@ -336,6 +338,9 @@ fn main() {
             commands::local_remove,
             commands::local_open,
             commands::local_keep,
+            commands::storage_info,
+            commands::storage_clear_cache,
+            commands::storage_delete_model,
             commands::local_clear,
             commands::vpn_set_url,
             commands::vpn_select,

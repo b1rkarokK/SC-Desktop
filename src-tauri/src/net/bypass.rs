@@ -93,7 +93,8 @@ pub fn on_failure(url: &str) -> bool {
 pub fn browser_args() -> &'static str {
     static ARGS: OnceLock<String> = OnceLock::new();
     ARGS.get_or_init(|| {
-        let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection");
+        // the built-in browser keeps at most 32 MB of web cache (left alone it grew to hundreds of MB)
+        let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disk-cache-size=33554432");
         let port = PORT.load(Ordering::Relaxed);
         // always while the local proxy is there: «Свой сервер» may be picked later in this run
         if port != 0 {

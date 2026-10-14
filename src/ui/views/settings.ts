@@ -11,6 +11,7 @@ import { store } from '../store';
 import { lyricsData } from '../lyrics_data';
 import { updates } from '../update_dialog';
 import { btn, viewHead, type View } from './common';
+import { mb } from './profile';
 import { currentLang, setLang, T, type Lang } from '../i18n';
 import { HOTKEY_ACTIONS, hotkeys, recorder, resetCombos, setInGames, setMiniClickSecs } from '../hotkeys';
 
@@ -58,6 +59,7 @@ export class SettingsView implements View {
   private lyricsBox = h('div');
   private netBox = h('div');
   private vpnBox = h('div');
+  private storageBox = h('div');
   private systemBox = h('div');
   private themeBox = h('div');
   private langBox = h('div');
@@ -71,7 +73,7 @@ export class SettingsView implements View {
       h(
         'div',
         { class: 'view-scroll pad' },
-        h('div', { class: 'settings' }, this.account, this.themeBox, this.langBox, this.hotkeysBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox),
+        h('div', { class: 'settings' }, this.account, this.themeBox, this.langBox, this.hotkeysBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox, this.storageBox),
       ),
     );
     store.on('auth', () => this.renderAccount());
@@ -91,6 +93,7 @@ export class SettingsView implements View {
     try {
       this.cfg = await api.configGet();
       this.renderDiscord();
+      void this.renderStorage();
       this.renderNet();
       this.autoPause = await api.autopauseGet();
       const sys = await api.systemGet();
@@ -434,6 +437,36 @@ export class SettingsView implements View {
           [T('Что вписать'), T('socks5h://127.0.0.1:ПОРТ (h — DNS тоже идёт через прокси). С паролем: socks5://логин:пароль@адрес:порт')],
           [T('Проверка'), T('нажмите «Проверить». Ошибка 403 — SoundCloud не пускает этот адрес, нужен другой сервер.')],
         ]),
+      ),
+    );
+  }
+
+  /** Хранилище: what the app keeps on this computer, and the buttons that free it. */
+  private async renderStorage(): Promise<void> {
+    const s = await api.storageInfo().catch(() => null);
+    if (!s) return;
+    const line = (label: string, bytes: number, hint: string) => row(label, h('span', { class: 'muted', text: mb(bytes) }), hint);
+    const clear = btn(T('Очистить кэш'), I.close);
+    clear.addEventListener('click', async () => {
+      await api.storageClearCache().catch((e) => toast(errorMessage(e), 'error'));
+      toast(T('Обложки удалены. Кэш встроенного браузера очистится при следующем запуске программы.'));
+      void this.renderStorage();
+    });
+    const model = btn(T('Удалить модель распознавания'), I.close);
+    model.disabled = s.model === 0;
+    model.addEventListener('click', async () => {
+      await api.storageDeleteModel().catch((e) => toast(errorMessage(e), 'error'));
+      void this.renderStorage();
+    });
+    this.storageBox.replaceChildren(
+      group(
+        T('Хранилище'),
+        line(T('Библиотека'), s.database, T('треки, тексты песен, история: то, что программа уже знает, чтобы не спрашивать SoundCloud снова')),
+        line(T('Обложки'), s.covers, T('не больше 60 МБ, старые удаляются сами')),
+        line(T('Кэш встроенного браузера'), s.browser, T('окно входа и проверки SoundCloud; не больше 32 МБ с версии 1.2.1')),
+        line(T('Модель распознавания песен'), s.model, T('скачивается, только когда песню надо узнать по словам; удалите, если не нужна')),
+        line(T('Мои файлы'), s.local, T('ваши треки, сжатые и зашифрованные')),
+        h('div', { class: 'row-actions' }, clear, model),
       ),
     );
   }

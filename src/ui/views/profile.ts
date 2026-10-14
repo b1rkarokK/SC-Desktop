@@ -296,15 +296,15 @@ export class ProfileView implements View {
         toast(errorMessage(e), 'error');
       }
     });
-    const open = btn(T('Открыть расположение'), I.folder);
-    open.addEventListener('click', () => void api.localOpen().catch((e) => toast(errorMessage(e), 'error')));
+    const size = h('span', { class: 'muted small' });
+    void api.storageInfo().then((s) => (size.textContent = T('Занимают: {0}', mb(s.local)))).catch(() => {});
     const clear = btn(T('Удалить все'), I.close);
     clear.addEventListener('click', async () => {
       if (!(await confirmDialog(T('Удалить все свои треки?'), T('Все файлы из «Моих файлов» удалятся из программы. Копии, которые есть у вас где-то ещё, останутся.'), T('Удалить все')))) return;
       await api.localClear().catch((e) => toast(errorMessage(e), 'error'));
       void this.render();
     });
-    this.action.replaceChildren(add, open, clear);
+    this.action.replaceChildren(size, add, clear);
     const list = await api.localList().catch(() => []);
     if (this.tabs.value !== 'files') return;
     if (!list.length) {
@@ -441,4 +441,10 @@ export class ProfileView implements View {
       ...follows.map((f) => userRow(f.user, f.follow ? T('подписка') : T('отписка'))),
     );
   }
+}
+
+/** Bytes as megabytes for people: "2,4 МБ" (under 0.1 MB: "меньше 0,1 МБ"). */
+export function mb(bytes: number): string {
+  const v = bytes / 1048576;
+  return v < 0.1 ? T('меньше 0,1 МБ') : `${v.toFixed(v < 10 ? 1 : 0).replace('.', ',')} ${T('МБ')}`;
 }

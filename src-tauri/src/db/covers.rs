@@ -21,7 +21,8 @@ use crate::{
     state::AppState,
 };
 
-pub const MAX_BYTES: u64 = 200 * 1024 * 1024;
+/// a few thousand covers: the screens anybody scrolls through again; older ones are fetched again if needed
+pub const MAX_BYTES: u64 = 60 * 1024 * 1024;
 const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
 pub struct CoverCache {
@@ -57,6 +58,27 @@ impl CoverCache {
         self.db.cover_insert(key, bytes.len() as u64).await?;
         self.evict_if_needed().await;
         Ok(bytes)
+    }
+
+    /// Every cover gone (Settings → Хранилище → «Очистить кэш»).
+    pub async fn clear(&self) -> AppResult<()> {
+        loop {
+            let batch = self.db.cover_lru(256).await?;
+            if batch.is_empty() {
+                break;
+            }
+            let mut keys = Vec::with_capacity(batch.len());
+            for (key, _) in batch {
+                let _ = tokio::fs::remove_file(self.dir.join(&key)).await;
+                keys.push(key);
+            }
+            self.db.cover_delete(keys).await?;
+        }
+        Ok(())
+    }
+
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
     }
 
     async fn evict_if_needed(&self) {
