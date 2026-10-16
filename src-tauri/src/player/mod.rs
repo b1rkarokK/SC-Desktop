@@ -297,6 +297,8 @@ pub struct Player {
     crossfade: Mutex<f32>,
     /// sleep timer: (deadline, after this track, id)
     sleep: Mutex<SleepTimer>,
+    /// the night's quieter volume: a factor 0.2 … 1 (bits of an f32), eased towards its target (see night_loop)
+    night: std::sync::atomic::AtomicU32,
     discord: Discord,
     /// Windows media panel ("now playing" of the volume flyout, lock screen)
     smtc: crate::smtc::Smtc,
@@ -335,6 +337,7 @@ impl Player {
             crossfade_next: std::sync::atomic::AtomicBool::new(false),
             crossfade: Mutex::new(cfg.fx.crossfade.clamp(0.0, 12.0)),
             sleep: Mutex::new(SleepTimer::default()),
+            night: std::sync::atomic::AtomicU32::new(1.0f32.to_bits()),
             discord: Discord::start(cfg.discord.clone()),
             room_route: Mutex::new(None),
             smtc,
@@ -357,6 +360,9 @@ impl Player {
             }),
             generation: AtomicU64::new(0),
         });
+
+        let night = player.clone();
+        tauri::async_runtime::spawn(async move { night.night_loop().await });
 
         let p = player.clone();
         tauri::async_runtime::spawn(async move {
@@ -432,6 +438,8 @@ impl Player {
                 self.audio.send(AudioCmd::Stop);
             }
             AudioCmd::Volume(v) => {
+                // quieter at night, if that is on
+                let v = (v * self.night_factor()).clamp(0.0, 1.0);
                 self.widget.send(AudioCmd::Volume(v));
                 self.audio.send(AudioCmd::Volume(v));
             }
@@ -1001,6 +1009,41 @@ impl Player {
     fn routed(&self, a: RoomAction) -> bool {
         let hook = self.room_route.lock().unwrap_or_else(|e| e.into_inner()).clone();
         hook.is_some_and(|f| f(a))
+    }
+
+    fn night_factor(&self) -> f32 {
+        f32::from_bits(self.night.load(Ordering::Relaxed))
+    }
+
+    /// «Тише ночью» (Настройки → Система, ui.nightQuiet = {on, from, to, percent}): in the set hours the volume is
+    /// brought down by that share, a little at a time, and back up in the morning. The slider keeps showing the
+    /// volume the user set; only what goes to the speakers is quieter.
+    async fn night_loop(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let state = self.app.state::<AppState>();
+            let cfg = state.config.get().ui["nightQuiet"].clone();
+            let mut target = 1.0f32;
+            if cfg["on"].as_bool().unwrap_or(false) {
+                let (from, to) = (cfg["from"].as_u64().unwrap_or(23) as u32 % 24, cfg["to"].as_u64().unwrap_or(7) as u32 % 24);
+                let percent = cfg["percent"].as_u64().unwrap_or(30).clamp(5, 80) as f32;
+                if let Ok((hour, _)) = state.db.local_now().await {
+                    let inside = if from <= to { hour >= from && hour < to } else { hour >= from || hour < to };
+                    if inside && from != to {
+                        target = 1.0 - percent / 100.0;
+                    }
+                }
+            }
+            let now = self.night_factor();
+            if (now - target).abs() < 0.001 {
+                continue;
+            }
+            // about a minute for the whole way
+            let next = if now < target { (now + 0.02).min(target) } else { (now - 0.02).max(target) };
+            self.night.store(next.to_bits(), Ordering::Relaxed);
+            let v = self.lock().volume;
+            self.out(AudioCmd::Volume(v));
+        }
     }
 
     /// Is this player in a room (its controls go through the room)?

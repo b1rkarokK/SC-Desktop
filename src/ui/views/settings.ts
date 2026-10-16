@@ -706,6 +706,28 @@ export class SettingsView implements View {
         row(T('Пауза во время звонка'), toggle(this.autoPause.call, (v) => this.saveAutoPause({ call: v })), T('Музыка встаёт на паузу, когда другая программа включила микрофон (Discord, Zoom), и продолжается после звонка.')),
         row(T('Пауза в полноэкранной игре'), toggle(this.autoPause.game, (v) => this.saveAutoPause({ game: v })), T('Музыка встаёт на паузу, когда игра открылась на весь экран, и продолжается, когда вы вышли из неё. Выключено: музыка играет и в игре.')),
         row(T('Резервная копия'), h('div', { class: 'row-actions' }, backupBtn, restoreBtn), T('Лайки, история, дизлайки, настройки одним файлом. Вход в SoundCloud не входит в файл.')),
+        row(T('Тише ночью'), (() => {
+          const nq = prefs().nightQuiet ?? { on: false, from: 23, to: 7, percent: 30 };
+          const save = (patch: Partial<typeof nq>) => updatePrefs((x) => (x.nightQuiet = { ...(x.nightQuiet ?? nq), ...patch }));
+          const hours = (cur: number, key: 'from' | 'to') => {
+            const sel = h('select', { class: 'input' }) as HTMLSelectElement;
+            for (let i = 0; i < 24; i++) {
+              const o = h('option', { value: String(i), text: `${String(i).padStart(2, '0')}:00` }) as HTMLOptionElement;
+              o.selected = i === cur;
+              sel.append(o);
+            }
+            sel.addEventListener('change', () => save({ [key]: Number(sel.value) }));
+            return sel;
+          };
+          const pct = h('select', { class: 'input' }) as HTMLSelectElement;
+          for (const v of [15, 20, 30, 40, 50, 60]) {
+            const o = h('option', { value: String(v), text: `−${v}%` }) as HTMLOptionElement;
+            o.selected = v === nq.percent;
+            pct.append(o);
+          }
+          pct.addEventListener('change', () => save({ percent: Number(pct.value) }));
+          return h('div', { class: 'row-actions' }, toggle(nq.on, (v) => save({ on: v })), hours(nq.from, 'from'), h('span', { class: 'muted small', text: '→' }), hours(nq.to, 'to'), pct);
+        })(), T('В заданные часы громкость плавно становится тише на выбранную долю, утром возвращается. Ползунок громкости при этом не двигается.')),
         row(T('Если что-то сломалось'), copyLog, T('Копирует конец журнала программы, его можно отправить вместе с описанием ошибки.')),
         row(T('Отчёт об ошибке'), report, T('Файл на рабочем столе: версия, система, настройки сети и конец журнала. Токены, ключи, ссылки подписок и имя пользователя Windows из него вырезаются, его можно отправлять.')),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),

@@ -48,6 +48,8 @@ export interface UiPrefs {
   accentFromCover?: boolean;
   /** the height of track rows in lists */
   density?: 'compact' | 'normal' | 'large';
+  /** quieter at night: from the hour to the hour, by this share (the core eases the volume) */
+  nightQuiet?: { on: boolean; from: number; to: number; percent: number };
   theme: Theme;
   customThemes?: CustomTheme[];
   themeSystem: boolean;
