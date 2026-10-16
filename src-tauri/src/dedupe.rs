@@ -136,6 +136,23 @@ fn levenshtein(a: &[char], b: &[char]) -> usize {
     prev[b.len()]
 }
 
+/// A stricter «same song» for the duplicates of the likes, where a wrong pair costs a like: the same words, or one
+/// title fully inside the other when it is long enough ("танцуй" is not "танцуйте").
+pub fn same_song_strict(a: &TitleKey, b: &TitleKey) -> bool {
+    if a.versions != b.versions {
+        return false;
+    }
+    let (ka, kb) = (a.core_without(b), b.core_without(a));
+    if ka.is_empty() || kb.is_empty() {
+        return false;
+    }
+    if ka == kb {
+        return true;
+    }
+    let (short, long) = if ka.chars().count() <= kb.chars().count() { (&ka, &kb) } else { (&kb, &ka) };
+    short.chars().count() >= 8 && long.chars().count() - short.chars().count() <= 8 && long.contains(short.as_str())
+}
+
 pub fn same_song(a: &TitleKey, b: &TitleKey) -> bool {
     if a.versions != b.versions {
         return false;

@@ -2669,7 +2669,7 @@ pub async fn likes_duplicates(state: State<'_, AppState>) -> Cmd<Vec<Vec<TrackDt
     }
     for (a, &i) in by_length.iter().enumerate() {
         for &j in by_length[a + 1..].iter().take_while(|&&j| liked[j].duration - liked[i].duration <= 4_000) {
-            if crate::dedupe::same_song(&keys[i], &keys[j]) {
+            if crate::dedupe::same_song_strict(&keys[i], &keys[j]) {
                 let (ri, rj) = (root(&mut parent, i), root(&mut parent, j));
                 if ri != rj {
                     parent[ri] = rj;
@@ -2706,10 +2706,11 @@ pub async fn lyrics_translate(state: State<'_, AppState>, track_id: u64, lines: 
         }
     }
     let out = crate::api::translate::translate_lines(&state.http(), &lines, &to).await?;
-    // all failed (offline, refused): not kept, asked again next time
-    if out.iter().zip(&lines).any(|(t, l)| !l.trim().is_empty() && !t.is_empty()) {
-        state.db.kv_put(&key, &out).await?;
+    // all failed (offline, both services refuse): not kept, asked again next time, and said so
+    if lines.iter().any(|l| !l.trim().is_empty()) && !out.iter().zip(&lines).any(|(t, l)| !l.trim().is_empty() && !t.is_empty()) {
+        return Err(AppError::Network("Перевод сейчас недоступен: сервис отказывает, попробуйте позже".into()));
     }
+    state.db.kv_put(&key, &out).await?;
     Ok(out)
 }
 

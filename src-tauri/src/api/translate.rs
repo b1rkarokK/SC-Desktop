@@ -18,10 +18,38 @@ fn text_of(v: &Value) -> String {
         .unwrap_or_default()
 }
 
-async fn ask(http: &HttpClient, text: &str, to: &str) -> AppResult<String> {
+async fn ask_web(http: &HttpClient, text: &str, to: &str) -> AppResult<String> {
     let url = format!("{ENDPOINT}?client=gtx&sl=auto&tl={}&dt=t&q={}", urlencoding::encode(to), urlencoding::encode(text));
     let v: Value = http.get_json_with(&url, &[]).await?;
     Ok(text_of(&v))
+}
+
+/// The second way when the first refuses (it answers 429 to an address that asked too much): MyMemory, a free
+/// translation memory with a published API. At most 500 characters in a request, so line by line in pieces.
+async fn ask_memory(http: &HttpClient, text: &str, to: &str) -> AppResult<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            out.push(String::new());
+            continue;
+        }
+        let url = format!("https://api.mymemory.translated.net/get?q={}&langpair=Autodetect%7C{}", urlencoding::encode(&line.chars().take(450).collect::<String>()), urlencoding::encode(to));
+        let v: Value = http.get_json_with(&url, &[]).await?;
+        let t = v["responseData"]["translatedText"].as_str().unwrap_or("").to_owned();
+        // the service writes its own complaints in the same field
+        if t.is_empty() || t.contains("MYMEMORY WARNING") || v["responseStatus"].as_i64().is_some_and(|c| c != 200) {
+            return Err(crate::error::AppError::Network("перевод недоступен".into()));
+        }
+        out.push(t);
+    }
+    Ok(out.join(&String::from('\n')))
+}
+
+async fn ask(http: &HttpClient, text: &str, to: &str) -> AppResult<String> {
+    match ask_web(http, text, to).await {
+        Ok(t) if !t.trim().is_empty() => Ok(t),
+        _ => ask_memory(http, text, to).await,
+    }
 }
 
 /// One translated line for each of `lines` (an empty line stays empty).

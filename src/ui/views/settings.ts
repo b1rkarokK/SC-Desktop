@@ -748,7 +748,9 @@ export class SettingsView implements View {
             pct.append(o);
           }
           pct.addEventListener('change', () => save({ percent: Number(pct.value) }));
-          return h('div', { class: 'row-actions' }, toggle(nq.on, (v) => save({ on: v })), hours(nq.from, 'from'), h('span', { class: 'muted small', text: '→' }), hours(nq.to, 'to'), pct);
+          const tg = toggle(nq.on, (v) => save({ on: v }));
+          tg.setAttribute('aria-label', T('Тише ночью'));
+          return h('div', { class: 'row-actions' }, tg, hours(nq.from, 'from'), h('span', { class: 'muted small', text: '→' }), hours(nq.to, 'to'), pct);
         })(), T('В заданные часы громкость плавно становится тише на выбранную долю, утром возвращается. Ползунок громкости при этом не двигается.')),
         row(T('Если что-то сломалось'), copyLog, T('Копирует конец журнала программы, его можно отправить вместе с описанием ошибки.')),
         row(T('Для стрима (OBS)'), toggle(ov.on, (v) => void ovApply({ on: v })), T('Страница для OBS: играющий трек и текущая строка текста. Доступна только на этом компьютере. В OBS: Источники → + → Браузер → вставьте адрес, ширина 900, высота 200.')),

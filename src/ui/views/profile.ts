@@ -360,7 +360,7 @@ export class ProfileView implements View {
     );
     // «Лайки без интернета»: the liked tracks are kept as files (the ones playing from their own audio, the rest slowly)
     const likesOn = prefs().offlineLikes === true;
-    const knob = h('button', { type: 'button', class: `toggle${likesOn ? ' is-on' : ''}`, role: 'switch', 'aria-checked': String(likesOn) }, h('span', { class: 'toggle-knob' }));
+    const knob = h('button', { type: 'button', class: `toggle${likesOn ? ' is-on' : ''}`, role: 'switch', 'aria-checked': String(likesOn), 'aria-label': T('Лайки без интернета') }, h('span', { class: 'toggle-knob' }));
     knob.addEventListener('click', () => {
       const v = knob.getAttribute('aria-checked') !== 'true';
       knob.classList.toggle('is-on', v);

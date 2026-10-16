@@ -1,6 +1,6 @@
 // Right lyrics panel (karaoke). Hidden completely with the «T» toggle.
-import { api } from './api';
-import { h } from './dom';
+import { api, errorMessage } from './api';
+import { h, toast } from './dom';
 import { iconButton, I } from './icons';
 import { LyricsView } from './lyrics_view';
 import { lyricsData, SOURCE_NAMES, type LyricsState } from './lyrics_data';
@@ -110,7 +110,11 @@ export class LyricsPanel {
     this.trFor = trackId;
     void api.lyricsTranslate(trackId, lines, currentLang()).then(
       (t) => this.trFor === trackId && this.view.setTranslations(t),
-      () => this.trFor === trackId && this.view.setTranslations(null),
+      (e) => {
+        if (this.trFor !== trackId) return;
+        this.view.setTranslations(null);
+        toast(errorMessage(e), 'error');
+      },
     );
   }
 
