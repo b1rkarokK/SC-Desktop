@@ -1918,6 +1918,12 @@ pub async fn report_save(app: AppHandle) -> Cmd<String> {
     crate::report::save(&app).await
 }
 
+/// «Для стрима»: starts, restarts or stops the OBS page by the saved settings; the port it listens on (None: off).
+#[tauri::command]
+pub async fn overlay_apply(app: AppHandle) -> Cmd<Option<u16>> {
+    crate::overlay::apply(&app).await.map_err(AppError::Other)
+}
+
 /// The plate over a game: the song (or its lyrics, `lyrics`) for a few seconds.
 #[tauri::command]
 pub async fn np_show(app: AppHandle, lyrics: bool) {

@@ -40,6 +40,7 @@ mod local;
 mod lyrics_align;
 mod mini;
 mod nowplaying;
+mod overlay;
 mod report;
 mod smtc;
 mod news;
@@ -161,6 +162,15 @@ fn main() {
             }
             charts::start_daily(&handle);
             autopause::start(handle.clone());
+            {
+                // «Для стрима»: the OBS page, if it is on
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = overlay::apply(&app).await {
+                        tracing::warn!(error = %e, "stream overlay not started");
+                    }
+                });
+            }
             {
                 // the shared playlists we are in: reopened once the sign-in is known
                 let app = handle.clone();
@@ -289,6 +299,7 @@ fn main() {
             commands::mini_resize,
             commands::mini_interact,
             commands::np_show,
+            commands::overlay_apply,
             commands::report_save,
             commands::mini_is_pinned,
             commands::mini_set_pinned,

@@ -392,6 +392,7 @@ export const api = {
   downloadManyCancel: () => invoke<void>('download_many_cancel'),
   backupExport: () => invoke<string | null>('backup_export'),
   backupImport: () => invoke<{ likes: number; plays: number; tracks: number } | null>('backup_import'),
+  overlayApply: () => invoke<number | null>('overlay_apply'),
   reportSave: () => invoke<string>('report_save'),
   logTail: (lines: number) => invoke<string>('log_tail', { lines }),
   lyricsTranslate: (trackId: number, lines: string[], to: string) => invoke<string[]>('lyrics_translate', { trackId, lines, to }),

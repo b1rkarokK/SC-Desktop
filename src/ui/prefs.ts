@@ -50,6 +50,8 @@ export interface UiPrefs {
   density?: 'compact' | 'normal' | 'large';
   /** the lyrics panel shows a translation under each line */
   lyricsTranslate?: boolean;
+  /** «Для стрима»: the page for OBS on 127.0.0.1 */
+  overlay?: { on: boolean; port: number };
   /** quieter at night: from the hour to the hour, by this share (the core eases the volume) */
   nightQuiet?: { on: boolean; from: number; to: number; percent: number };
   theme: Theme;

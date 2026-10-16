@@ -440,7 +440,7 @@ export class RoomsView implements View {
       h(
         'div',
         { class: 'rm-card-body' },
-        cur ? h('div', { class: 'rm-now' }, h('div', {}, h('div', { class: 'strong', dir: 'auto', text: cur.title }), h('div', { class: 'muted', dir: 'auto', text: cur.artist })), likeButton(cur)) : h('div', { class: 'muted', text: v.queue.length ? T('Очередь сохранена. Нажмите «Играть», чтобы продолжить.') : T('Пока ничего не играет. Добавьте трек: кнопка рядом с треком или «В конец очереди» в меню трека.') }),
+        cur ? h('div', { class: 'rm-now' }, h('div', {}, h('div', { class: 'strong', dir: 'auto', text: cur.title }), h('div', { class: 'muted', dir: 'auto', text: cur.artist }), names.get(cur.added_by) ? h('div', { class: 'muted small', dir: 'auto', text: T('поставил(а): {0}', names.get(cur.added_by)!) }) : null), likeButton(cur)) : h('div', { class: 'muted', text: v.queue.length ? T('Очередь сохранена. Нажмите «Играть», чтобы продолжить.') : T('Пока ничего не играет. Добавьте трек: кнопка рядом с треком или «В конец очереди» в меню трека.') }),
         h('div', { class: 'rm-bar' }, bar),
         h('div', { class: 'rm-timerow' }, time, h('span', { class: `small ${loading ? 'rm-warn' : 'rm-ok'}`, text: state })),
         v.host ? h('div', { class: 'rm-ctl' }, prev, pp, next) : h('div', { class: 'muted small', text: T('Музыкой управляет хост') }),

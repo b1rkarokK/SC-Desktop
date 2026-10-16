@@ -678,6 +678,28 @@ export class SettingsView implements View {
         toast(errorMessage(e), 'error');
       }
     });
+    // «Для стрима»: a page for OBS with the song and the line of the lyrics; the address is only for this computer
+    const ov = prefs().overlay ?? { on: false, port: 8765 };
+    const ovUrl = h('input', { class: 'input', readonly: 'readonly', value: `http://127.0.0.1:${ov.port}/overlay` });
+    const ovPort = h('input', { class: 'input', type: 'number', min: '1024', max: '65535', value: String(ov.port) }) as HTMLInputElement;
+    const ovApply = async (patch: Partial<typeof ov>) => {
+      const next = { ...(prefs().overlay ?? ov), ...patch };
+      updatePrefs((x) => (x.overlay = next));
+      ovUrl.value = `http://127.0.0.1:${next.port}/overlay`;
+      // the settings reach the core a moment later (they are saved with a pause)
+      await new Promise((r) => window.setTimeout(r, 700));
+      try {
+        await api.overlayApply();
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    };
+    ovPort.addEventListener('change', () => void ovApply({ port: Math.min(65535, Math.max(1024, Number(ovPort.value) || 8765)) }));
+    const ovCopy = btn(T('Скопировать'), I.link);
+    ovCopy.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(ovUrl.value).catch(() => undefined);
+      toast(T('Адрес скопирован'));
+    });
     this.systemBox.replaceChildren(
       group(
         T('Система'),
@@ -729,6 +751,9 @@ export class SettingsView implements View {
           return h('div', { class: 'row-actions' }, toggle(nq.on, (v) => save({ on: v })), hours(nq.from, 'from'), h('span', { class: 'muted small', text: '→' }), hours(nq.to, 'to'), pct);
         })(), T('В заданные часы громкость плавно становится тише на выбранную долю, утром возвращается. Ползунок громкости при этом не двигается.')),
         row(T('Если что-то сломалось'), copyLog, T('Копирует конец журнала программы, его можно отправить вместе с описанием ошибки.')),
+        row(T('Для стрима (OBS)'), toggle(ov.on, (v) => void ovApply({ on: v })), T('Страница для OBS: играющий трек и текущая строка текста. Доступна только на этом компьютере. В OBS: Источники → + → Браузер → вставьте адрес, ширина 900, высота 200.')),
+        row(T('Адрес страницы'), h('div', { class: 'row-actions' }, ovUrl, ovCopy), T('Вид задаётся в адресе: ?size=40 (размер) &color=ffffff (цвет) &cover=0 (без обложки) &next=0 (без следующей строки) &lyrics=0 (без текста) &hide=pause (прятать на паузе).')),
+        row(T('Порт страницы'), ovPort),
         row(T('Отчёт об ошибке'), report, T('Файл на рабочем столе: версия, система, настройки сети и конец журнала. Токены, ключи, ссылки подписок и имя пользователя Windows из него вырезаются, его можно отправлять.')),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),
       ),
