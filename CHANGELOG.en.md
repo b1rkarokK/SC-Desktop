@@ -3,6 +3,27 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.3.0] - 2026-10-16
+
+- The desktop shortcut no longer comes back after every update: it is made once, at the first install.
+- A "Own server" subscription with a hundred servers is saved now (the Windows store used to refuse it because of the size).
+- The network mode ("Direct" or a proxy) is remembered as soon as you pick it, no need to press "Apply". If a proxy is on and the VPN program is off, the message says plainly what to do. New buttons: "Network status" and "Reset the network".
+- In a room a track that did not load for one member no longer starts over and over: the others listen on.
+- The preview (Alt over a track) can no longer be left playing over a song.
+- My Wave does not put songs in a script your likes have none of (Indian, Arabic, hieroglyphs and so on).
+- "Duplicates" in likes: the same song from different uploaders is found and removed in a couple of clicks.
+- Plates over games on a hotkey: "now playing" (Ctrl+Alt+N) and the current line of the lyrics (Ctrl+Alt+T). They take no focus and no clicks, the game notices nothing.
+- "For streaming (OBS)": a page with the song that plays and the current lyric line, reachable only on your computer (Settings, System).
+- Translation of lyric lines: a button in the lyrics panel, the translation goes under each line, into the language of the app.
+- Ctrl+Alt+Y: press when a line of the lyrics begins and the text moves so that it begins right now.
+- History: search by title and artist, a day is split into night, morning, afternoon and evening.
+- "Quieter at night": in the hours you pick the volume goes down smoothly and comes back in the morning.
+- "Accent from the cover": the colour of the app follows the cover of the playing track. "List density": compact, normal or large.
+- Long mixes and podcasts (20 minutes and more) continue from where you stopped.
+- Smart shuffle never plays two songs of one artist in a row. In Ctrl+K inside a room the chosen track goes to the room's queue.
+- An error report in one button (Settings, System): a file on the desktop with the version and the end of the log. Tokens, keys, subscription links and the Windows user name are cut out of it.
+- Rooms: the host can hand the room over to a chosen member and move the queue by dragging, a track can be skipped by a vote (the host can turn it off), the playing track shows who added it, and when the host leaves the app says who will take over.
+
 ## [1.2.4] - 2026-10-14
 
 - Charts are full again: after the cache clean-up in 1.2.1 most songs showed as "not found on SoundCloud".
