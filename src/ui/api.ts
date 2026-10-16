@@ -393,6 +393,7 @@ export const api = {
   backupExport: () => invoke<string | null>('backup_export'),
   backupImport: () => invoke<{ likes: number; plays: number; tracks: number } | null>('backup_import'),
   logTail: (lines: number) => invoke<string>('log_tail', { lines }),
+  likesDuplicates: () => invoke<Track[][]>('likes_duplicates'),
   lyricsSearchGlobal: (query: string) => invoke<Track[]>('lyrics_search_global', { query }),
   likesSearchLyrics: (query: string) => invoke<{ track: Track; line: string }[]>('likes_search_lyrics', { query }),
   lyricsIndexStatus: () => invoke<{ done: number; total: number; running: boolean }>('lyrics_index_status'),

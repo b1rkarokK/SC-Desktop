@@ -414,12 +414,25 @@ export class SettingsView implements View {
         toast(errorMessage(e), 'error');
       }
     });
+    // everything about the network back to how it is by default: direct, bypass on «Авто», no own server
+    const resetNet = btn(T('Сбросить сеть'), null);
+    resetNet.addEventListener('click', async () => {
+      try {
+        updatePrefs((p) => (p.scBypass = 'auto'));
+        await api.vpnSelect(null).catch(() => undefined);
+        this.cfg = await api.configSetNetwork('direct', null, cfg.chrome_version);
+        toast(T('Сеть сброшена: прямое подключение'));
+        this.renderNet();
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    });
     void this.renderVpn();
     this.netBox.replaceChildren(
       group(
         T('Сеть'),
         radios,
-        h('div', { class: 'row-actions proxy-row' }, proxy, check, apply),
+        h('div', { class: 'row-actions proxy-row' }, proxy, check, apply, resetNet),
         result,
         (() => {
           // the provider blocks SoundCloud by its name: cut the greeting (net/bypass.rs), no server in between

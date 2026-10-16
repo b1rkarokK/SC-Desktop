@@ -2997,6 +2997,28 @@ body.mini #app {
   display: none;
 }
 
+.dup-list {
+  display: grid;
+  gap: 10px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.dup-group {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.dup-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
 .pal-row.pal-split {
   margin-top: 6px;
   border-top: 1px solid var(--border);

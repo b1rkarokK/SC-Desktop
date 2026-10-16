@@ -2620,6 +2620,51 @@ pub async fn lyrics_search_global(state: State<'_, AppState>, query: String) -> 
     Ok(crate::home::unique_songs(tracks).iter().map(TrackDto::from).collect())
 }
 
+/// The same song liked more than once (uploaded by several people, or twice): groups of two and more, the most
+/// played upload first (the one to keep). Songs of the same length (within 4 s) and the same title by the strict rule.
+#[tauri::command]
+pub async fn likes_duplicates(state: State<'_, AppState>) -> Cmd<Vec<Vec<TrackDto>>> {
+    let liked = state.db.liked_full(1_000_000).await?;
+    let keys: Vec<crate::dedupe::TitleKey> = liked.iter().map(crate::dedupe::key).collect();
+    let mut by_length: Vec<usize> = (0..liked.len()).collect();
+    by_length.sort_by_key(|&i| liked[i].duration);
+    // union-find over the pairs of equal length that are the same song
+    let mut parent: Vec<usize> = (0..liked.len()).collect();
+    fn root(p: &mut [usize], mut i: usize) -> usize {
+        while p[i] != i {
+            p[i] = p[p[i]];
+            i = p[i];
+        }
+        i
+    }
+    for (a, &i) in by_length.iter().enumerate() {
+        for &j in by_length[a + 1..].iter().take_while(|&&j| liked[j].duration - liked[i].duration <= 4_000) {
+            if crate::dedupe::same_song(&keys[i], &keys[j]) {
+                let (ri, rj) = (root(&mut parent, i), root(&mut parent, j));
+                if ri != rj {
+                    parent[ri] = rj;
+                }
+            }
+        }
+    }
+    let mut groups: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for i in 0..liked.len() {
+        let r = root(&mut parent, i);
+        groups.entry(r).or_default().push(i);
+    }
+    let mut out: Vec<Vec<TrackDto>> = groups
+        .into_values()
+        .filter(|g| g.len() >= 2)
+        .map(|mut g| {
+            g.sort_by_key(|&i| std::cmp::Reverse(liked[i].playback_count.unwrap_or(0)));
+            g.into_iter().map(|i| TrackDto::from(&liked[i])).collect()
+        })
+        .collect();
+    out.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a[0].title.cmp(&b[0].title)));
+    out.truncate(300);
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn likes_search_lyrics(state: State<'_, AppState>, query: String) -> Cmd<Vec<LyricHit>> {
     let q = query.trim().to_lowercase();

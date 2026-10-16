@@ -145,16 +145,61 @@ impl State {
                 order.retain(|&i| i != cur);
                 order.shuffle(&mut rand::thread_rng());
                 order.insert(0, cur);
+                spread_order(&mut order, |i| self.queue[i].user_id);
                 self.pos = 0;
             }
             (true, None) => {
                 order.shuffle(&mut rand::thread_rng());
+                spread_order(&mut order, |i| self.queue[i].user_id);
                 self.pos = 0;
             }
             (false, Some(cur)) => self.pos = cur,
             (false, None) => self.pos = 0,
         }
         self.order = order;
+    }
+}
+
+/// A shuffled order without one artist twice in a row where it can be helped: a track that follows the same artist
+/// swaps with the nearest later one by somebody else. The first track stays where it is.
+fn spread_order(order: &mut [usize], artist: impl Fn(usize) -> u64) {
+    let n = order.len();
+    // how many neighbours of this place share its artist
+    let clashes = |order: &[usize], at: usize| -> usize {
+        let mut c = 0;
+        if at > 0 && artist(order[at]) == artist(order[at - 1]) {
+            c += 1;
+        }
+        if at + 1 < n && artist(order[at]) == artist(order[at + 1]) {
+            c += 1;
+        }
+        c
+    };
+    for i in 1..n {
+        if artist(order[i]) != artist(order[i - 1]) {
+            continue;
+        }
+        // the swap partner (anywhere but the first place) that leaves fewer same-artist neighbours than before
+        let before = |order: &[usize], j: usize| clashes(order, i) + clashes(order, j);
+        let mut best: Option<usize> = None;
+        let mut best_score = before(order, i);
+        for j in 1..n {
+            if j == i || j + 1 == i || j == i + 1 {
+                continue;
+            }
+            order.swap(i, j);
+            let after = clashes(order, i) + clashes(order, j);
+            order.swap(i, j);
+            // compare with what both places had before the swap
+            let was = clashes(order, i) + clashes(order, j);
+            if after < was && after < best_score {
+                best_score = after;
+                best = Some(j);
+            }
+        }
+        if let Some(j) = best {
+            order.swap(i, j);
+        }
     }
 }
 
@@ -1100,6 +1145,10 @@ impl Player {
                 if s.shuffle {
                     let cur = s.order[s.pos];
                     s.order.shuffle(&mut rand::thread_rng());
+                    {
+                        let queue = s.queue.clone();
+                        spread_order(&mut s.order, |i| queue[i].user_id);
+                    }
                     // don't repeat the same track back-to-back
                     if s.order.len() > 1 && s.order[0] == cur {
                         let last = s.order.len() - 1;
@@ -1804,5 +1853,32 @@ impl Player {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod spread_tests {
+    use super::spread_order;
+
+    #[test]
+    fn one_artist_is_not_twice_in_a_row() {
+        // artists by index: 0,0,1,1,2,2 (each artist has two tracks); the order puts them together
+        let artists = [0u64, 0, 1, 1, 2, 2];
+        let mut order = vec![0usize, 1, 2, 3, 4, 5];
+        spread_order(&mut order, |i| artists[i]);
+        for w in order.windows(2) {
+            assert_ne!(artists[w[0]], artists[w[1]], "{order:?}");
+        }
+        let mut sorted = order.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![0, 1, 2, 3, 4, 5], "nothing lost or doubled");
+        assert_eq!(order[0], 0, "the first track stays");
+    }
+
+    #[test]
+    fn one_artist_only_stays_as_it_is() {
+        let mut order = vec![0usize, 1, 2];
+        spread_order(&mut order, |_| 7);
+        assert_eq!(order, vec![0, 1, 2]);
     }
 }

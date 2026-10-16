@@ -12,6 +12,7 @@ import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
 import { ArraySource, PagedSource, VirtualList } from '../virtual_list';
 import { btn, emptyState, signInPrompt, viewHead, type View } from './common';
 import { importDialog } from '../import_dialog';
+import { duplicatesDialog } from '../duplicates_dialog';
 import { T } from '../i18n';
 
 export class LibraryView implements View {
@@ -20,6 +21,7 @@ export class LibraryView implements View {
   private body = h('div', { class: 'view-body' });
   private syncBtn: HTMLButtonElement;
   private importBtn = btn(T('Импорт'), I.download);
+  private dupesBtn = btn(T('Дубли'), I.copy);
   private list: VirtualList<Track>;
   private trackTotal = 0;
   private playlists: Playlist[] | null = null;
@@ -29,6 +31,8 @@ export class LibraryView implements View {
   constructor() {
     this.syncBtn = btn(T('Синхронизировать'), I.refresh);
     this.syncBtn.addEventListener('click', () => void this.sync());
+    this.dupesBtn.title = T('Найти песни, лайкнутые несколько раз (разные загрузки одной песни)');
+    this.dupesBtn.addEventListener('click', () => void duplicatesDialog());
     this.importBtn.title = T('Импорт плейлиста из Яндекс Музыки или Spotify');
     this.importBtn.addEventListener('click', () => importDialog(() => void this.loadPlaylists(true)));
     this.tabs = new SegTabs<LibTab>(
@@ -43,7 +47,7 @@ export class LibraryView implements View {
     );
     this.list = new VirtualList<Track>(new ArraySource(), trackRowRenderer(), ROW_HEIGHT);
     this.list.onRowActivate((i) => api.playLikes(i).catch((e) => toast(errorMessage(e), 'error')));
-    this.el = h('section', { class: 'view' }, viewHead(T('Лайки'), h('div', { class: 'row-actions' }, this.importBtn, this.syncBtn)), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
+    this.el = h('section', { class: 'view' }, viewHead(T('Лайки'), h('div', { class: 'row-actions' }, this.dupesBtn, this.importBtn, this.syncBtn)), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
     const refresh = () => this.list.refresh();
     store.on('player', refresh);
     // the playing like follows the skips: when it leaves the screen, the list moves to it
@@ -89,6 +93,7 @@ export class LibraryView implements View {
     this.syncBtn.hidden = false;
     // import makes playlists: shown where the playlists are
     this.importBtn.hidden = tab !== 'playlists';
+    this.dupesBtn.hidden = tab !== 'tracks';
     if (tab === 'tracks') {
       this.body.replaceChildren(this.trackTotal || !this.loadedTracks ? this.list.el : this.emptyTracks());
       this.list.refresh();
