@@ -20,6 +20,9 @@ import { SearchView } from './views/search';
 import { SettingsView } from './views/settings';
 import { WaveView } from './views/wave';
 import { T } from './i18n';
+import { initCoverAccent } from './cover_accent';
+import { applyDensity } from './track_row';
+import { prefs } from './prefs';
 
 const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
   ['home', T('Главная'), I.home],
@@ -48,6 +51,8 @@ export class MainWindow {
   private user = h('button', { type: 'button', class: 'nav-user', title: T('Профиль: скачанные и очередь лайков') });
 
   constructor(nav: HTMLElement, private center: HTMLElement) {
+    initCoverAccent();
+    applyDensity(prefs().density);
     const list = h('div', { class: 'nav-list', role: 'tablist' });
     for (const [id, label, ic] of NAV) {
       const b = h('button', { type: 'button', class: 'nav-item', role: 'tab' }, icon(ic), h('span', { class: 'nav-label', text: label }));

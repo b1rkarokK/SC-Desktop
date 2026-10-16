@@ -292,7 +292,19 @@ export class SettingsView implements View {
       langs.append(b);
     }
     this.themeBox.replaceChildren(
-      group(T('Тема'), cards, actions, row(T('Как в системе'), toggle(p.themeSystem, (v) => updatePrefs((x) => (x.themeSystem = v))), T('светлая днём, тёмная/OLED ночью'))),
+      group(T('Тема'), cards, actions, row(T('Как в системе'), toggle(p.themeSystem, (v) => updatePrefs((x) => (x.themeSystem = v))), T('светлая днём, тёмная/OLED ночью')), row(T('Плотность списков'), (() => {
+    const sel = h('select', { class: 'input' }) as HTMLSelectElement;
+    for (const [v, label] of [['compact', T('Компактно')], ['normal', T('Обычно')], ['large', T('Крупно')]] as const) {
+      const o = h('option', { value: v, text: label }) as HTMLOptionElement;
+      o.selected = (p.density ?? 'normal') === v;
+      sel.append(o);
+    }
+    sel.addEventListener('change', () => {
+      updatePrefs((x) => (x.density = sel.value as 'compact' | 'normal' | 'large'));
+      location.reload();
+    });
+    return sel;
+  })(), T('Высота строк с треками: мельче или с крупными обложками')), row(T('Акцент из обложки'), toggle(!!p.accentFromCover, (v) => updatePrefs((x) => (x.accentFromCover = v))), T('Цвет кнопок и подсветки подстраивается под обложку играющего трека'))),
     );
     this.langBox.replaceChildren(group('Язык / Language', row(T('Язык интерфейса'), langs, T('Тексты песен не переводятся'))));
   }

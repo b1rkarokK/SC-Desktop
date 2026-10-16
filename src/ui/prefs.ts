@@ -44,6 +44,10 @@ export interface UiPrefs {
   miniOpacity?: number;
   /** opacity of the lyric line in the mini player at rest (the capsule has its own) */
   miniTextOpacity?: number;
+  /** the accent colour follows the cover of the playing track */
+  accentFromCover?: boolean;
+  /** the height of track rows in lists */
+  density?: 'compact' | 'normal' | 'large';
   theme: Theme;
   customThemes?: CustomTheme[];
   themeSystem: boolean;

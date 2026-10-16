@@ -9,7 +9,25 @@ import { store } from './store';
 import type { RowRenderer } from './virtual_list';
 import { T } from './i18n';
 
-export const ROW_HEIGHT = 44;
+export type Density = 'compact' | 'normal' | 'large';
+
+/** [row height, cover size] in px for each list density */
+const DENSITY: Record<Density, [number, number]> = { compact: [32, 22], normal: [44, 32], large: [60, 48] };
+
+let rowH = DENSITY.normal[0];
+
+/** The height of a track row now (the density of lists in Настройки → Тема). */
+export function rowHeight(): number {
+  return rowH;
+}
+
+/** Sets the row size for the chosen density; the views made after it use it (a change reloads the window). */
+export function applyDensity(d: Density | undefined): void {
+  const [h, c] = DENSITY[d ?? 'normal'];
+  rowH = h;
+  document.documentElement.style.setProperty('--row-h', `${h}px`);
+  document.documentElement.style.setProperty('--row-cover', `${c}px`);
+}
 
 type RowEl = HTMLElement & { __track?: Track };
 

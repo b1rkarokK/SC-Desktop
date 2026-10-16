@@ -5,7 +5,7 @@ import { h, toast } from '../dom';
 import { iconButton, icon, I } from '../icons';
 import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
-import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
+import { rowHeight, trackRowRenderer } from '../track_row';
 import { ArraySource, VirtualList } from '../virtual_list';
 import { emptyState, sectionTitle, staticTrackList, type View } from './common';
 import { T } from '../i18n';
@@ -54,7 +54,7 @@ export class SearchView implements View {
       'all',
       () => void this.run(true),
     );
-    this.list = new VirtualList<Track>(this.source, trackRowRenderer(), ROW_HEIGHT);
+    this.list = new VirtualList<Track>(this.source, trackRowRenderer(), rowHeight());
     this.list.onRowActivate((i) => api.playTracks(this.source.items, i).catch((e) => toast(errorMessage(e), 'error')));
     const refresh = () => this.list.refresh();
     store.on('player', refresh);

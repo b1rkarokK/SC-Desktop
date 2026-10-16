@@ -8,7 +8,7 @@ import { I } from '../icons';
 import type { LibTab } from '../router';
 import { SegTabs } from '../seg_tabs';
 import { store } from '../store';
-import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
+import { rowHeight, trackRowRenderer } from '../track_row';
 import { ArraySource, PagedSource, VirtualList } from '../virtual_list';
 import { btn, emptyState, signInPrompt, viewHead, type View } from './common';
 import { importDialog } from '../import_dialog';
@@ -45,7 +45,7 @@ export class LibraryView implements View {
       'tracks',
       () => this.renderTab(),
     );
-    this.list = new VirtualList<Track>(new ArraySource(), trackRowRenderer(), ROW_HEIGHT);
+    this.list = new VirtualList<Track>(new ArraySource(), trackRowRenderer(), rowHeight());
     this.list.onRowActivate((i) => api.playLikes(i).catch((e) => toast(errorMessage(e), 'error')));
     this.el = h('section', { class: 'view' }, viewHead(T('Лайки'), h('div', { class: 'row-actions' }, this.dupesBtn, this.importBtn, this.syncBtn)), h('div', { class: 'tabs-row' }, this.tabs.el), this.body);
     const refresh = () => this.list.refresh();

@@ -4,7 +4,7 @@ import { h, toast } from '../dom';
 import { icon, I } from '../icons';
 import { router } from '../router';
 import { store } from '../store';
-import { ROW_HEIGHT, trackRowRenderer } from '../track_row';
+import { rowHeight, trackRowRenderer } from '../track_row';
 import { T } from '../i18n';
 
 export interface View {
@@ -51,7 +51,7 @@ export function emptyState(text: string): HTMLElement {
 export function staticTrackList(tracks: Track[], onPlay?: () => void): HTMLElement {
   const r = trackRowRenderer();
   const box = h('div', { class: 'track-list', role: 'list' });
-  box.style.minHeight = `${tracks.length * ROW_HEIGHT}px`;
+  box.style.minHeight = `${tracks.length * rowHeight()}px`;
   const rows = tracks.map((t, i) => {
     const row = r.create();
     row.dataset.index = String(i);

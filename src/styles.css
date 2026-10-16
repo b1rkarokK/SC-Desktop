@@ -2,6 +2,17 @@
    Flat: no gradients, no shadows, no blur, radius ≤ 4px (avatars round).
    Accent #ff5500: play button, active nav mark, current karaoke word. */
 
+/* the accent can be eased from one colour to another ("Акцент из обложки") */
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #ff5500;
+}
+
+html {
+  transition: --accent 0.8s ease;
+}
+
 :root,
 [data-theme='dark'] {
   --bg: #1a1a1a;
@@ -742,10 +753,10 @@ select {
 
 .row {
   display: grid;
-  grid-template-columns: 48px 32px minmax(0, 1fr) 28px 28px 56px;
+  grid-template-columns: 48px var(--row-cover, 32px) minmax(0, 1fr) 28px 28px 56px;
   align-items: center;
   gap: 10px;
-  height: 44px;
+  height: var(--row-h, 44px);
   padding: 0 12px 0 0;
   border-left: 2px solid transparent;
 }
@@ -785,8 +796,8 @@ select {
 }
 
 .row-cover {
-  width: 32px;
-  height: 32px;
+  width: var(--row-cover, 32px);
+  height: var(--row-cover, 32px);
   border-radius: 2px;
   background: var(--border);
   object-fit: cover;
