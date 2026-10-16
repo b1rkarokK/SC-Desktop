@@ -2,7 +2,10 @@
 // With «Работают в играх» on, the core registers them system-wide (hotkeys.rs);
 // with it off this module listens inside the window.
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { api } from './api';
+import { clock } from './clock';
+import { lyricsData } from './lyrics_data';
 import { h, toast } from './dom';
 import { T } from './i18n';
 import { prefs, updatePrefs } from './prefs';
@@ -24,6 +27,7 @@ export const HOTKEY_ACTIONS: HotkeyAction[] = [
   { id: 'mini', label: T('Мини-плеер'), def: 'Ctrl+Alt+KeyM' },
   { id: 'nowPlaying', label: T('Что играет (плашка на 3 секунды, в играх тоже)'), def: 'Ctrl+Alt+KeyN' },
   { id: 'lyricsPeek', label: T('Строка текста (плашка на 3 секунды, в играх тоже)'), def: 'Ctrl+Alt+KeyT' },
+  { id: 'lyricsSync', label: T('Совместить текст со звуком (нажмите, когда строка начинается)'), def: 'Ctrl+Alt+KeyY' },
   { id: 'miniClick', label: T('Мини-плеер: нажимать в игре (20 с, ещё раз - выключить)'), def: 'Ctrl+Alt+KeyK' },
   { id: 'slowed', label: T('Slowed (медленнее, ещё раз - обычная)'), def: 'Ctrl+Alt+Comma' },
   { id: 'sped', label: T('Sped up (быстрее, ещё раз - обычная)'), def: 'Ctrl+Alt+Period' },
@@ -194,11 +198,34 @@ function run(id: string): void {
     case 'sped':
       void api.speedPreset(id);
       break;
+    case 'lyricsSync':
+      syncLyricsNow();
+      break;
   }
+}
+
+/** The key pressed at the moment a line begins: the lyrics are moved so that the nearest line starts exactly now. */
+function syncLyricsNow(): void {
+  const s = lyricsData.state;
+  const t = store.snapshot?.track;
+  if (s.kind !== 'ready' || !t || !s.lyrics.found || !s.lyrics.synced) return void toast(T('У этого трека нет синхронного текста'));
+  const now = clock.now();
+  let best: number | null = null;
+  for (const l of s.lyrics.lines) {
+    if (l.start_ms === null || !l.text.trim()) continue;
+    if (best === null || Math.abs(l.start_ms - now) < Math.abs(best - now)) best = l.start_ms;
+  }
+  if (best === null) return;
+  const delta = Math.round(now - best);
+  if (Math.abs(delta) > 8000) return void toast(T('Строка слишком далеко от этого места, сдвиньте текст кнопками − и +'));
+  lyricsData.nudge(t.id, delta);
+  toast(T('Текст сдвинут на {0} с', (delta / 1000).toFixed(2).replace('.', ',')));
 }
 
 /** Window-level listener, used while the keys are not global. */
 export function initHotkeys(openSearch: () => void): void {
+  // the core passes on keys that need the window (a hotkey while the keys are global)
+  void listen<string>('hotkey:action', (e) => run(e.payload));
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyK' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
       e.preventDefault();
