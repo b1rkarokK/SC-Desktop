@@ -3074,6 +3074,14 @@ html.np body {
   flex: 1;
 }
 
+.hist-search {
+  width: 220px;
+}
+
+.hist-part {
+  margin: 10px 0 2px 2px;
+}
+
 .dup-list {
   display: grid;
   gap: 10px;

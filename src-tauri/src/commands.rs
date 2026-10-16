@@ -1143,7 +1143,7 @@ pub struct HistoryItem {
 pub async fn history_page(state: State<'_, AppState>, offset: u32, limit: u32) -> Cmd<Vec<HistoryItem>> {
     Ok(state
         .db
-        .history(offset, limit.min(500))
+        .history(offset, limit.min(5000))
         .await?
         .into_iter()
         .map(|(track, played_at)| HistoryItem { track, played_at })

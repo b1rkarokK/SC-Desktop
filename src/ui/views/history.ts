@@ -26,6 +26,10 @@ export class HistoryView implements View {
   private playlists: { playlist: Playlist; played_at: number }[] = [];
   private more: HTMLButtonElement;
   private lastTrack: number | null = null;
+  private query = '';
+  /** all of the history is loaded (a search looks through all of it, not only the shown part) */
+  private everything = false;
+  private lastHasMore = false;
 
   constructor() {
     const clear = btn(T('Очистить'), null);
@@ -48,7 +52,26 @@ export class HistoryView implements View {
     });
     this.more = btn(T('Показать ещё'), I.chevronDown);
     this.more.addEventListener('click', () => void this.load(true));
-    this.el = h('section', { class: 'view' }, viewHead(T('История'), clear), this.body);
+    // «что я слушал вчера вечером»: a search by title and artist over all the history
+    const search = h('input', { type: 'search', class: 'input hist-search', placeholder: T('Найти в истории…'), 'aria-label': T('Найти в истории') });
+    let typing = 0;
+    search.addEventListener('input', () => {
+      window.clearTimeout(typing);
+      typing = window.setTimeout(async () => {
+        this.query = search.value.trim().toLowerCase();
+        if (this.query && !this.everything) {
+          try {
+            this.items = await api.history(0, 5000);
+            this.everything = true;
+            this.lastHasMore = false;
+          } catch (e) {
+            toast(errorMessage(e), 'error');
+          }
+        }
+        this.render(this.lastHasMore && !this.query);
+      }, 200);
+    });
+    this.el = h('section', { class: 'view' }, viewHead(T('История'), h('div', { class: 'row-actions' }, search, clear)), this.body);
     // a new track started → refresh if the view is on screen
     store.on('player', () => {
       const id = store.currentId();
@@ -71,13 +94,22 @@ export class HistoryView implements View {
       ]);
       this.items = append ? this.items.concat(page) : page;
       this.playlists = pls;
-      this.render(page.length === PAGE);
+      this.everything = false;
+      this.lastHasMore = page.length === PAGE;
+      this.render(this.lastHasMore && !this.query);
     } catch (e) {
       toast(errorMessage(e), 'error');
     }
   }
 
   private render(hasMore: boolean): void {
+    const q = this.query;
+    const shown = q ? this.items.filter((it) => `${it.track.title} ${it.track.artist}`.toLowerCase().includes(q)) : this.items;
+    const shownPlaylists = q ? [] : this.playlists;
+    if (q && !shown.length) {
+      this.body.replaceChildren(emptyState(T('В истории такого нет.')));
+      return;
+    }
     if (!this.items.length && !this.playlists.length) {
       this.body.replaceChildren(emptyState(T('Здесь появятся треки, альбомы и плейлисты, которые вы слушали.')));
       return;
@@ -92,8 +124,8 @@ export class HistoryView implements View {
       return d;
     };
     const oldestTrack = this.items.length ? this.items[this.items.length - 1]!.played_at : 0;
-    for (const p of this.playlists) if (!hasMore || p.played_at >= oldestTrack) day(p.played_at).playlists.push(p.playlist);
-    for (const it of this.items) day(it.played_at).tracks.push(it);
+    for (const p of shownPlaylists) if (!hasMore || p.played_at >= oldestTrack) day(p.played_at).playlists.push(p.playlist);
+    for (const it of shown) day(it.played_at).tracks.push(it);
     const frag = document.createDocumentFragment();
     for (const [label, d] of [...days].sort((a, b) => b[1].at - a[1].at)) {
       const parts = [
@@ -102,7 +134,20 @@ export class HistoryView implements View {
       ].filter(Boolean);
       frag.append(sectionTitle(`${label} · ${parts.join(', ')}`));
       if (d.playlists.length) frag.append(h('div', { class: 'history-pls' }, playlistGrid(d.playlists)));
-      if (d.tracks.length) frag.append(staticTrackList(d.tracks.map((x) => x.track)));
+      if (d.tracks.length) {
+        // a day by the time of day: night, morning, day, evening (the newest part first)
+        const part = (ts: number) => {
+          const hr = new Date(ts * 1000).getHours();
+          return hr < 6 ? 0 : hr < 12 ? 1 : hr < 18 ? 2 : 3;
+        };
+        const names = [T('Ночью'), T('Утром'), T('Днём'), T('Вечером')];
+        const used = [...new Set(d.tracks.map((x) => part(x.played_at)))].sort((a, b) => b - a);
+        for (const p of used) {
+          const tracks = d.tracks.filter((x) => part(x.played_at) === p).map((x) => x.track);
+          if (used.length > 1) frag.append(h('div', { class: 'muted small hist-part', text: names[p]! }));
+          frag.append(staticTrackList(tracks));
+        }
+      }
     }
     if (hasMore) frag.append(h('div', { class: 'row-actions center-row' }, this.more));
     const top = this.body.scrollTop;
