@@ -1912,6 +1912,12 @@ pub async fn mini_close(app: AppHandle, restore: bool) -> Cmd<()> {
     Ok(())
 }
 
+/// The plate over a game: the song (or its lyrics, `lyrics`) for a few seconds.
+#[tauri::command]
+pub async fn np_show(app: AppHandle, lyrics: bool) {
+    crate::nowplaying::show(&app, lyrics).await;
+}
+
 #[tauri::command]
 pub fn mini_interact(app: AppHandle) {
     crate::mini::toggle_interactive(&app);

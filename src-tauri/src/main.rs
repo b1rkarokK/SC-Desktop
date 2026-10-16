@@ -39,6 +39,7 @@ mod hear;
 mod local;
 mod lyrics_align;
 mod mini;
+mod nowplaying;
 mod smtc;
 mod news;
 mod upload;
@@ -286,6 +287,7 @@ fn main() {
             commands::mini_close,
             commands::mini_resize,
             commands::mini_interact,
+            commands::np_show,
             commands::mini_is_pinned,
             commands::mini_set_pinned,
             commands::import_preview,

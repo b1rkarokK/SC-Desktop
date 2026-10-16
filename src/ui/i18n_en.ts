@@ -664,6 +664,8 @@ export const EN: Record<string, string> = {
   'Создано плейлистов: {0} ({1} из {2} песен)': '{0} playlists created ({1} of {2} songs)',
   '«{0}»: нашлось {1} из {2}, песни разложены по {3} плейлистам (в SoundCloud в плейлисте не больше 500 песен).': '"{0}": found {1} of {2}, the songs went into {3} playlists (SoundCloud holds up to 500 songs in a playlist).',
   'Лайкнуть всё': 'Like all',
+  'Что играет (плашка на 3 секунды, в играх тоже)': 'Now playing (a plate for 3 seconds, over games too)',
+  'Строка текста (плашка на 3 секунды, в играх тоже)': 'Lyric line (a plate for 3 seconds, over games too)',
   'Дубли': 'Duplicates',
   'Найти песни, лайкнутые несколько раз (разные загрузки одной песни)': 'Find songs liked more than once (different uploads of one song)',
   'Дублей в лайках не нашлось.': 'No duplicates among your likes.',

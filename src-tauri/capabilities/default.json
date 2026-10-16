@@ -4,7 +4,8 @@
   "description": "Main window and the mini player: core IPC/events + own title bar (drag, minimize, maximize, close). External URLs open through the open_external command.",
   "windows": [
     "main",
-    "mini"
+    "mini",
+    "nowplaying"
   ],
   "permissions": [
     "core:default",

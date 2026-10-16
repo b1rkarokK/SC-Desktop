@@ -2997,6 +2997,72 @@ body.mini #app {
   display: none;
 }
 
+/* «Что играет» over a game */
+html.np,
+html.np body {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+.np-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px;
+  padding: 12px 16px;
+  min-height: 64px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.np-box.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+.np-cover {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex: none;
+}
+
+.np-text {
+  min-width: 0;
+}
+
+.np-title,
+.np-line {
+  color: var(--strong);
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-line {
+  font-size: 18px;
+}
+
+.np-artist,
+.np-next {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-wide {
+  flex: 1;
+}
+
 .dup-list {
   display: grid;
   gap: 10px;

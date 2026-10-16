@@ -22,6 +22,8 @@ export const HOTKEY_ACTIONS: HotkeyAction[] = [
   { id: 'volUp', label: T('Громче'), def: 'Ctrl+Alt+ArrowUp' },
   { id: 'volDown', label: T('Тише'), def: 'Ctrl+Alt+ArrowDown' },
   { id: 'mini', label: T('Мини-плеер'), def: 'Ctrl+Alt+KeyM' },
+  { id: 'nowPlaying', label: T('Что играет (плашка на 3 секунды, в играх тоже)'), def: 'Ctrl+Alt+KeyN' },
+  { id: 'lyricsPeek', label: T('Строка текста (плашка на 3 секунды, в играх тоже)'), def: 'Ctrl+Alt+KeyT' },
   { id: 'miniClick', label: T('Мини-плеер: нажимать в игре (20 с, ещё раз - выключить)'), def: 'Ctrl+Alt+KeyK' },
   { id: 'slowed', label: T('Slowed (медленнее, ещё раз - обычная)'), def: 'Ctrl+Alt+Comma' },
   { id: 'sped', label: T('Sped up (быстрее, ещё раз - обычная)'), def: 'Ctrl+Alt+Period' },
@@ -183,6 +185,10 @@ function run(id: string): void {
       break;
     case 'miniClick':
       void invoke('mini_interact');
+      break;
+    case 'nowPlaying':
+    case 'lyricsPeek':
+      void invoke('np_show', { lyrics: id === 'lyricsPeek' });
       break;
     case 'slowed':
     case 'sped':

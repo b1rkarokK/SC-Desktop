@@ -118,7 +118,10 @@ document.addEventListener('contextmenu', (e) => {
 });
 
 // the mini player is the same page in its own small window
-if (new URLSearchParams(location.search).has('mini')) {
+if (new URLSearchParams(location.search).has('np')) {
+  // the plate over a game (hotkey): its own tiny window
+  void import('./ui/nowplaying').then((m) => m.bootNowPlaying()).catch(() => undefined);
+} else if (new URLSearchParams(location.search).has('mini')) {
   void import('./ui/mini').then((m) => m.bootMini()).catch((e) => toast(errorMessage(e), 'error'));
 } else {
   boot().catch((e) => toast(T('Ошибка запуска: {0}', errorMessage(e)), 'error', 15000));

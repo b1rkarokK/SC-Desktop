@@ -150,7 +150,7 @@ pub async fn preview(state: &AppState, input: &str) -> AppResult<(String, usize)
 /// Finds the songs on SoundCloud and creates the playlist. `import:progress`
 /// {done, total} while looking up.
 pub async fn run(app: &AppHandle, state: &AppState, input: &str, title: &str, private: bool) -> AppResult<ImportResult> {
-    let mut src = read_source(state, input).await?;
+    let src = read_source(state, input).await?;
     let total = src.songs.len();
     let progress = |done: usize| {
         let _ = app.emit("import:progress", serde_json::json!({ "done": done, "total": total }));

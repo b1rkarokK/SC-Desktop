@@ -13,7 +13,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use crate::{commands, player::Player, state::AppState};
 
 /// (action, default combination)
-pub const DEFAULTS: [(&str, &str); 10] = [
+pub const DEFAULTS: [(&str, &str); 12] = [
     ("toggle", "Ctrl+Alt+KeyP"),
     ("next", "Ctrl+Alt+ArrowRight"),
     ("prev", "Ctrl+Alt+ArrowLeft"),
@@ -22,6 +22,8 @@ pub const DEFAULTS: [(&str, &str); 10] = [
     ("volDown", "Ctrl+Alt+ArrowDown"),
     ("mini", "Ctrl+Alt+KeyM"),
     ("miniClick", "Ctrl+Alt+KeyK"),
+    ("nowPlaying", "Ctrl+Alt+KeyN"),
+    ("lyricsPeek", "Ctrl+Alt+KeyT"),
     ("slowed", "Ctrl+Alt+Comma"),
     ("sped", "Ctrl+Alt+Period"),
 ];
@@ -79,6 +81,10 @@ fn run(app: &AppHandle, player: &Arc<Player>, action: &str) {
             tauri::async_runtime::spawn(async move { let _ = crate::mini::open(&app).await; });
         }
         "miniClick" => crate::mini::toggle_interactive(app),
+        "nowPlaying" | "lyricsPeek" => {
+            let (app, lyrics) = (app.clone(), action == "lyricsPeek");
+            tauri::async_runtime::spawn(async move { crate::nowplaying::show(&app, lyrics).await });
+        }
         "like" => {
             let app = app.clone();
             let Some(track) = player.current() else { return };

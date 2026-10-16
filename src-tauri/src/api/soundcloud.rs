@@ -759,6 +759,7 @@ pub fn has_drm_stream(track: &ScTrack) -> bool {
 
 /// Preference: full track over preview; progressive MP3 → HLS MP3 → HLS AAC (fMP4).
 /// Encrypted HLS (Go+ DRM) and Opus are skipped: rodio/symphonia cannot play them.
+#[cfg(test)]
 fn pick_transcoding(track: &ScTrack) -> AppResult<&Transcoding> {
     ranked_transcodings(track).map(|v| v[0])
 }
