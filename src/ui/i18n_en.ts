@@ -664,6 +664,7 @@ export const EN: Record<string, string> = {
   'Создано плейлистов: {0} ({1} из {2} песен)': '{0} playlists created ({1} of {2} songs)',
   '«{0}»: нашлось {1} из {2}, песни разложены по {3} плейлистам (в SoundCloud в плейлисте не больше 500 песен).': '"{0}": found {1} of {2}, the songs went into {3} playlists (SoundCloud holds up to 500 songs in a playlist).',
   'Лайкнуть всё': 'Like all',
+  'Перевод строк': 'Translate the lines',
   'Совместить текст со звуком (нажмите, когда строка начинается)': 'Match the lyrics to the sound (press when a line begins)',
   'У этого трека нет синхронного текста': 'This track has no synced lyrics',
   'Строка слишком далеко от этого места, сдвиньте текст кнопками − и +': 'The line is too far from this place, move the text with the − and + buttons',

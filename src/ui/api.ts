@@ -394,6 +394,7 @@ export const api = {
   backupImport: () => invoke<{ likes: number; plays: number; tracks: number } | null>('backup_import'),
   reportSave: () => invoke<string>('report_save'),
   logTail: (lines: number) => invoke<string>('log_tail', { lines }),
+  lyricsTranslate: (trackId: number, lines: string[], to: string) => invoke<string[]>('lyrics_translate', { trackId, lines, to }),
   likesDuplicates: () => invoke<Track[][]>('likes_duplicates'),
   lyricsSearchGlobal: (query: string) => invoke<Track[]>('lyrics_search_global', { query }),
   likesSearchLyrics: (query: string) => invoke<{ track: Track; line: string }[]>('likes_search_lyrics', { query }),

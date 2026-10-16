@@ -389,6 +389,7 @@ fn main() {
             commands::log_tail,
             commands::likes_search_lyrics,
             commands::likes_duplicates,
+            commands::lyrics_translate,
             commands::lyrics_search_global,
             commands::lyrics_index_status,
             commands::lyrics_index_run,

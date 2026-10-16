@@ -3074,6 +3074,13 @@ html.np body {
   flex: 1;
 }
 
+.ly-tr {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 0.82em;
+  font-weight: 400;
+}
+
 .hist-search {
   width: 220px;
 }

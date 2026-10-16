@@ -27,6 +27,8 @@ export class LyricsView {
   private userScrollUntil = 0;
   highlight: Highlight = 'word';
   offset = 0;
+  /** a translation of each line (same order), shown small under the line; null = none */
+  private translations: string[] | null = null;
 
   constructor(className: string) {
     this.el = h('div', { class: `lyrics-view ${className}` });
@@ -62,6 +64,11 @@ export class LyricsView {
     this.render();
   }
 
+  setTranslations(t: string[] | null): void {
+    this.translations = t;
+    this.rerender();
+  }
+
   rerender(): void {
     if (this.lyrics) this.render();
   }
@@ -87,6 +94,8 @@ export class LyricsView {
         el.textContent = line.text || ' ';
       }
       if (!l.synced) el.classList.add('ly-static');
+      const tr = this.translations?.[i]?.trim();
+      if (tr && tr.toLowerCase() !== line.text.trim().toLowerCase()) el.append(h('div', { class: 'ly-tr', dir: 'auto', text: tr }));
       frag.append(el);
       this.lines.push({ el, line, words });
     });

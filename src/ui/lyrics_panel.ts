@@ -6,7 +6,7 @@ import { LyricsView } from './lyrics_view';
 import { lyricsData, SOURCE_NAMES, type LyricsState } from './lyrics_data';
 import { lyricsMenu } from './menus';
 import { onPrefs, prefs, updatePrefs } from './prefs';
-import { T } from './i18n';
+import { T, currentLang } from './i18n';
 
 export class LyricsPanel {
   private view = new LyricsView('ly-panel');
@@ -16,11 +16,18 @@ export class LyricsPanel {
   private extBtn = iconButton(I.external, T('Открыть на Genius'));
   private url: string | null = null;
   private dragWidth = 0;
+  private trBtn!: HTMLButtonElement;
+  /** which track the shown translation is for (a stale answer is dropped) */
+  private trFor = 0;
+  private trOn = false;
 
   constructor(private host: HTMLElement, onFullscreen: () => void) {
     const fs = iconButton(I.fullscreen, T('Полный экран'));
     fs.addEventListener('click', onFullscreen);
     this.extBtn.addEventListener('click', () => this.url && void api.openExternal(this.url));
+    const tr = iconButton(I.translate, T('Перевод строк'));
+    tr.addEventListener('click', () => updatePrefs((p) => (p.lyricsTranslate = !p.lyricsTranslate)));
+    this.trBtn = tr;
     const hide = iconButton(I.lyrics, T('Скрыть текст'));
     hide.classList.add('is-on');
     hide.addEventListener('click', () => updatePrefs((p) => (p.lyricsOpen = false)));
@@ -55,7 +62,7 @@ export class LyricsPanel {
     grip.addEventListener('dblclick', () => updatePrefs((p) => (p.lyricsWidth = 320)));
     host.append(
       grip,
-      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), sizeBtn('A−', T('Текст меньше'), -2), sizeBtn('A+', T('Текст больше'), 2), fs, this.extBtn, hide),
+      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), sizeBtn('A−', T('Текст меньше'), -2), sizeBtn('A+', T('Текст больше'), 2), tr, fs, this.extBtn, hide),
       this.view.el,
       this.nudgeBox,
       this.footer,
@@ -76,6 +83,13 @@ export class LyricsPanel {
     document.getElementById('app')?.classList.toggle('lyrics-closed', !p.lyricsOpen);
     document.documentElement.style.setProperty('--ly-w', (p.lyricsWidth ?? 320) + 'px');
     this.view.el.style.fontSize = (p.lyricsSize ?? 14) + 'px';
+    this.trBtn?.classList.toggle('is-on', !!p.lyricsTranslate);
+    if (this.trBtn && !!p.lyricsTranslate !== this.trOn) {
+      // only when the button was pressed (not on every other pref): show or drop the translation of what is on screen
+      this.trOn = !!p.lyricsTranslate;
+      const s = lyricsData.state;
+      if (s.kind === 'ready' && s.lyrics.found) this.translate(s.track.id, s.lyrics.lines.map((x) => x.text));
+    }
     this.view.setShown(p.lyricsOpen);
     const hl = !p.syncedLyrics ? 'none' : p.wordHighlight ? 'word' : 'line';
     if (hl !== this.view.highlight || p.fs.offset !== this.view.offset) {
@@ -84,6 +98,20 @@ export class LyricsPanel {
       this.view.rerender();
     }
     lyricsData.setWanted(p.lyricsOpen || document.body.classList.contains('fs-open'));
+  }
+
+  /** The translation under the lines, if the button is on (kept per track by the core). */
+  private translate(trackId: number, lines: string[]): void {
+    if (!prefs().lyricsTranslate) {
+      this.trFor = 0;
+      this.view.setTranslations(null);
+      return;
+    }
+    this.trFor = trackId;
+    void api.lyricsTranslate(trackId, lines, currentLang()).then(
+      (t) => this.trFor === trackId && this.view.setTranslations(t),
+      () => this.trFor === trackId && this.view.setTranslations(null),
+    );
   }
 
   private render(s: LyricsState): void {
@@ -112,6 +140,7 @@ export class LyricsPanel {
           return;
         }
         this.view.setLyrics(l);
+        this.translate(s.track.id, l.lines.map((x) => x.text));
         this.badge.hidden = false;
         this.badge.textContent = l.word_level ? T('по словам') : l.synced ? T('синхронный') : T('без таймингов');
         this.url = l.url;

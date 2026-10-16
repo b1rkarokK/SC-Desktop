@@ -2677,6 +2677,24 @@ pub async fn likes_duplicates(state: State<'_, AppState>) -> Cmd<Vec<Vec<TrackDt
     Ok(out)
 }
 
+/// «Перевод» of the lines of a song into `to` ("ru", "en"), kept for the track.
+#[tauri::command]
+pub async fn lyrics_translate(state: State<'_, AppState>, track_id: u64, lines: Vec<String>, to: String) -> Cmd<Vec<String>> {
+    let to: String = to.chars().filter(|c| c.is_ascii_alphabetic() || *c == '-').take(8).collect();
+    let key = format!("lyr:tr:{track_id}:{to}");
+    if let Some((cached, _)) = state.db.kv_get::<Vec<String>>(&key).await? {
+        if cached.len() == lines.len() {
+            return Ok(cached);
+        }
+    }
+    let out = crate::api::translate::translate_lines(&state.http(), &lines, &to).await?;
+    // all failed (offline, refused): not kept, asked again next time
+    if out.iter().zip(&lines).any(|(t, l)| !l.trim().is_empty() && !t.is_empty()) {
+        state.db.kv_put(&key, &out).await?;
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn likes_search_lyrics(state: State<'_, AppState>, query: String) -> Cmd<Vec<LyricHit>> {
     let q = query.trim().to_lowercase();
