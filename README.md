@@ -22,12 +22,16 @@ Installs in a couple of seconds, no admin rights needed. You get a desktop short
 - Listening history by day and a yearly recap
 - 10-band equalizer, slowed / sped up, reverb, crossfade; a separate equalizer for every output device
 - Themes: OLED, dark, light, and your own (colours, a background picture, your own CSS)
-- Hotkeys of your own that work over games too
+- Hotkeys of your own that work over games too. One shows a plate with the song or the current lyric line over a game for 3 seconds, another makes the mini player clickable in a game
+- A page for OBS: the song and the current lyric line for streaming (reachable only on your computer)
+- Translation of lyric lines, finding a song by a line of its lyrics (your likes first, then all of SoundCloud), search in the history
+- Duplicates in your likes: the same song from different uploaders can be cleaned up in a couple of clicks
+- Small things for the evening: "quieter at night", the accent colour of the interface from the cover, list density, long mixes continue where you stopped
 - Discord status: what's playing, cover art, time left, and a "Join" button for an open room
 - Lives in the tray, works with media keys, can start with Windows
 - Switch headphones or speakers mid-song and the sound follows
 
-No ads at all. Audio comes straight from SoundCloud, without the inserts the website plays.
+No ads at all. Audio comes straight from SoundCloud, without the inserts the website plays. The installer is about 7 MB (Electron clients are usually over 150 MB), and the app sends nothing through servers of someone else: signing in and likes go straight to SoundCloud.
 
 ## Signing in
 
