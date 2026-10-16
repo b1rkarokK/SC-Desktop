@@ -273,6 +273,28 @@ impl Profile {
     }
 }
 
+/// Which less usual scripts a track's title and artist are written in (bits), plus the tags of the scene.
+/// Latin and Cyrillic are not counted: only what is far from both.
+fn scripts(t: &ScTrack) -> u8 {
+    let mut m = 0u8;
+    let hay = format!("{} {}", t.title, t.artist_name());
+    for c in hay.chars() {
+        m |= match c as u32 {
+            0x0900..=0x0DFF => 1, // devanagari, bengali, gurmukhi, tamil, telugu, kannada, malayalam, sinhala
+            0x0600..=0x077F | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF => 2, // arabic
+            0x4E00..=0x9FFF | 0x3040..=0x30FF | 0xAC00..=0xD7AF => 4, // chinese, japanese, korean
+            0x0E00..=0x0E7F => 8, // thai
+            0x0590..=0x05FF => 16, // hebrew
+            _ => 0,
+        };
+    }
+    let tags = format!("{} {}", t.genre.as_deref().unwrap_or(""), t.tag_list.as_deref().unwrap_or("")).to_lowercase();
+    if ["bollywood", "punjabi", "bhojpuri", "tamil", "telugu", "hindi", "kollywood", "tollywood"].iter().any(|w| tags.contains(w)) {
+        m |= 1;
+    }
+    m
+}
+
 /// Newest likes count most; a like from 400 positions ago still counts ~1/3.
 fn recency_weight(position: usize) -> f64 {
     1.0 / (1.0 + position as f64 / 200.0)
@@ -432,8 +454,11 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         }
     };
 
+    // scripts the listener has none of (devanagari, Arabic, hieroglyphs …): such tracks do not come up in the wave
+    let accepted: u8 = liked.iter().chain(ctx_tracks.iter()).chain(signals.iter().filter(|(_, s)| *s == LISTENED).map(|(t, _)| t)).fold(0, |m, t| m | scripts(t));
     let allowed = |t: &ScTrack| {
-        !disliked_artists.contains(&t.artist_id())
+        scripts(t) & !accepted == 0
+            && !disliked_artists.contains(&t.artist_id())
             && !disliked_tracks.contains(&t.id)
             && !exclude.contains(&t.id)
             && t.is_fully_playable()
@@ -755,6 +780,18 @@ fn spread_artists(list: &mut [ScTrack]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scripts_the_listener_has_none_of_are_told_apart() {
+        let mk = |title: &str, tags: &str| -> ScTrack {
+            serde_json::from_value(serde_json::json!({ "id": 1, "title": title, "duration": 180000, "tag_list": tags, "user": { "id": 2, "username": "x" } })).unwrap()
+        };
+        assert_eq!(scripts(&mk("Ночной драйв", "")), 0);
+        assert_eq!(scripts(&mk("Night drive", "phonk")), 0);
+        assert_eq!(scripts(&mk("तेरे बिना", "")), 1);
+        assert_eq!(scripts(&mk("Tere Bina", "bollywood")), 1);
+        assert_eq!(scripts(&mk("夜に駆ける", "")), 4);
+    }
 
     #[test]
     fn parses_quoted_tags() {

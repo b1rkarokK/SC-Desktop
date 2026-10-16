@@ -1431,6 +1431,24 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_member_who_cannot_load_the_track_does_not_hold_the_others_up() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-fail", "", &net, "host", true);
+            let (anna, ap) = room("chan-fail", "", &net, "anna", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 2, 4000).await);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 3000).await);
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            anna.tx.send(Cmd::Loaded { ok: false }).unwrap();
+            assert!(wait(|| hp.started.lock().unwrap().is_some(), 4000).await, "the host's music starts without waiting for anna");
+            // the round is not started again by itself
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            assert_eq!(hp.prepared.lock().unwrap().len(), 1, "no second round");
+        });
+    }
+
+    #[test]
     fn when_the_host_leaves_the_next_in_the_list_takes_over_and_the_music_goes_on() {
         tauri::async_runtime::block_on(async {
             let net = Loopback::new();

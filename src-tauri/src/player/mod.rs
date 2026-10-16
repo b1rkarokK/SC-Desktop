@@ -958,6 +958,11 @@ impl Player {
         hook.is_some_and(|f| f(a))
     }
 
+    /// Is this player in a room (its controls go through the room)?
+    fn in_room(&self) -> bool {
+        self.room_route.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    }
+
     pub fn set_room_route(&self, hook: Option<Arc<dyn Fn(RoomAction) -> bool + Send + Sync>>) {
         *self.room_route.lock().unwrap_or_else(|e| e.into_inner()) = hook;
     }
@@ -1439,7 +1444,9 @@ impl Player {
                         s.failures
                     };
                     this.emit();
-                    if e.is_track_specific() && failures < MAX_AUTO_SKIPS {
+                    // in a room the room decides what plays next: a track that did not load here is reported to it (room:loaded),
+                    // and going on by oneself would load the same one again and again (a one-track queue repeats)
+                    if e.is_track_specific() && failures < MAX_AUTO_SKIPS && !this.in_room() {
                         this.advance(true);
                     }
                 }

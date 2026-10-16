@@ -74,6 +74,8 @@ impl BrowserIdentity {
 pub struct HttpClient {
     client: Client,
     id: BrowserIdentity,
+    /// "127.0.0.1:10808" while an explicit proxy is on (for a plain message when it does not answer)
+    proxy: Option<String>,
 }
 
 impl HttpClient {
@@ -105,9 +107,15 @@ impl HttpClient {
             }
         };
 
+        let proxy_addr = cfg.active_proxy().map(proxy::redact).and_then(|r| {
+            // "socks5h://127.0.0.1:10808" or with a login in front of the @: the address after it
+            let after = r.split("://").last().unwrap_or(&r).to_owned();
+            Some(after.rsplit('@').next().unwrap_or(&after).trim_end_matches('/').to_owned())
+        });
         Ok(Self {
             client: builder.build()?,
             id: BrowserIdentity::new(cfg.chrome_version),
+            proxy: proxy_addr,
         })
     }
 
@@ -236,9 +244,18 @@ impl HttpClient {
                     tokio::time::sleep(wait).await;
                     attempt += 1;
                 }
-                Err(e) => return Err(cut_off(url, e.into())),
+                Err(e) => return Err(self.proxy_hint(&e).unwrap_or_else(|| cut_off(url, e.into()))),
             }
         }
+    }
+
+    /// An explicit proxy that does not answer (the VPN program is off): said plainly, with what to do.
+    fn proxy_hint(&self, e: &reqwest::Error) -> Option<AppError> {
+        let addr = self.proxy.as_deref()?;
+        if !(e.is_connect() || e.is_timeout()) {
+            return None;
+        }
+        Some(AppError::Network(format!("Прокси {addr} не отвечает: включите VPN-программу или выберите «Прямое подключение» в Настройки → Сеть")))
     }
 
     /// POST of a JSON body, JSON answer (GraphQL of a lyrics provider).

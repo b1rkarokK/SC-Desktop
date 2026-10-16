@@ -33,6 +33,9 @@ const RELEASE_DEVICE_AFTER: Duration = Duration::from_secs(30);
 /// ticks are 250 ms apart → device check every 2 s while playing
 const DEVICE_CHECK_TICKS: u32 = 8;
 
+/// The longest a preview plays.
+const PREVIEW_MAX: Duration = Duration::from_secs(25);
+
 pub enum AudioCmd {
     /// `gain`: loudness normalization of this track; `fade`: crossfade from
     /// the playing track over that long
@@ -175,6 +178,8 @@ struct Engine {
     /// a preview over the playing track, and its fade: (started, rising)
     preview: Option<Sink>,
     preview_fade: Option<(Instant, bool)>,
+    /// when the preview began: it never plays longer than PREVIEW_MAX (a missed key release must not leave two songs sounding)
+    preview_since: Option<Instant>,
 }
 
 impl Engine {
@@ -193,6 +198,7 @@ impl Engine {
             fade: None,
             preview: None,
             preview_fade: None,
+            preview_since: None,
             device: None,
             preferred: None,
             ticks: 0,
@@ -250,6 +256,7 @@ impl Engine {
     fn apply(&mut self, cmd: AudioCmd) {
         match cmd {
             AudioCmd::Load { data, generation, gain, duration_ms, fade, start_ms, end_ms } => {
+                self.kill_preview();
                 self.generation = generation;
                 self.current = Some(data);
                 self.gain = gain;
@@ -319,6 +326,7 @@ impl Engine {
                 }
             }
             AudioCmd::Stop => {
+                self.kill_preview();
                 self.end_fade();
                 if let Some(s) = self.sink.take() {
                     s.stop();
@@ -355,6 +363,7 @@ impl Engine {
                 sink.append(src);
                 let _ = sink.try_seek(at);
                 self.preview = Some(sink);
+                self.preview_since = Some(Instant::now());
                 self.preview_fade = Some((Instant::now(), true));
             }
             AudioCmd::PreviewStop => {
@@ -419,8 +428,25 @@ impl Engine {
         self.last_out = Some(out);
     }
 
+    /// No preview at all (a new track starts, playback stops): the playing track is back at its own volume.
+    fn kill_preview(&mut self) {
+        self.preview_fade = None;
+        self.preview_since = None;
+        if let Some(p) = self.preview.take() {
+            p.stop();
+            self.apply_volume();
+        }
+    }
+
     /// The preview rises (or falls) over 0.4 s while the playing track goes down to a fifth (or back).
     fn preview_tick(&mut self) {
+        // held for too long, or ended by itself: let go (the key release may have been missed)
+        if self.preview.is_some() && self.preview_fade.is_none() {
+            let over = self.preview_since.is_some_and(|t| t.elapsed() > PREVIEW_MAX);
+            if over || self.preview.as_ref().is_some_and(|p| p.empty()) {
+                self.preview_fade = Some((Instant::now(), false));
+            }
+        }
         let Some((started, rising)) = self.preview_fade else { return };
         let t = (started.elapsed().as_secs_f32() / 0.4).min(1.0);
         let k = if rising { t } else { 1.0 - t };
@@ -434,6 +460,7 @@ impl Engine {
         if t >= 1.0 {
             self.preview_fade = None;
             if !rising {
+                self.preview_since = None;
                 if let Some(p) = self.preview.take() {
                     p.stop();
                 }

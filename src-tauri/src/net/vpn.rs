@@ -56,20 +56,68 @@ pub struct Saved {
     pub selected: Option<usize>,
 }
 
-fn entry() -> AppResult<keyring::Entry> {
+fn entry_named(account: &str) -> AppResult<keyring::Entry> {
     let service = match crate::secrets::profile() {
         Some(p) => format!("dev.scdesk.app.{p}.vpn"),
         None => "dev.scdesk.app.vpn".to_owned(),
     };
-    keyring::Entry::new(&service, "subscription").map_err(|e| AppError::Keyring(e.to_string()))
+    keyring::Entry::new(&service, account).map_err(|e| AppError::Keyring(e.to_string()))
+}
+
+fn entry() -> AppResult<keyring::Entry> {
+    entry_named("subscription")
+}
+
+/// The Windows credential store takes about 2500 characters per entry, a big subscription (a hundred servers) is
+/// tens of kilobytes: it is cut into pieces, one entry each ("subscription.0", "subscription.1" …); the main
+/// entry then holds "chunks:N". A small one stays in the main entry as plain JSON.
+const CHUNK: usize = 900;
+const INLINE_MAX: usize = 1800;
+
+fn chunk_count(main: &str) -> usize {
+    main.strip_prefix("chunks:").and_then(|n| n.parse().ok()).unwrap_or(0)
+}
+
+fn read_saved() -> Option<String> {
+    let main = entry().ok()?.get_password().ok()?;
+    let n = chunk_count(&main);
+    if n == 0 {
+        return Some(main);
+    }
+    let mut all = String::new();
+    for i in 0..n {
+        all.push_str(&entry_named(&format!("subscription.{i}")).ok()?.get_password().ok()?);
+    }
+    Some(all)
 }
 
 pub fn load() -> Saved {
-    entry().ok().and_then(|e| e.get_password().ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    read_saved().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 pub fn save(s: &Saved) -> AppResult<()> {
-    entry()?.set_password(&serde_json::to_string(s)?).map_err(|e| AppError::Keyring(e.to_string()))
+    let json = serde_json::to_string(s)?;
+    let key_err = |e: keyring::Error| AppError::Keyring(e.to_string());
+    let old = entry().ok().and_then(|e| e.get_password().ok()).map(|m| chunk_count(&m)).unwrap_or(0);
+    if json.chars().count() <= INLINE_MAX {
+        entry()?.set_password(&json).map_err(key_err)?;
+    } else {
+        let chars: Vec<char> = json.chars().collect();
+        let pieces: Vec<String> = chars.chunks(CHUNK).map(|c| c.iter().collect()).collect();
+        for (i, p) in pieces.iter().enumerate() {
+            entry_named(&format!("subscription.{i}"))?.set_password(p).map_err(key_err)?;
+        }
+        entry()?.set_password(&format!("chunks:{}", pieces.len())).map_err(key_err)?;
+        for i in pieces.len()..old {
+            let _ = entry_named(&format!("subscription.{i}")).and_then(|e| e.delete_credential().map_err(|e| AppError::Keyring(e.to_string())));
+        }
+        return Ok(());
+    }
+    // it fits in the main entry now: the pieces of a bigger one before are not needed
+    for i in 0..old {
+        let _ = entry_named(&format!("subscription.{i}")).and_then(|e| e.delete_credential().map_err(|e| AppError::Keyring(e.to_string())));
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------ subscription

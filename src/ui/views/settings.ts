@@ -376,9 +376,19 @@ export class SettingsView implements View {
     for (const [m, label, hint] of opts) {
       const input = h('input', { type: 'radio', name: 'net-mode', value: m });
       input.checked = m === mode;
-      input.addEventListener('change', () => {
+      input.addEventListener('change', async () => {
         mode = m;
         proxy.disabled = mode !== 'proxy';
+        // the choice is kept at once; "Применить" is for the proxy address. A proxy without an address is not switched on.
+        if (mode === 'direct' || proxy.value.trim()) {
+          try {
+            this.cfg = await api.configSetNetwork(mode, proxy.value || null, cfg.chrome_version);
+          } catch (e) {
+            toast(errorMessage(e), 'error');
+          }
+        } else {
+          proxy.focus();
+        }
       });
       radios.append(h('label', { class: 'radio' }, input, h('div', {}, h('div', { text: label }), h('div', { class: 'muted small', text: hint }))));
     }
