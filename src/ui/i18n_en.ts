@@ -666,7 +666,6 @@ export const EN: Record<string, string> = {
   'Лайкнуть всё': 'Like all',
   'Выйти из комнаты?': 'Leave the room?',
   'Хостом станет {0}. Музыка у остальных продолжится.': '{0} will become the host. The music goes on for the others.',
-  'Выйти': 'Leave',
   'Сделать хостом': 'Make the host',
   'Передать комнату?': 'Hand the room over?',
   '{0} станет хостом и будет управлять музыкой. Вы останетесь в комнате.': '{0} will become the host and control the music. You stay in the room.',

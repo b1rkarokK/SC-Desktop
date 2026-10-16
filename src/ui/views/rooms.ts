@@ -398,7 +398,7 @@ export class RoomsView implements View {
       // the host leaving: the next in the list takes over, which is said first
       if (v.host) {
         const next = v.members.find((m) => !m.host && !m.you && m.status !== 'problem' && m.status !== 'connecting');
-        if (next && !(await confirmDialog(T('Выйти из комнаты?'), T('Хостом станет {0}. Музыка у остальных продолжится.', next.name), T('Выйти')))) return;
+        if (next && !(await confirmDialog(T('Выйти из комнаты?'), T('Хостом станет {0}. Музыка у остальных продолжится.', next.name), T('Выйти из комнаты')))) return;
       }
       await invoke('room_leave').catch(() => undefined);
       room.view = null;
