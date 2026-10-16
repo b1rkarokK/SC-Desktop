@@ -9,7 +9,7 @@
 //! little off speeds up or slows down by 2 % for a while (`Port::trim`) instead of a jump.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -87,6 +87,8 @@ pub enum Cmd {
     Unban(String),
     /// the host takes a track out of the queue ( guards against a queue that moved meanwhile)
     Remove { index: usize, track_id: u64 },
+    /// a member votes to skip the playing track
+    VoteSkip,
     /// the host hands the room over to this member and stays as a member
     GiveHost(String),
     /// the host moves a track of the queue to another place (the id guards against a queue that moved meanwhile)
@@ -124,6 +126,11 @@ pub struct RoomView {
     pub current: Option<QueueItem>,
     pub play: Option<PlayState>,
     pub who_can_queue_all: bool,
+    /// votes to skip the playing track are on in this room
+    pub vote_skip: bool,
+    /// how many voted to skip it, and how many are needed
+    pub skip_votes: u32,
+    pub skip_need: u32,
     /// ids of the members the host removed (host only)
     pub banned: Vec<String>,
     pub connected: bool,
@@ -229,6 +236,9 @@ struct Engine {
     term: u32,
     /// the last time anything came from the host
     host_heard: Option<Instant>,
+    /// who voted to skip the playing track (host), and what the votes stand at (everybody: from the host's Votes)
+    skip_voters: BTreeSet<String>,
+    skip_state: (u32, u32),
     /// when we connected to the relay (the wait before taking over an empty room counts from here)
     connected_at: Option<Instant>,
     /// the room as the relay has it: for whoever enters an empty room
@@ -371,6 +381,8 @@ impl Engine {
         v.name = settings.name.clone();
         v.has_password = settings.has_password;
         v.who_can_queue_all = settings.who_can_queue == crate::rooms::Who::Everyone;
+        v.vote_skip = settings.vote_skip;
+        (v.skip_votes, v.skip_need) = self.skip_state;
         v.members = members
             .iter()
             .map(|m| {
@@ -436,7 +448,22 @@ impl Engine {
         self.round = Some(round);
         self.prepare(&item);
         self.send(&Msg::Load { seq, item }, false);
+        self.skip_voters.clear();
+        self.announce_votes(seq);
         self.roster();
+    }
+
+    /// How many votes skipping the track takes: more than half of the room that is here (the host included).
+    fn skip_need(&self) -> u32 {
+        let here = self.room.as_ref().map_or(1, |r| r.members.iter().filter(|m| !matches!(m.status, Status::Connecting | Status::Problem(_))).count().max(1));
+        (here / 2 + 1) as u32
+    }
+
+    /// Tells everybody where the votes stand (and the host's own view too).
+    fn announce_votes(&mut self, seq: u64) {
+        let (count, need) = (self.skip_voters.len() as u32, self.skip_need());
+        self.skip_state = (count, need);
+        self.send(&Msg::Votes { seq, count, need }, false);
     }
 
     fn go(&mut self) {
@@ -499,6 +526,19 @@ impl Engine {
                     r.set_status(&id, status, now);
                 }
                 self.roster();
+            }
+            Msg::SkipVote { seq, id } => {
+                let (current, on) = self.room.as_ref().map_or((0, false), |r| (r.current.as_ref().map_or(0, |c| c.0), r.settings.vote_skip));
+                if on && seq == current && current != 0 && self.room.as_ref().is_some_and(|r| r.members.iter().any(|m| m.id == id)) {
+                    self.skip_voters.insert(id);
+                    if self.skip_voters.len() as u32 >= self.skip_need() {
+                        // most of the room does not want it: the next one
+                        self.start_next();
+                    } else {
+                        self.announce_votes(seq);
+                        self.publish();
+                    }
+                }
             }
             Msg::Loaded { seq, id, ok } => {
                 if let Some(round) = self.round.as_mut() {
@@ -586,6 +626,8 @@ impl Engine {
                     self.roster();
                 }
             }
+            // the host skips with Next, a vote is a member's
+            Cmd::VoteSkip => {}
             Cmd::GiveHost(id) => {
                 let me = self.p.me.id.clone();
                 let Some(room) = self.room.as_mut() else { return true };
@@ -1013,6 +1055,11 @@ impl Engine {
                 self.port.start_after(Duration::from_millis(delay));
                 self.send(&Msg::Status { id: me, status: Status::Playing }, false);
             }
+            Msg::Votes { count, need, .. } => {
+                self.host_heard = Some(Instant::now());
+                self.skip_state = (count, need);
+                self.publish();
+            }
             Msg::Play { state } => {
                 self.host_heard = Some(Instant::now());
                 if let Some(s) = self.snap.as_mut() {
@@ -1058,6 +1105,10 @@ impl Engine {
                         self.send(&Msg::Status { id: self.p.me.id.clone(), status: Status::Playing }, false);
                     }
                 }
+            }
+            Cmd::VoteSkip => {
+                let seq = self.snap.as_ref().and_then(|s| s.current.as_ref().map(|c| c.0)).or(self.seq_loading).unwrap_or(0);
+                self.send(&Msg::SkipVote { seq, id: me }, false);
             }
             Cmd::Leave => {
                 self.send(&Msg::Leave { id: me }, false);
@@ -1172,6 +1223,8 @@ pub fn start(
         host_id: host_id0,
         term: u32::from(is_host),
         host_heard: None,
+        skip_voters: BTreeSet::new(),
+        skip_state: (0, 0),
         connected_at: None,
         last_state: None,
         decrypted: 0,
@@ -1560,6 +1613,31 @@ pub(crate) mod tests {
             host.tx.send(Cmd::Remove { index: 0, track_id: 4 }).unwrap();
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             assert_eq!(host.view.lock().unwrap().queue.len(), 2);
+        });
+    }
+
+    #[test]
+    fn most_of_the_room_can_skip_a_track_by_voting() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-vote", "", &net, "host", true);
+            let (anna, ap) = room("chan-vote", "", &net, "anna", false);
+            let (bob, _bp) = room("chan-vote", "", &net, "bob", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 3, 4000).await);
+            host.tx.send(Cmd::Enqueue(item(1))).unwrap();
+            host.tx.send(Cmd::Enqueue(item(2))).unwrap();
+            assert!(wait(|| ap.prepared.lock().unwrap().len() == 1, 3000).await);
+            host.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            anna.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            bob.tx.send(Cmd::Loaded { ok: true }).unwrap();
+            assert!(wait(|| hp.started.lock().unwrap().is_some(), 4000).await);
+            // three in the room: two votes are needed; one is not enough
+            anna.tx.send(Cmd::VoteSkip).unwrap();
+            assert!(wait(|| host.view.lock().unwrap().skip_votes == 1 && host.view.lock().unwrap().skip_need == 2, 3000).await, "one vote of two is counted");
+            assert_eq!(hp.prepared.lock().unwrap().len(), 1, "not skipped yet");
+            bob.tx.send(Cmd::VoteSkip).unwrap();
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 2, 3000).await, "the second vote skips to the next track");
+            assert_eq!(hp.prepared.lock().unwrap().last().cloned(), Some("track2".into()));
         });
     }
 

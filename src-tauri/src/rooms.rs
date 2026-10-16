@@ -96,6 +96,13 @@ pub struct Settings {
     pub who_can_queue: Who,
     pub who_can_control: Who,
     pub max_members: u8,
+    /// a track that most of the room does not want is skipped by their votes (the host can switch it off)
+    #[serde(default = "yes")]
+    pub vote_skip: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -107,6 +114,7 @@ impl Default for Settings {
             who_can_queue: Who::Everyone,
             who_can_control: Who::HostOnly,
             max_members: 8,
+            vote_skip: true,
         }
     }
 }
@@ -165,6 +173,10 @@ pub enum Msg {
     Rekey { epoch: u32, wraps: std::collections::BTreeMap<String, String> },
     /// member -> host: my status changed
     Status { id: String, status: Status },
+    /// member -> host: I vote to skip track `seq`
+    SkipVote { seq: u64, id: String },
+    /// host -> all: the votes for skipping track `seq` so far and how many are needed
+    Votes { seq: u64, count: u32, need: u32 },
     /// member -> host: put this track in the queue (or the host's own add)
     Enqueue { item: QueueItem },
     /// host -> all: the queue changed

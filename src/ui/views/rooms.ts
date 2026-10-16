@@ -43,6 +43,9 @@ export interface RoomViewState {
   current: RoomQueueItem | null;
   play: { at: number; pos_ms: number; playing: boolean } | null;
   who_can_queue_all: boolean;
+  vote_skip?: boolean;
+  skip_votes?: number;
+  skip_need?: number;
   /** ids of the removed members (the host sees them and can let them back) */
   banned?: string[];
   connected: boolean;
@@ -451,6 +454,16 @@ export class RoomsView implements View {
         h('div', { class: 'rm-bar' }, bar),
         h('div', { class: 'rm-timerow' }, time, h('span', { class: `small ${loading ? 'rm-warn' : 'rm-ok'}`, text: state })),
         v.host ? h('div', { class: 'rm-ctl' }, prev, pp, next) : h('div', { class: 'muted small', text: T('Музыкой управляет хост') }),
+        // not the host: a vote to skip the track the room does not like
+        !v.host && v.vote_skip && cur ? (() => {
+          const b = btn(T('Пропустить: голос ({0}/{1})', v.skip_votes ?? 0, v.skip_need ?? 0), null);
+          b.title = T('Трек пропустится, когда за это проголосует больше половины комнаты');
+          b.addEventListener('click', () => {
+            cmd({ cmd: 'vote_skip' });
+            b.disabled = true;
+          });
+          return b;
+        })() : null,
       ),
     );
 
@@ -483,6 +496,10 @@ export class RoomsView implements View {
       everyone.checked = v.who_can_queue_all;
       everyone.addEventListener('change', () => cmd({ cmd: 'queue_everyone', on: everyone.checked }));
       extra.push(h('label', { class: 'rm-check', style: 'margin-top:12px' }, everyone, h('span', { text: T('Добавлять треки может каждый') })));
+      const vote = h('input', { type: 'checkbox' });
+      vote.checked = v.vote_skip !== false;
+      vote.addEventListener('change', () => cmd({ cmd: 'vote_skip_enabled', on: vote.checked }));
+      extra.push(h('label', { class: 'rm-check', style: 'margin-top:6px' }, vote, h('span', { text: T('Трек можно пропустить голосованием') })));
     }
     this.main.replaceChildren(head, card, h('div', { class: 'rm-sectiontitle', text: T('Дальше в очереди · {0}', v.queue.length) }), queue, ...extra);
     this.tickBar();

@@ -2330,6 +2330,8 @@ pub enum RoomCmd {
     Remove { index: usize, track_id: u64 },
     Move { from: usize, to: usize, track_id: u64 },
     GiveHost { id: String },
+    VoteSkip,
+    VoteSkipEnabled { on: bool },
     Unban { id: String },
     QueueEveryone { on: bool },
 }
@@ -2349,6 +2351,12 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
         RoomCmd::Remove { index, track_id } => rooms.cmd(C::Remove { index, track_id }),
         RoomCmd::Move { from, to, track_id } => rooms.cmd(C::Move { from, to, track_id }),
         RoomCmd::GiveHost { id } => rooms.cmd(C::GiveHost(id)),
+        RoomCmd::VoteSkip => rooms.cmd(C::VoteSkip),
+        RoomCmd::VoteSkipEnabled { on } => {
+            let mut s = rooms.view_settings();
+            s.vote_skip = on;
+            rooms.cmd(C::Settings(s));
+        }
         RoomCmd::QueueEveryone { on } => {
             let mut s = rooms.view_settings();
             s.who_can_queue = if on { crate::rooms::Who::Everyone } else { crate::rooms::Who::HostOnly };
