@@ -426,6 +426,36 @@ export class SettingsView implements View {
         toast(errorMessage(e), 'error');
       }
     });
+    // what works right now: each way to SoundCloud with its ping
+    const health = h('div', { class: 'net-health muted small' });
+    const healthBtn = btn(T('Состояние сети'), null);
+    healthBtn.addEventListener('click', async () => {
+      healthBtn.disabled = true;
+      health.replaceChildren(h('div', { text: T('Проверяем…') }));
+      const lines: string[] = [];
+      const probe = async (label: string, mode: NetMode, addr: string | null) => {
+        try {
+          const r = await api.netCheck(mode, addr);
+          lines.push(`${r.ok ? '✓' : '✗'} ${label}: ${r.message}, ${r.ms} ${T('мс')}`);
+        } catch (e) {
+          lines.push(`✗ ${label}: ${errorMessage(e)}`);
+        }
+        health.replaceChildren(...lines.map((t) => h('div', { text: t })));
+      };
+      await probe(T('Напрямую'), 'direct', null);
+      const proxyAddr = (this.cfg?.proxy ?? '').trim();
+      if (proxyAddr) await probe(T('Через прокси из настроек'), 'proxy', proxyAddr);
+      const bypass = prefs().scBypass ?? 'auto';
+      lines.push(`· ${T('Обход блокировки')}: ${bypass === 'auto' ? T('Авто') : bypass === 'on' ? T('Всегда') : T('Выключен')}`);
+      try {
+        const v = await api.vpnGet();
+        lines.push(`· ${T('Свой сервер')}: ${v.selected !== null ? (v.running ? T('выбран, работает') : T('выбран, не запущен')) : T('не используется')}`);
+      } catch {
+        /* no own server info */
+      }
+      health.replaceChildren(...lines.map((t) => h('div', { text: t })));
+      healthBtn.disabled = false;
+    });
     // everything about the network back to how it is by default: direct, bypass on «Авто», no own server
     const resetNet = btn(T('Сбросить сеть'), null);
     resetNet.addEventListener('click', async () => {
@@ -446,6 +476,8 @@ export class SettingsView implements View {
         radios,
         h('div', { class: 'row-actions proxy-row' }, proxy, check, apply, resetNet),
         result,
+        h('div', { class: 'row-actions' }, healthBtn),
+        health,
         (() => {
           // the provider blocks SoundCloud by its name: cut the greeting (net/bypass.rs), no server in between
           const sel = h('select', { class: 'input' }) as HTMLSelectElement;
