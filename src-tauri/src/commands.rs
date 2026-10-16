@@ -2328,6 +2328,8 @@ pub enum RoomCmd {
     Seek { ms: i64 },
     Kick { id: String },
     Remove { index: usize, track_id: u64 },
+    Move { from: usize, to: usize, track_id: u64 },
+    GiveHost { id: String },
     Unban { id: String },
     QueueEveryone { on: bool },
 }
@@ -2345,6 +2347,8 @@ pub async fn room_cmd(state: State<'_, AppState>, rooms: State<'_, crate::sync::
         RoomCmd::Kick { id } => rooms.cmd(C::Kick(id)),
         RoomCmd::Unban { id } => rooms.cmd(C::Unban(id)),
         RoomCmd::Remove { index, track_id } => rooms.cmd(C::Remove { index, track_id }),
+        RoomCmd::Move { from, to, track_id } => rooms.cmd(C::Move { from, to, track_id }),
+        RoomCmd::GiveHost { id } => rooms.cmd(C::GiveHost(id)),
         RoomCmd::QueueEveryone { on } => {
             let mut s = rooms.view_settings();
             s.who_can_queue = if on { crate::rooms::Who::Everyone } else { crate::rooms::Who::HostOnly };

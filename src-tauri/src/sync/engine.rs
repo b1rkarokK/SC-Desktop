@@ -87,6 +87,10 @@ pub enum Cmd {
     Unban(String),
     /// the host takes a track out of the queue ( guards against a queue that moved meanwhile)
     Remove { index: usize, track_id: u64 },
+    /// the host hands the room over to this member and stays as a member
+    GiveHost(String),
+    /// the host moves a track of the queue to another place (the id guards against a queue that moved meanwhile)
+    Move { from: usize, to: usize, track_id: u64 },
     Settings(Settings),
     /// the local player has the prepared track (or could not get it)
     Loaded { ok: bool },
@@ -573,6 +577,41 @@ impl Engine {
                 let done = self.room.as_mut().is_some_and(|r| {
                     if r.queue.get(index).is_some_and(|q| q.track_id == track_id) {
                         r.queue.remove(index);
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if done {
+                    self.roster();
+                }
+            }
+            Cmd::GiveHost(id) => {
+                let me = self.p.me.id.clone();
+                let Some(room) = self.room.as_mut() else { return true };
+                let Some(target) = room.members.iter().position(|m| m.id == id && !matches!(m.status, Status::Problem(_)) && m.pubkey.is_some()) else { return true };
+                if id == me {
+                    return true;
+                }
+                // the chosen one is first in line after the host: the room's usual hand-over takes it from here
+                let pubkey = room.members[target].pubkey.clone().unwrap_or_default();
+                let member = room.members.remove(target);
+                let after_host = room.members.iter().position(|m| m.id == me).map_or(0, |p| p + 1);
+                room.members.insert(after_host, member);
+                self.roster();
+                self.host_repeat_state();
+                self.send_state();
+                self.send(&Msg::HostLeft { id: me }, false);
+                // and the old host goes on as a member of the room
+                let term = self.term;
+                self.demote(&id, term, pubkey);
+            }
+            Cmd::Move { from, to, track_id } => {
+                let done = self.room.as_mut().is_some_and(|r| {
+                    if from != to && to < r.queue.len() && r.queue.get(from).is_some_and(|q| q.track_id == track_id) {
+                        if let Some(item) = r.queue.remove(from) {
+                            r.queue.insert(to, item);
+                        }
                         true
                     } else {
                         false
@@ -1521,6 +1560,43 @@ pub(crate) mod tests {
             host.tx.send(Cmd::Remove { index: 0, track_id: 4 }).unwrap();
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             assert_eq!(host.view.lock().unwrap().queue.len(), 2);
+        });
+    }
+
+    #[test]
+    fn the_host_hands_the_room_over_and_stays_a_member() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, _hp) = room("chan-give", "", &net, "host", true);
+            let (anna, _ap) = room("chan-give", "", &net, "anna", false);
+            let (bob, _bp) = room("chan-give", "", &net, "bob", false);
+            assert!(wait(|| host.view.lock().unwrap().members.len() == 3, 4000).await);
+            // bob is first in line by the order of coming; the host hands over to anna
+            host.tx.send(Cmd::GiveHost("anna".into())).unwrap();
+            assert!(wait(|| anna.view.lock().unwrap().host, 6000).await, "anna became the host");
+            assert!(wait(|| !host.view.lock().unwrap().host && host.view.lock().unwrap().active, 4000).await, "the old host is a member of the room");
+            assert!(wait(|| bob.view.lock().unwrap().host_id == "anna", 4000).await, "bob follows the new host");
+        });
+    }
+
+    #[test]
+    fn the_host_moves_a_track_in_the_queue() {
+        tauri::async_runtime::block_on(async {
+            let net = Loopback::new();
+            let (host, hp) = room("chan-move", "", &net, "host", true);
+            for n in 1..=4 {
+                host.tx.send(Cmd::Enqueue(item(n))).unwrap();
+            }
+            assert!(wait(|| hp.prepared.lock().unwrap().len() == 1 && host.view.lock().unwrap().queue.len() == 3, 2000).await);
+            // the queue is 2, 3, 4: the last goes to the front
+            host.tx.send(Cmd::Move { from: 2, to: 0, track_id: 4 }).unwrap();
+            assert!(wait(|| host.view.lock().unwrap().queue.first().map(|q| q.title.clone()) == Some("track4".into()), 2000).await, "track 4 is first now");
+            let titles: Vec<String> = host.view.lock().unwrap().queue.iter().map(|q| q.title.clone()).collect();
+            assert_eq!(titles, vec!["track4".to_string(), "track2".to_string(), "track3".to_string()]);
+            // the queue moved under the drag: the id does not match, nothing moves
+            host.tx.send(Cmd::Move { from: 0, to: 2, track_id: 2 }).unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            assert_eq!(host.view.lock().unwrap().queue.first().map(|q| q.title.clone()), Some("track4".into()));
         });
     }
 

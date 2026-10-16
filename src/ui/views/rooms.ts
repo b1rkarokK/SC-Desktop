@@ -7,6 +7,8 @@ import { api, coverUrl, errorMessage, type Track } from '../api';
 import { clock } from '../clock';
 import { openMenu } from '../context_menu';
 import { h, toast } from '../dom';
+import { holdReorder } from '../hold_reorder';
+import { confirmDialog } from '../confirm';
 import { T } from '../i18n';
 import { icon, I } from '../icons';
 import { store } from '../store';
@@ -393,6 +395,11 @@ export class RoomsView implements View {
     });
     const leave = btn(T('Выйти из комнаты'), null);
     leave.addEventListener('click', async () => {
+      // the host leaving: the next in the list takes over, which is said first
+      if (v.host) {
+        const next = v.members.find((m) => !m.host && !m.you && m.status !== 'problem' && m.status !== 'connecting');
+        if (next && !(await confirmDialog(T('Выйти из комнаты?'), T('Хостом станет {0}. Музыка у остальных продолжится.', next.name), T('Выйти')))) return;
+      }
       await invoke('room_leave').catch(() => undefined);
       room.view = null;
       this.renderAll();
@@ -448,9 +455,20 @@ export class RoomsView implements View {
     );
 
     const queue = h('div', { class: 'rm-queue' });
+    // the host drags a track to another place (held for a moment, as in the likes)
+    if (v.host) {
+      holdReorder(queue, {
+        scroller: this.main,
+        enabled: () => v.queue.length > 1,
+        onMove: (from, to) => {
+          const q = v.queue[from];
+          if (q) cmd({ cmd: 'move', from, to, track_id: q.track_id });
+        },
+      });
+    }
     if (!v.queue.length) queue.append(h('p', { class: 'muted small', text: T('Очередь пуста.') }));
     v.queue.forEach((q, i) => {
-      const row = h('div', { class: 'rm-qrow' }, h('span', { class: 'muted small rm-qn', text: String(i + 1) }), h('span', { class: 'rm-qt', dir: 'auto', text: `${q.title} - ${q.artist}` }), h('span', { class: 'muted small', dir: 'auto', text: names.get(q.added_by) ?? '' }), likeButton(q));
+      const row = h('div', { class: 'rm-qrow', 'data-index': String(i) }, h('span', { class: 'muted small rm-qn', text: String(i + 1) }), h('span', { class: 'rm-qt', dir: 'auto', text: `${q.title} - ${q.artist}` }), h('span', { class: 'muted small', dir: 'auto', text: names.get(q.added_by) ?? '' }), likeButton(q));
       if (v.host) {
         const rm = h('button', { type: 'button', class: 'rm-forget rm-qx', title: T('Убрать из очереди'), 'aria-label': T('Убрать из очереди') }, icon(I.close, 12));
         rm.addEventListener('click', () => cmd({ cmd: 'remove', index: i, track_id: q.track_id }));
@@ -492,11 +510,17 @@ export class RoomsView implements View {
       const text = m.host ? `${T('хост')} · ${statusText(m)}` : statusText(m);
       const kick = v.host && !m.you ? h('button', { type: 'button', class: 'rm-forget', title: T('Убрать из комнаты'), 'aria-label': T('Убрать из комнаты') }, icon(I.close, 12)) : null;
       kick?.addEventListener('click', () => cmd({ cmd: 'kick', id: m.id }));
+      // the host hands the room over to somebody who is here
+      const give = v.host && !m.you && m.status !== 'problem' && m.status !== 'connecting' ? h('button', { type: 'button', class: 'rm-forget', title: T('Сделать хостом'), 'aria-label': T('Сделать хостом') }, icon(I.crown, 12)) : null;
+      give?.addEventListener('click', async () => {
+        if (await confirmDialog(T('Передать комнату?'), T('{0} станет хостом и будет управлять музыкой. Вы останетесь в комнате.', m.name), T('Передать'))) cmd({ cmd: 'give_host', id: m.id });
+      });
       return h(
         'div',
         { class: 'rm-person' },
         h('span', { class: 'rm-pav' }, initial(m.name), h('span', { class: `rm-pdot is-${m.status}` })),
         h('div', { class: 'rm-item-text' }, h('div', { class: 'rm-item-name', dir: 'auto' }, m.name, m.you ? h('span', { class: 'muted small', text: ' ' + T('вы') }) : null), h('div', { class: `rm-item-sub is-${m.status}${m.host ? ' is-host' : ''}`, title: m.problem ?? '', text }),),
+        give,
         kick,
       );
     };
