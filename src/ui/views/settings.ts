@@ -625,6 +625,15 @@ export class SettingsView implements View {
         toast(errorMessage(e), 'error');
       }
     });
+    const report = btn(T('Отчёт об ошибке'), I.download);
+    report.addEventListener('click', async () => {
+      try {
+        await api.reportSave();
+        toast(T('Отчёт сохранён на рабочем столе'));
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    });
     this.systemBox.replaceChildren(
       group(
         T('Система'),
@@ -654,6 +663,7 @@ export class SettingsView implements View {
         row(T('Пауза в полноэкранной игре'), toggle(this.autoPause.game, (v) => this.saveAutoPause({ game: v })), T('Музыка встаёт на паузу, когда игра открылась на весь экран, и продолжается, когда вы вышли из неё. Выключено: музыка играет и в игре.')),
         row(T('Резервная копия'), h('div', { class: 'row-actions' }, backupBtn, restoreBtn), T('Лайки, история, дизлайки, настройки одним файлом. Вход в SoundCloud не входит в файл.')),
         row(T('Если что-то сломалось'), copyLog, T('Копирует конец журнала программы, его можно отправить вместе с описанием ошибки.')),
+        row(T('Отчёт об ошибке'), report, T('Файл на рабочем столе: версия, система, настройки сети и конец журнала. Токены, ключи, ссылки подписок и имя пользователя Windows из него вырезаются, его можно отправлять.')),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),
       ),
     );

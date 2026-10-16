@@ -392,6 +392,7 @@ export const api = {
   downloadManyCancel: () => invoke<void>('download_many_cancel'),
   backupExport: () => invoke<string | null>('backup_export'),
   backupImport: () => invoke<{ likes: number; plays: number; tracks: number } | null>('backup_import'),
+  reportSave: () => invoke<string>('report_save'),
   logTail: (lines: number) => invoke<string>('log_tail', { lines }),
   likesDuplicates: () => invoke<Track[][]>('likes_duplicates'),
   lyricsSearchGlobal: (query: string) => invoke<Track[]>('lyrics_search_global', { query }),

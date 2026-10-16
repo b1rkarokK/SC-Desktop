@@ -40,6 +40,7 @@ mod local;
 mod lyrics_align;
 mod mini;
 mod nowplaying;
+mod report;
 mod smtc;
 mod news;
 mod upload;
@@ -288,6 +289,7 @@ fn main() {
             commands::mini_resize,
             commands::mini_interact,
             commands::np_show,
+            commands::report_save,
             commands::mini_is_pinned,
             commands::mini_set_pinned,
             commands::import_preview,

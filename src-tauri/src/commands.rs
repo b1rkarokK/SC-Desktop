@@ -1912,6 +1912,12 @@ pub async fn mini_close(app: AppHandle, restore: bool) -> Cmd<()> {
     Ok(())
 }
 
+/// «Отчёт об ошибке»: a text file on the desktop with the facts and the end of the log, secrets cut out.
+#[tauri::command]
+pub async fn report_save(app: AppHandle) -> Cmd<String> {
+    crate::report::save(&app).await
+}
+
 /// The plate over a game: the song (or its lyrics, `lyrics`) for a few seconds.
 #[tauri::command]
 pub async fn np_show(app: AppHandle, lyrics: bool) {
