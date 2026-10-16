@@ -2,8 +2,8 @@
 // hover (over the content, layout doesn't jump) — plus the center outlet
 // driven by the router.
 import { listen } from '@tauri-apps/api/event';
-import { api, coverUrl } from './api';
-import { h } from './dom';
+import { api, coverUrl, fmtTime } from './api';
+import { h, toast } from './dom';
 import { icon, I } from './icons';
 import { router, type Route, type Section } from './router';
 import { store } from './store';
@@ -52,6 +52,7 @@ export class MainWindow {
 
   constructor(nav: HTMLElement, private center: HTMLElement) {
     initCoverAccent();
+    void listen<{ ms: number }>('player:resumed', (e) => toast(T('Продолжаю с {0}: перемотайте на начало, если нужно', fmtTime(e.payload.ms))));
     applyDensity(prefs().density);
     const list = h('div', { class: 'nav-list', role: 'tablist' });
     for (const [id, label, ic] of NAV) {

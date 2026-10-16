@@ -4,6 +4,7 @@ import { h, toast } from './dom';
 import { T } from './i18n';
 import { router } from './router';
 import { store } from './store';
+import { addToRoom, room } from './views/rooms';
 
 type Filter = 'all' | 'tracks' | 'artists' | 'playlists' | 'likes' | 'lyrics';
 
@@ -125,6 +126,11 @@ export function openPalette(pick?: (t: Track) => void | Promise<void>): void {
       return;
     }
     if (x.kind === 'track' && x.track) {
+      // in a room the song goes to the room's queue: a wave from it would take the music from the others
+      if (room.active()) {
+        void addToRoom(x.track);
+        return;
+      }
       if (queue) {
         void api.enqueue(x.track, false);
         toast(T('Добавлено в очередь'));

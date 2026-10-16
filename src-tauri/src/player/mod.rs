@@ -263,6 +263,17 @@ pub enum RoomAction {
     NoWave,
 }
 
+/// Tracks this long and longer (mixes, podcasts) are continued from where they were left.
+const RESUME_MIN_MS: u64 = 20 * 60_000;
+/// …unless the place is within this much of the start or of the end
+const RESUME_EDGE_MS: u64 = 15_000;
+
+/// Where a long track was left (kv "resume:<id>"), if that is worth going back to.
+async fn resume_at(state: &AppState, id: u64, duration_ms: u64) -> Option<u64> {
+    let (ms, _) = state.db.kv_get::<u64>(&format!("resume:{id}")).await.ok().flatten()?;
+    (ms > RESUME_EDGE_MS && ms + RESUME_EDGE_MS < duration_ms).then_some(ms)
+}
+
 pub struct Player {
     app: AppHandle,
     audio: AudioHandle,
@@ -363,6 +374,8 @@ impl Player {
 
         let night = player.clone();
         tauri::async_runtime::spawn(async move { night.night_loop().await });
+        let resume = player.clone();
+        tauri::async_runtime::spawn(async move { resume.resume_loop().await });
 
         let p = player.clone();
         tauri::async_runtime::spawn(async move {
@@ -1011,6 +1024,34 @@ impl Player {
         hook.is_some_and(|f| f(a))
     }
 
+    /// Every half minute the place of a long track is kept (see resume_at).
+    async fn resume_loop(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            let (id, long, playing) = {
+                let s = self.lock();
+                match s.current() {
+                    Some(t) => (t.id, t.duration_ms >= RESUME_MIN_MS, s.playing),
+                    None => continue,
+                }
+            };
+            if !long || !playing || self.external.load(Ordering::SeqCst) {
+                continue;
+            }
+            let pos = self.position_ms();
+            let _ = self.app.state::<AppState>().db.kv_put(&format!("resume:{id}"), &pos).await;
+        }
+    }
+
+    /// A track that played to the end starts from the beginning next time.
+    fn forget_resume(&self) {
+        let Some(id) = self.lock().current().map(|t| t.id) else { return };
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = app.state::<AppState>().db.kv_delete(&format!("resume:{id}")).await;
+        });
+    }
+
     fn night_factor(&self) -> f32 {
         f32::from_bits(self.night.load(Ordering::Relaxed))
     }
@@ -1482,8 +1523,13 @@ impl Player {
                                 let (app, track, data) = (this.app.clone(), track.clone(), data.clone());
                                 tauri::async_runtime::spawn(async move { crate::downloads::keep_if_liked(&app, &track, &data).await });
                             }
-                            // a room starts everybody at 0:00 together: the silence is skipped only alone
-                            let start_ms = if held { 0 } else { sound.start_ms };
+                            // a long track (a mix, a podcast) goes on from where it was left; a room starts everybody at 0:00
+                            // together, and the silence is skipped only alone
+                            let resumed = if held || track.duration_ms < RESUME_MIN_MS { None } else { resume_at(&this.app.state::<AppState>(), track.id, track.duration_ms).await };
+                            if let Some(ms) = resumed {
+                                let _ = this.app.emit("player:resumed", serde_json::json!({ "ms": ms }));
+                            }
+                            let start_ms = if held { 0 } else { resumed.unwrap_or(sound.start_ms) };
                             this.out(AudioCmd::Load { data, generation, gain: sound.gain, duration_ms: track.duration_ms, fade, start_ms, end_ms: sound.end_ms });
                             if held {
                                 this.room_held.store(true, Ordering::SeqCst);
@@ -1799,6 +1845,7 @@ impl Player {
         if !ready || repeat_one || sleeping || self.external.load(Ordering::SeqCst) {
             return;
         }
+        self.forget_resume();
         if let Some(t) = finished {
             self.feedback(t, wave::LISTENED);
         }
@@ -1865,6 +1912,7 @@ impl Player {
                     let s = self.lock();
                     (s.repeat == RepeatMode::One, s.current().cloned().filter(|_| s.learns_from_current()))
                 };
+                self.forget_resume();
                 if let Some(t) = finished {
                     self.feedback(t, wave::LISTENED);
                 }

@@ -664,6 +664,7 @@ export const EN: Record<string, string> = {
   'Создано плейлистов: {0} ({1} из {2} песен)': '{0} playlists created ({1} of {2} songs)',
   '«{0}»: нашлось {1} из {2}, песни разложены по {3} плейлистам (в SoundCloud в плейлисте не больше 500 песен).': '"{0}": found {1} of {2}, the songs went into {3} playlists (SoundCloud holds up to 500 songs in a playlist).',
   'Лайкнуть всё': 'Like all',
+  'Продолжаю с {0}: перемотайте на начало, если нужно': 'Continuing from {0}: seek back to the start if you like',
   'Тише ночью': 'Quieter at night',
   'В заданные часы громкость плавно становится тише на выбранную долю, утром возвращается. Ползунок громкости при этом не двигается.': 'In the set hours the volume smoothly goes down by the chosen share and comes back in the morning. The volume slider does not move.',
   'Состояние сети': 'Network status',
