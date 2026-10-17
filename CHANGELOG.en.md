@@ -3,6 +3,17 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.0] - 2026-10-17
+
+- SC Desk for Android (the file "SC-Desk-1.4.0-android.apk" in this release). It pairs with the computer by a QR code: Settings, "Connect a phone". The SoundCloud sign-in goes over from the computer without a password, and if the computer is not signed in, the phone can sign in for it.
+- A "Play on…" button in the player bar: music can be moved to the phone and back, the volume is steered and what plays on the other device is seen. The phone and the computer can each play their own track.
+- The equalizer is shared between the computer and the phone: what is set on one is applied on the other.
+- The servers of the VPN subscription can be given to the phone with one button (the computer asks first). The subscription does not count the phone as one more device.
+- The phone shows friends, shared playlists and rooms through the computer and searches songs by words from the lyrics. In a room the phone can listen together with the computer.
+- My wave takes how you listen into account: how much of a track you heard, where you skipped, what you replay. There is a row of moods, a pick by what people keep next to a track in playlists, and "hearing": good candidates are listened to in the background first and judged by their sound.
+- Stats: genres, a choice of period and earlier days.
+- The program tidies the disk after itself: old update installers and an overgrown cache of the built-in browser.
+
 ## [1.3.0] - 2026-10-16
 
 - The desktop shortcut no longer comes back after every update: it is made once, at the first install.

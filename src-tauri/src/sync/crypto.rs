@@ -152,6 +152,36 @@ pub fn new_channel_id() -> String {
 mod tests {
     use super::*;
 
+    fn fixture_path() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("shared-tests").join("crypto.json")
+    }
+
+    /// Writes `shared-tests/crypto.json`: messages sealed here that the Android app has to open too.
+    /// `cargo test make_shared_fixture -- --ignored`
+    #[test]
+    #[ignore]
+    fn make_shared_fixture() {
+        let key = random_key();
+        let cases: Vec<serde_json::Value> = ["play", "", "Привет, мир ♪ {\"t\":\"st\",\"pos\":1234}"]
+            .iter()
+            .map(|p| serde_json::json!({ "channel": "dl-test-channel-0123456789", "plain": p, "blob": seal(&key, "dl-test-channel-0123456789", p.as_bytes()) }))
+            .collect();
+        let out = serde_json::json!({ "key_b64": key_to_b64(&key), "cases": cases });
+        std::fs::write(fixture_path(), serde_json::to_string_pretty(&out).unwrap()).unwrap();
+    }
+
+    /// The same file is opened by the Kotlin tests (android/app/src/test): both sides read each other's messages.
+    #[test]
+    fn what_the_shared_fixture_holds_opens_here() {
+        let Ok(text) = std::fs::read_to_string(fixture_path()) else { return };
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let key = key_from_b64(v["key_b64"].as_str().unwrap()).unwrap();
+        for c in v["cases"].as_array().unwrap() {
+            let plain = open(&key, c["channel"].as_str().unwrap(), c["blob"].as_str().unwrap()).expect("opens");
+            assert_eq!(String::from_utf8(plain).unwrap(), c["plain"].as_str().unwrap());
+        }
+    }
+
     #[test]
     fn a_message_opens_only_with_the_right_key_and_channel() {
         let key = room_key("room-1", "");

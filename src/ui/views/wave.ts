@@ -1,5 +1,5 @@
 // «Моя волна»: current track + why it's here, mood, up next, bans.
-import { api, coverUrl, errorMessage, type Mood, type WaveInfo } from '../api';
+import { api, coverUrl, errorMessage, type Mood, type Vibe, type WaveInfo } from '../api';
 import { h, toast } from '../dom';
 import { icon, iconButton, I } from '../icons';
 import { openTrack, openTrackArtist } from '../router';
@@ -13,8 +13,20 @@ const MOODS: [Mood, string][] = [
   ['normal', T('Как обычно')],
   ['fresh', T('Больше нового')],
   ['familiar', T('Только знакомое')],
-  ['calm', T('Спокойнее')],
-  ['energetic', T('Энергичнее')],
+];
+
+/** «Настроение»: what the wave sounds like. It is read from the words of a track's genre, tags and title. */
+const VIBES: [Vibe, string][] = [
+  ['any', T('Любое')],
+  ['calm', T('Спокойное')],
+  ['energetic', T('Энергичное')],
+  ['sad', T('Грустное')],
+  ['happy', T('Весёлое')],
+  ['aggressive', T('Агрессивное')],
+  ['romantic', T('Романтичное')],
+  ['party', T('Для вечеринки')],
+  ['focus', T('Для работы')],
+  ['night', T('Ночное')],
 ];
 
 export class WaveView implements View {
@@ -28,6 +40,7 @@ export class WaveView implements View {
   private dislikeBtn = btn(T('Не нравится'), I.dislike);
   private banBtn = btn(T('Не ставить артиста'), I.banArtist);
   private moods = h('div', { class: 'chips' });
+  private vibes = h('div', { class: 'chips' });
   private next = h('div');
   private bans = h('div', { class: 'chips' });
   private bansNote = h('div', { class: 'disliked-list' });
@@ -115,6 +128,8 @@ export class WaveView implements View {
         ),
         sectionTitle(T('Настроение волны')),
         this.moods,
+        h('div', { class: 'muted small wave-vibe-title', text: T('Настроение') }),
+        this.vibes,
         this.noLikedRow,
         this.filtersRow(),
         sectionTitle(T('Далее в волне')),
@@ -146,6 +161,7 @@ export class WaveView implements View {
       this.info = await api.waveInfo(store.currentId());
       this.renderNow();
       this.renderMoods();
+      this.renderVibes();
       this.renderNoLiked(this.info.no_liked);
       this.renderBans();
       await this.renderNext();
@@ -189,6 +205,24 @@ export class WaveView implements View {
         b.addEventListener('click', async () => {
           try {
             await api.waveSetMood(m);
+            await this.refresh();
+          } catch (e) {
+            toast(errorMessage(e), 'error');
+          }
+        });
+        return b;
+      }),
+    );
+  }
+
+  private renderVibes(): void {
+    const cur = this.info?.vibe ?? 'any';
+    this.vibes.replaceChildren(
+      ...VIBES.map(([v, label]) => {
+        const b = h('button', { type: 'button', class: `chip-btn${v === cur ? ' is-active' : ''}`, text: label });
+        b.addEventListener('click', async () => {
+          try {
+            await api.waveSetVibe(v);
             await this.refresh();
           } catch (e) {
             toast(errorMessage(e), 'error');

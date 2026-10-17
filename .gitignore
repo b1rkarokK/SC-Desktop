@@ -14,3 +14,23 @@ scripts/ui-smoke-out/
 promo/
 CLAUDE.md
 .tools/
+
+# the proxy engine (sing-box, built by scripts/build-singbox.ps1): big, not kept in git
+android/app/src/main/jniLibs/
+
+# the Android release key and its passwords: never committed (the CI gets them from secrets)
+android/release.jks
+android/keystore.properties
+android/app/build/
+
+# logs and shots of the work
+dev-run.out
+dev-run.err
+dev-parallel.out
+cargo-test.out
+design/phone-shots/
+scripts/phone-view.ps1
+slint-spike/
+design/compare/
+design/dom/
+design/ref/

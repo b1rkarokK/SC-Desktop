@@ -1159,6 +1159,73 @@ select {
 
 /* ----------------------------------------------------------- settings */
 
+/* categories on the left, the chosen one's settings on the right */
+.set-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.set-nav {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  width: 190px;
+  padding: 8px 8px 8px 20px;
+  overflow-y: auto;
+}
+
+.set-cat {
+  padding: 9px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.set-cat:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
+
+.set-cat.is-on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.set-panes {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings[hidden] {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .set-layout {
+    flex-direction: column;
+  }
+
+  .set-nav {
+    flex-direction: row;
+    width: auto;
+    padding: 4px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .set-cat {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
 /* one column, no boxes: sections are separated by space and a title */
 .settings {
   display: flex;
@@ -2574,6 +2641,83 @@ select {
 
 /* ---------------------------------------------------------------- queue */
 
+.dv-pop {
+  width: 340px;
+}
+
+.dv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 10px;
+}
+
+.dv-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dv-row:hover:not(.is-here):not(:disabled) {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.dv-row.is-here {
+  cursor: default;
+}
+
+.dv-row.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.dv-row.is-off {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dv-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dv-text .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv-accent {
+  color: var(--accent);
+}
+
+.dv-hint {
+  margin: 4px 2px 0;
+}
+
+.dv-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dv-vol {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .q-pop {
   position: absolute;
   right: 16px;
@@ -2816,6 +2960,35 @@ body.is-sorting * {
   height: 26px;
 }
 
+.phone-qr {
+  width: 220px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.phone-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.wave-vibe-title {
+  margin: 14px 0 6px;
+}
+
+.ly-retry {
+  margin-top: 12px;
+}
+
+.st-genre.is-hidden {
+  display: none;
+}
+
+.st-more {
+  margin-top: 6px;
+}
+
 .st-bar {
   height: 6px;
   border-radius: 3px;
@@ -2828,24 +3001,118 @@ body.is-sorting * {
   background: var(--accent);
 }
 
-.st-hours {
+.st-daynav {
   display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 80px;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 12px;
 }
 
-.st-hours i {
+.st-daynav b {
+  min-width: 180px;
+  text-align: center;
+  text-transform: capitalize;
+}
+
+.st-daynav .btn-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.st-n.is-time {
+  width: 44px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* hours chart: grid lines with their values on the left, bars on top, ticks below */
+.st-plot {
+  position: relative;
+  height: 140px;
+  padding-left: 52px;
+}
+
+.st-grid {
+  position: absolute;
+  inset: 16px 0 0 52px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.st-grid i {
+  position: relative;
+  height: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.st-grid i::before {
+  content: attr(data-v);
+  position: absolute;
+  right: calc(100% + 8px);
+  top: -8px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.st-hours {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 100%;
+}
+
+.st-col {
   flex: 1;
-  border-radius: 1px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  padding-top: 16px;
+}
+
+.st-col i {
+  display: block;
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: background 0.15s;
+}
+
+.st-col:hover i,
+.st-col.is-peak i {
   background: var(--accent);
-  opacity: 0.85;
+}
+
+.st-val {
+  height: 16px;
+  margin-top: -16px;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 16px;
 }
 
 .st-hours-axis {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
+  position: relative;
+  height: 18px;
+  margin: 6px 0 0 52px;
+}
+
+.st-hours-axis span {
+  position: absolute;
+  transform: translateX(-2px);
+}
+
+.st-peak {
+  margin: 8px 0 2px 52px;
+}
+
+.st-clock > .muted {
+  margin-left: 52px;
 }
 
 /* window buttons in the full-screen top bar: flush with the top-right corner */

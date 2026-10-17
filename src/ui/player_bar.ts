@@ -9,6 +9,7 @@ import { clock } from './clock';
 import { h, isVisible, onVisibilityChange, toast } from './dom';
 import type { EqPopover } from './eq_popover';
 import type { QueuePopover } from './queue_popover';
+import type { DevicesPopover } from './devices_popover';
 import { iconButton, I, setIcon } from './icons';
 import { trackMenu } from './menus';
 import { onPrefs, prefs, updatePrefs } from './prefs';
@@ -36,6 +37,7 @@ export class PlayerBar {
   private eqBtn = iconButton(I.eq, T('Эквалайзер'));
   private sleepBtn = iconButton(I.sleep, T('Таймер сна'));
   private queueBtn = iconButton(I.queue, T('Очередь'));
+  private devicesBtn = iconButton(I.devices, T('Играть на…'));
   private miniBtn = iconButton(I.mini, T('Мини-плеер'));
   private sleepTimer = 0;
   private fsBtn = iconButton(I.fullscreen, T('Полный экран'));
@@ -43,7 +45,7 @@ export class PlayerBar {
   private timer = 0;
   private lastVolume = 0.8;
 
-  constructor(host: HTMLElement, eq: EqPopover, queue: QueuePopover, onFullscreen: () => void) {
+  constructor(host: HTMLElement, eq: EqPopover, queue: QueuePopover, devices: DevicesPopover, onFullscreen: () => void) {
     const prev = iconButton(I.prev, T('Предыдущий'));
     const next = iconButton(I.next, T('Следующий'));
     prev.addEventListener('click', () => void api.prev());
@@ -90,23 +92,32 @@ export class PlayerBar {
     // one window above the bar at a time
     this.eqBtn.addEventListener('click', () => {
       queue.setOpen(false);
+      devices.setOpen(false);
       eq.toggle();
     });
     this.queueBtn.addEventListener('click', () => {
       eq.close();
+      devices.setOpen(false);
       queue.toggle();
     });
+    this.devicesBtn.addEventListener('click', () => {
+      eq.close();
+      queue.setOpen(false);
+      devices.toggle();
+    });
     queue.init((open) => this.queueBtn.classList.toggle('is-on', open));
+    devices.init((open) => this.devicesBtn.classList.toggle('is-on', open));
     // the windows above the bar close on a click anywhere else, on a track change, and when the search opens
     const closeAll = () => {
       eq.close();
       queue.setOpen(false);
+      devices.setOpen(false);
     };
     document.addEventListener(
       'pointerdown',
       (e) => {
         const t = e.target as Node;
-        if (eq.el.contains(t) || queue.el.contains(t) || this.eqBtn.contains(t) || this.queueBtn.contains(t)) return;
+        if (eq.el.contains(t) || queue.el.contains(t) || devices.el.contains(t) || this.eqBtn.contains(t) || this.queueBtn.contains(t) || this.devicesBtn.contains(t)) return;
         closeAll();
       },
       true,
@@ -137,7 +148,7 @@ export class PlayerBar {
         h('div', { class: 'pb-controls' }, this.shuffleBtn, prev, this.playBtn, next, this.repeatBtn),
         h('div', { class: 'pb-seek' }, this.time, this.seek.el, this.duration),
       ),
-      h('div', { class: 'pb-right' }, this.miniBtn, this.queueBtn, this.sleepBtn, this.eqBtn, this.muteBtn, h('div', { class: 'pb-volume' }, this.volume.el), this.fsBtn, this.lyricsBtn),
+      h('div', { class: 'pb-right' }, this.miniBtn, this.devicesBtn, this.queueBtn, this.sleepBtn, this.eqBtn, this.muteBtn, h('div', { class: 'pb-volume' }, this.volume.el), this.fsBtn, this.lyricsBtn),
     );
 
     // the wheel over the volume (the slider or the speaker) changes it

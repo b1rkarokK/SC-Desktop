@@ -1,0 +1,108 @@
+package dev.scdesk.app
+
+// Generated from src/ui/categories.ts by the script in the scratchpad of the session (node gencats.mjs): the same tiles as the computer's «Категории».
+// kind: mix = a live chart of SoundCloud (system playlist), queries = tracks found by the searches,
+//       pick = made by the app itself on the computer, chart = a real chart matched onto SoundCloud (the computer does it).
+
+data class Category(val key: String, val title: String, val kind: String, val arg: String, val queries: List<String>, val note: String)
+data class CategoryGroup(val title: String, val items: List<Category>)
+
+object Categories {
+    val groups: List<CategoryGroup> = listOf(
+        CategoryGroup("Только в SC Desk", listOf(
+            Category("pick:radar", "Андеграунд-радар", "pick", "radar", listOf(), "малоизвестные артисты в твоём вкусе"),
+            Category("pick:forgotten", "Забытые лайки", "pick", "forgotten", listOf(), "лайкнул давно и не слушал"),
+            Category("pick:year-ago", "Год назад", "pick", "year-ago", listOf(), "что ты лайкал в это время год назад"),
+            Category("pick:repeat", "На повторе", "pick", "repeat", listOf(), "самое заслушанное за месяц"),
+        )),
+        CategoryGroup("Чарты", listOf(
+            Category("chart:ru:day", "Сегодня в России", "chart", "ru:day", listOf(), "чарт Яндекс Музыки за сутки"),
+            Category("chart:ru:week", "Хиты недели", "chart", "ru:week", listOf(), "сумма слушателей за 7 дней"),
+            Category("chart:ru:month", "Хиты месяца", "chart", "ru:month", listOf(), "сумма слушателей за 30 дней"),
+            Category("chart:ru:year", "Хиты года", "chart", "ru:year", listOf(), "сумма слушателей за год"),
+            Category("chart:world:day", "Сегодня в мире", "chart", "world:day", listOf(), "глобальный чарт за сутки"),
+            Category("chart:years", "По годам", "chart", "ru:2025", listOf(), "итоги каждого года с 2001"),
+            Category("chart:all", "Тренды SoundCloud", "mix", "soundcloud:system-playlists:trending-by-genre:all-genres", listOf(), ""),
+            Category("genre:hip-hop", "Топ хип-хопа", "mix", "soundcloud:system-playlists:trending-by-genre:hip-hop", listOf(), ""),
+            Category("genre:pop", "Топ попа", "mix", "soundcloud:system-playlists:trending-by-genre:pop", listOf(), ""),
+            Category("genre:rock", "Топ рока", "mix", "soundcloud:system-playlists:trending-by-genre:rock", listOf(), ""),
+            Category("genre:electronic", "Топ электроники", "mix", "soundcloud:system-playlists:trending-by-genre:electronic", listOf(), ""),
+        )),
+        CategoryGroup("Жанры", listOf(
+            Category("genre:trap", "Трэп", "mix", "soundcloud:system-playlists:trending-by-genre:trap", listOf(), ""),
+            Category("genre:alternative-hip-hop", "Альтернативный хип-хоп", "mix", "soundcloud:system-playlists:trending-by-genre:alternative-hip-hop", listOf(), ""),
+            Category("genre:alternative-rock", "Альтернативный рок", "mix", "soundcloud:system-playlists:trending-by-genre:alternative-rock", listOf(), ""),
+            Category("genre:indie", "Инди", "mix", "soundcloud:system-playlists:trending-by-genre:indie", listOf(), ""),
+            Category("genre:punk", "Панк", "mix", "soundcloud:system-playlists:trending-by-genre:punk", listOf(), ""),
+            Category("genre:house", "Хаус", "mix", "soundcloud:system-playlists:trending-by-genre:house", listOf(), ""),
+            Category("genre:techno", "Техно", "mix", "soundcloud:system-playlists:trending-by-genre:techno", listOf(), ""),
+            Category("genre:edm", "EDM", "mix", "soundcloud:system-playlists:trending-by-genre:edm", listOf(), ""),
+            Category("genre:dubstep", "Дабстеп", "mix", "soundcloud:system-playlists:trending-by-genre:dubstep", listOf(), ""),
+            Category("genre:drum--n--bass", "Драм-н-бейс", "mix", "soundcloud:system-playlists:trending-by-genre:drum--n--bass", listOf(), ""),
+            Category("genre:trance", "Транс", "mix", "soundcloud:system-playlists:trending-by-genre:trance", listOf(), ""),
+            Category("genre:hardcore", "Хардкор", "mix", "soundcloud:system-playlists:trending-by-genre:hardcore", listOf(), ""),
+            Category("genre:breakbeat", "Брейкбит", "mix", "soundcloud:system-playlists:trending-by-genre:breakbeat", listOf(), ""),
+            Category("genre:industrial", "Индастриал", "mix", "soundcloud:system-playlists:trending-by-genre:industrial", listOf(), ""),
+            Category("genre:ambient", "Эмбиент", "mix", "soundcloud:system-playlists:trending-by-genre:ambient", listOf(), ""),
+            Category("genre:metal", "Метал", "mix", "soundcloud:system-playlists:trending-by-genre:metal", listOf(), ""),
+            Category("genre:jazz", "Джаз", "mix", "soundcloud:system-playlists:trending-by-genre:jazz", listOf(), ""),
+            Category("genre:classical", "Классика", "mix", "soundcloud:system-playlists:trending-by-genre:classical", listOf(), ""),
+            Category("genre:country", "Кантри", "mix", "soundcloud:system-playlists:trending-by-genre:country", listOf(), ""),
+            Category("genre:folk", "Фолк", "mix", "soundcloud:system-playlists:trending-by-genre:folk", listOf(), ""),
+            Category("genre:latin", "Латино", "mix", "soundcloud:system-playlists:trending-by-genre:latin", listOf(), ""),
+            Category("genre:reggae", "Регги", "mix", "soundcloud:system-playlists:trending-by-genre:reggae", listOf(), ""),
+            Category("genre:reggaeton", "Реггетон", "mix", "soundcloud:system-playlists:trending-by-genre:reggaeton", listOf(), ""),
+            Category("genre:dancehall", "Дэнсхолл", "mix", "soundcloud:system-playlists:trending-by-genre:dancehall", listOf(), ""),
+            Category("genre:disco", "Диско", "mix", "soundcloud:system-playlists:trending-by-genre:disco", listOf(), ""),
+            Category("genre:synthwave", "Синтвейв", "mix", "soundcloud:system-playlists:trending-by-genre:synthwave", listOf(), ""),
+            Category("genre:world", "Музыка мира", "mix", "soundcloud:system-playlists:trending-by-genre:world", listOf(), ""),
+        )),
+        CategoryGroup("Фонк и фанк", listOf(
+            Category("phonk:general", "Фонк", "queries", "", listOf("phonk", "фонк"), "не фанк: фонк вырос из мемфисского рэпа"),
+            Category("phonk:drift", "Дрифт-фонк", "queries", "", listOf("drift phonk", "дрифт фонк"), "ковбелл, ритм под дрифт"),
+            Category("phonk:aggressive", "Агрессивный фонк", "queries", "", listOf("aggressive phonk", "hard phonk", "gym phonk"), "тяжёлый, с искажением"),
+            Category("phonk:dark", "Тёмный фонк", "queries", "", listOf("phonk dark aggressive", "dark phonk mix"), "мрачный, хоррор-атмосфера"),
+            Category("phonk:memphis", "Мемфис-фонк и олдскул", "queries", "", listOf("memphis phonk", "old school phonk", "memphis rap"), "истоки жанра"),
+            Category("phonk:brazil", "Бразильский фонк", "queries", "", listOf("brazilian phonk", "phonk brasileiro", "montagem phonk"), "не бразильский фанк"),
+            Category("phonk:house", "Фонк-хаус и вейв", "queries", "", listOf("phonk house", "wave phonk", "house phonk"), ""),
+            Category("funk:general", "Фанк", "queries", "", listOf("funk bass groove", "funk soul classics"), "это фанк, не фонк"),
+        )),
+        CategoryGroup("Андеграунд и странное", listOf(
+            Category("pick:anti", "Антимузыка", "pick", "anti", listOf(), "шум и искажение: dekma и те, кто звучит рядом"),
+            Category("x:hyperpop", "Хайперпоп", "queries", "", listOf("hyperpop", "glitchcore"), ""),
+            Category("x:rage", "Рейдж", "queries", "", listOf("rage beats", "rage rap"), ""),
+            Category("x:plugg", "Плагг и плаггнб", "queries", "", listOf("plugg", "pluggnb"), ""),
+            Category("x:drill", "Дрилл", "queries", "", listOf("drill", "uk drill", "русский дрилл"), ""),
+            Category("x:jerk", "Джерк", "queries", "", listOf("jerk rap", "jerk"), ""),
+            Category("x:emo", "Эмо и эмо-рэп", "queries", "", listOf("emo rap", "emo"), ""),
+            Category("x:hardtekk", "Хардтек", "queries", "", listOf("hardtekk", "hard tekk"), ""),
+            Category("x:hardstyle", "Хардстайл", "queries", "", listOf("hardstyle"), ""),
+            Category("x:vapor", "Вейпорвейв", "queries", "", listOf("vaporwave", "mallsoft"), ""),
+            Category("x:lofi", "Лоу-фай", "queries", "", listOf("lofi", "lo-fi beats"), ""),
+            Category("x:noise", "Глитч и эксперимент", "queries", "", listOf("glitch", "idm"), ""),
+            Category("x:darkambient", "Дарк-эмбиент", "queries", "", listOf("dark ambient", "drone ambient"), ""),
+            Category("x:shoegaze", "Шугейз и дрим-поп", "queries", "", listOf("shoegaze"), ""),
+            Category("x:postpunk", "Пост-панк и колдвейв", "queries", "", listOf("post punk", "cold wave"), ""),
+            Category("x:rnb", "R&B", "queries", "", listOf("rnb", "alt rnb"), ""),
+            Category("x:slowed", "Slowed + reverb", "queries", "", listOf("slowed reverb", "slowed + reverb"), ""),
+            Category("x:speedup", "Speed up и nightcore", "queries", "", listOf("speed up", "nightcore"), ""),
+        )),
+        CategoryGroup("Эпохи", listOf(
+            Category("era:80", "80-е", "queries", "", listOf("хиты 80-х", "80s hits"), ""),
+            Category("era:90", "90-е", "queries", "", listOf("хиты 90-х", "90s hits"), ""),
+            Category("era:2000", "2000-е", "queries", "", listOf("хиты 2000-х", "2000s hits"), ""),
+            Category("era:2010", "2010-е", "queries", "", listOf("хиты 2010-х", "2010s hits"), ""),
+            Category("era:forever", "Вечные хиты", "queries", "", listOf("вечные хиты", "ностальгия хиты", "greatest hits of all time"), ""),
+        )),
+        CategoryGroup("Русское", listOf(
+            Category("ru:rap", "Русский рэп", "queries", "", listOf("русский рэп", "русский рэп хиты"), ""),
+            Category("ru:rock", "Русский рок", "queries", "", listOf("русский рок", "русский рок 90-х"), ""),
+            Category("ru:pop", "Русская поп-музыка", "queries", "", listOf("русская поп музыка", "русские хиты"), ""),
+            Category("ru:90", "Русские хиты 90-х", "queries", "", listOf("русские хиты 90-х", "русская дискотека 90-х"), ""),
+        )),
+        CategoryGroup("Нейромузыка", listOf(
+            Category("ai:all", "AI-треки", "queries", "", listOf("suno ai", "ai music", "udio ai", "нейросеть песни"), ""),
+            Category("ai:covers", "AI-каверы", "queries", "", listOf("ai cover", "ai кавер"), ""),
+        )),
+    )
+}

@@ -316,6 +316,16 @@ pub struct Player {
     st: Mutex<State>,
     /// Incremented on every load; stale downloads/events are dropped.
     generation: AtomicU64,
+    /// the play that is going on now, written to the listening log when it ends (listening.rs)
+    listen_open: Mutex<Option<OpenListen>>,
+}
+
+/// A play in progress: what the listening log needs when it is over.
+struct OpenListen {
+    track_id: u64,
+    at: i64,
+    duration_ms: u64,
+    wave: bool,
 }
 
 impl Player {
@@ -338,6 +348,7 @@ impl Player {
             drm_only: Mutex::new(HashSet::new()),
             stand_in: Mutex::new(None),
             prefetched: Mutex::new(None),
+            listen_open: Mutex::new(None),
             last_audio: Mutex::new(None),
             eq,
             fx,
@@ -901,6 +912,29 @@ impl Player {
 
     // ------------------------------------------------- wave feedback
 
+    /// A play begins (the track is loaded and plays): the listening log will want to know how it went.
+    fn open_listen(&self, track: &TrackDto, wave: bool) {
+        if track.duration_ms == 0 || self.in_room() {
+            return;
+        }
+        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        *self.listen_open.lock().unwrap_or_else(|e| e.into_inner()) = Some(OpenListen { track_id: track.id, at, duration_ms: track.duration_ms, wave });
+    }
+
+    /// The play is over: `ended` it played to the end, otherwise it is left where the position is now.
+    /// Safe to call when none is open.
+    fn finalize_listen(self: &Arc<Self>, ended: bool) {
+        let Some(open) = self.listen_open.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+        let listened = if ended { open.duration_ms } else { self.position_ms().min(open.duration_ms) };
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = this.app.state::<AppState>();
+            if let Err(e) = state.db.listen_put(open.track_id, open.at, listened, open.duration_ms, ended, open.wave).await {
+                tracing::debug!(error = %e, "listen log");
+            }
+        });
+    }
+
     /// The user moved on from the current track: a skip in its first seconds
     /// tells the wave this one missed.
     fn feedback_on_leave(self: &Arc<Self>) {
@@ -1440,6 +1474,8 @@ impl Player {
     // ----------------------------------------------------------- loading
 
     fn load_current(self: &Arc<Self>) {
+        // another track is wanted: the play that was going on (if it did not end by itself) is over, where it stood
+        self.finalize_listen(false);
         let track = {
             let mut s = self.lock();
             let Some(t) = s.current().cloned() else { return };
@@ -1567,6 +1603,8 @@ impl Player {
                     if let Err(e) = state.db.record_play(track.id).await {
                         tracing::warn!(error = %e, "record_play");
                     }
+                    let wave = this.lock().learns_from_current();
+                    this.open_listen(&track, wave);
                 }
                 Err(e) => {
                     tracing::warn!(track = track.id, error = %e, "track load failed");
@@ -1846,6 +1884,7 @@ impl Player {
             return;
         }
         self.forget_resume();
+        self.finalize_listen(true);
         if let Some(t) = finished {
             self.feedback(t, wave::LISTENED);
         }
@@ -1913,10 +1952,17 @@ impl Player {
                     (s.repeat == RepeatMode::One, s.current().cloned().filter(|_| s.learns_from_current()))
                 };
                 self.forget_resume();
+                let again = self.lock().current().cloned();
+                self.finalize_listen(true);
                 if let Some(t) = finished {
                     self.feedback(t, wave::LISTENED);
                 }
                 if repeat_one {
+                    // the same track goes on: it is a new play (and a sign it is loved)
+                    if let Some(t) = again {
+                        let wave = self.lock().learns_from_current();
+                        self.open_listen(&t, wave);
+                    }
                     self.out(AudioCmd::Replay { generation });
                 } else {
                     self.advance(true);

@@ -65,3 +65,75 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+
+  # the Android app: built after the release exists (the job above makes it), then its package and the feed the
+  # app updates itself from (latest-android.json) are put into the same release
+  android:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      # the proxy engine of the app (sing-box), built the same way as on the developer's machine
+      - name: Proxy engine
+        shell: pwsh
+        run: ./scripts/build-singbox.ps1 -Work "$env:RUNNER_TEMP\gobuild"
+
+      - name: Signing key
+        shell: pwsh
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          [IO.File]::WriteAllBytes("android/release.jks", [Convert]::FromBase64String($env:ANDROID_KEYSTORE_B64))
+
+      - name: Build the package
+        working-directory: android
+        shell: pwsh
+        env:
+          ANDROID_KEYSTORE_FILE: release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          $p = $v.Split('.')
+          $code = [int]$p[0] * 10000 + [int]$p[1] * 100 + [int]$p[2]
+          ./gradlew.bat assembleRelease "-PappVersion=$v" "-PappCode=$code" --no-daemon --console=plain
+
+      - name: Put the package and the feed into the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $v = $tag.TrimStart('v')
+          $p = $v.Split('.')
+          $code = [int]$p[0] * 10000 + [int]$p[1] * 100 + [int]$p[2]
+          $src = Get-ChildItem android/app/build/outputs/apk/release/*arm64-v8a-release.apk | Select-Object -First 1
+          $name = "SC-Desk-$v-android.apk"
+          Copy-Item $src.FullName $name
+          $sha = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item $name).Length
+          # the notes of this version from the changelog
+          $text = Get-Content CHANGELOG.md -Raw -Encoding utf8
+          $m = [regex]::Match($text, "(?ms)^## \[?$([regex]::Escape($v))\]?[^\n]*\n(.*?)(?=^## |\z)")
+          $notes = if ($m.Success) { $m.Groups[1].Value.Trim() } else { 'Исправления и улучшения.' }
+          $feed = [ordered]@{
+            version = $v
+            versionCode = $code
+            notes = $notes
+            apk = [ordered]@{ url = "https://github.com/${{ github.repository }}/releases/download/$tag/$name"; sha256 = $sha; size = $size }
+          }
+          $json = $feed | ConvertTo-Json -Depth 5
+          [IO.File]::WriteAllText("latest-android.json", $json, (New-Object Text.UTF8Encoding($false)))
+          gh release upload $tag $name latest-android.json --clobber

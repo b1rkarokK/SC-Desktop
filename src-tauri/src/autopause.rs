@@ -146,6 +146,11 @@ mod imp {
     }
 }
 
+/// A game in front or the microphone in use: the time not to spend the machine on anything we can do later.
+pub fn busy() -> bool {
+    imp::game_in_front() || imp::mic_in_use()
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

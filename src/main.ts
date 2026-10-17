@@ -4,6 +4,7 @@ import { clock } from './ui/clock';
 import { setWindowShown, toast } from './ui/dom';
 import { EqPopover } from './ui/eq_popover';
 import { QueuePopover } from './ui/queue_popover';
+import { DevicesPopover } from './ui/devices_popover';
 import { Fullscreen } from './ui/fullscreen';
 import { lyricsData } from './ui/lyrics_data';
 import { LyricsPanel } from './ui/lyrics_panel';
@@ -37,9 +38,11 @@ async function boot(): Promise<void> {
   $('player').append(eq.el);
   const queue = new QueuePopover();
   $('player').append(queue.el);
+  const devices = new DevicesPopover();
+  $('player').append(devices.el);
   const main = new MainWindow($('nav'), $('center'));
   new LyricsPanel($('lyrics'), () => fullscreen.toggle());
-  const bar = new PlayerBar($('player'), eq, queue, () => fullscreen.toggle());
+  const bar = new PlayerBar($('player'), eq, queue, devices, () => fullscreen.toggle());
   eq.init(cfg.eq, cfg.fx, (open, enabled) => bar.setEqActive(open, enabled));
 
   await Promise.all([

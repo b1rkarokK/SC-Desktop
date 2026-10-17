@@ -538,6 +538,14 @@ impl SoundCloud {
         Ok(ids.iter().filter_map(|id| found.remove(id)).collect())
     }
 
+    /// The playlists that hold this track (SoundCloud's «в плейлистах» of a track): the ids of the tracks of each,
+    /// in the order of the playlist.
+    pub async fn track_in_playlists(&self, id: u64) -> AppResult<Vec<Vec<u64>>> {
+        let url = self.api_url(&format!("/tracks/{id}/playlists_without_albums"), &[("limit", "10".into())])?;
+        let page: Collection<ScPlaylist> = self.get(url).await?;
+        Ok(page.collection.into_iter().map(|p| p.tracks.iter().filter_map(|t| t["id"].as_u64()).collect()).collect())
+    }
+
     pub async fn search_users(&self, query: &str, limit: u32) -> AppResult<Vec<ScUser>> {
         let url = self.api_url("/search/users", &[("q", query.to_owned()), ("limit", limit.to_string())])?;
         Ok(self.get::<Collection<ScUser>>(url).await?.collection)
@@ -620,7 +628,32 @@ impl SoundCloud {
         Err(last)
     }
 
+    /// The first `segments` segments of the track's HLS stream: about half a minute of sound for a few hundred
+    /// KB, enough to hear what the track is like (wave_ear.rs). An error when the track has no HLS stream.
+    pub async fn download_clip(&self, track: &ScTrack, segments: usize) -> AppResult<Vec<u8>> {
+        if track.policy.as_deref() == Some("BLOCK") {
+            return Err(AppError::NotFound);
+        }
+        for tc in ranked_transcodings(track)?.into_iter().filter(|t| t.format.protocol == "hls") {
+            let mut url = self.api_href(&tc.url)?;
+            if let Some(auth) = &track.track_authorization {
+                url.query_pairs_mut().append_pair("track_authorization", auth);
+            }
+            match self.get::<ResolvedStream>(url).await {
+                Ok(r) => return self.fetch_hls_part(&r.url, Some(segments.max(1))).await,
+                Err(AppError::NotFound) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(AppError::NotFound)
+    }
+
     async fn fetch_hls(&self, playlist_url: &str) -> AppResult<Vec<u8>> {
+        self.fetch_hls_part(playlist_url, None).await
+    }
+
+    /// `limit`: only this many segments from the start (about ten seconds each).
+    async fn fetch_hls_part(&self, playlist_url: &str, limit: Option<usize>) -> AppResult<Vec<u8>> {
         let mut base = Url::parse(playlist_url)?;
         let mut text = self.http.get_text(base.as_str(), Profile::Media, None).await?;
 
@@ -643,7 +676,8 @@ impl SoundCloud {
         }
 
         let http = self.http.clone();
-        let chunks: Vec<Vec<u8>> = futures::stream::iter(playlist.segments.into_iter().map(|seg| {
+        let wanted = limit.unwrap_or(usize::MAX);
+        let chunks: Vec<Vec<u8>> = futures::stream::iter(playlist.segments.into_iter().take(wanted).map(|seg| {
             let http = http.clone();
             async move { http.get_bytes(seg.as_str(), Profile::Media, None).await }
         }))

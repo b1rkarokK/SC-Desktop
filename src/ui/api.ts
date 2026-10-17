@@ -68,7 +68,8 @@ export interface HistoryItem {
 export type RepeatMode = 'off' | 'all' | 'one';
 export type QueueSource = 'list' | 'likes' | 'wave';
 export type NetMode = 'direct' | 'proxy';
-export type Mood = 'normal' | 'fresh' | 'familiar' | 'calm' | 'energetic';
+export type Mood = 'normal' | 'fresh' | 'familiar';
+export type Vibe = 'any' | 'calm' | 'energetic' | 'sad' | 'happy' | 'aggressive' | 'romantic' | 'party' | 'focus' | 'night';
 
 export interface PlayerSnapshot {
   track: Track | null;
@@ -130,9 +131,27 @@ export interface Stats {
   artists: number;
   top_tracks: { track: Track; plays: number }[];
   top_artists: { user_id: number; name: string; plays: number; ms: number; artwork_url: string | null }[];
+  /** minutes of music per hour of the day */
   hours: number[];
+  /** the plays of a single day, newest first */
+  timeline: { track: Track; at: number }[];
   genres: [string, number][];
   streak: number;
+}
+
+export interface DeviceInfo {
+  dev: string;
+  name: string;
+  kind: string;
+  online: boolean;
+  /** what that device played when it last told: { track: {id, title, artist, dur, art}, pos, playing, vol } */
+  remote: { track: { id: number; title: string; artist: string } | null; pos: number; playing: boolean; vol: number } | null;
+}
+
+export interface DevicesView {
+  linked: boolean;
+  name: string;
+  peers: DeviceInfo[];
 }
 
 export interface SleepState {
@@ -235,6 +254,7 @@ export interface DislikedArtist {
 
 export interface WaveInfo {
   mood: Mood;
+  vibe: Vibe;
   no_liked: boolean;
   reason: string | null;
   /** "по плейлисту «…»" when the wave is built around something */
@@ -472,6 +492,7 @@ export const api = {
     invoke<number>('wave_start_from', { trackId, artistId }),
   waveStartPlaylist: (playlistId: number) => invoke<number>('wave_start_playlist', { playlistId }),
   waveSetMood: (mood: Mood) => invoke<void>('wave_set_mood', { mood }),
+  waveSetVibe: (vibe: Vibe) => invoke<void>('wave_set_vibe', { vibe }),
   waveInfo: (trackId: number | null) => invoke<WaveInfo>('wave_info', { trackId }),
   waveSetNoLiked: (enabled: boolean) => invoke<void>('wave_set_no_liked', { enabled }),
   dislikeSet: (trackId: number, disliked: boolean) => invoke<void>('dislike_set', { trackId, disliked }),
@@ -531,7 +552,16 @@ export const api = {
   importPreview: (input: string) => invoke<[string, number]>('import_preview', { input }),
   importRun: (input: string, title: string, isPrivate: boolean) =>
     invoke<{ title: string; found: number; total: number; playlists: number; missing: string[] }>('import_run', { input, title, private: isPrivate }),
-  statsGet: (period: 'week' | 'month' | 'year' | 'all') => invoke<Stats>('stats_get', { period }),
+  devicesPairStart: () => invoke<string>('devices_pair_start'),
+  devicesPairAnswer: (allow: boolean) => invoke<void>('devices_pair_answer', { allow }),
+  devicesAccountAnswer: (allow: boolean) => invoke<void>('devices_account_answer', { allow }),
+  devicesVpnAnswer: (allow: boolean) => invoke<void>('devices_vpn_answer', { allow }),
+  devicesPairCancel: () => invoke<void>('devices_pair_cancel'),
+  devicesView: () => invoke<DevicesView>('devices_view'),
+  devicesUnlink: () => invoke<void>('devices_unlink'),
+  devicesCommand: (to: string, op: string, value?: unknown) => invoke<void>('devices_command', { to, op, value }),
+  devicesTransfer: (to: string, pull: boolean) => invoke<void>('devices_transfer', { to, pull }),
+  statsGet: (period: 'day' | 'week' | 'month' | 'year' | 'all', daysAgo?: number) => invoke<Stats>('stats_get', { period, daysAgo }),
   queueGet: (limit: number) => invoke<QueueView>('queue_get', { limit }),
   queueMove: (from: number, to: number) => invoke<void>('queue_move', { from, to }),
   queueRemove: (at: number) => invoke<void>('queue_remove', { at }),

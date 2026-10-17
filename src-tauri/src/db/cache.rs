@@ -104,6 +104,18 @@ CREATE TABLE IF NOT EXISTS wave_signals (
 );
 CREATE INDEX IF NOT EXISTS wave_signals_at ON wave_signals(at);
 
+-- every play of every track: how far it got (listening.rs). The taste model learns from it.
+CREATE TABLE IF NOT EXISTS listens (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id    INTEGER NOT NULL,
+    at          INTEGER NOT NULL,
+    listened_ms INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    ended       INTEGER NOT NULL,
+    wave        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS listens_track ON listens(track_id);
+
 CREATE TABLE IF NOT EXISTS audio_feat (
     track_id INTEGER PRIMARY KEY,
     v        BLOB    NOT NULL
@@ -473,6 +485,37 @@ impl Db {
         .await
     }
 
+    /// One finished play: how far it got. Kept bounded (the latest 30 000).
+    pub async fn listen_put(&self, track_id: u64, at: i64, listened_ms: u64, duration_ms: u64, ended: bool, wave: bool) -> AppResult<()> {
+        self.run(move |c| {
+            c.execute(
+                "INSERT INTO listens (track_id, at, listened_ms, duration_ms, ended, wave) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![track_id as i64, at, listened_ms as i64, duration_ms as i64, ended as i64, wave as i64],
+            )?;
+            c.execute("DELETE FROM listens WHERE id <= (SELECT MAX(id) FROM listens) - 30000", [])?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// The latest `limit` plays grouped by track (a track's plays newest first).
+    pub async fn listens_by_track(&self, limit: u32) -> AppResult<Vec<(u64, Vec<crate::listening::Listen>)>> {
+        let rows = self
+            .run(move |c| {
+                let mut st = c.prepare_cached("SELECT track_id, listened_ms, duration_ms, ended FROM listens ORDER BY id DESC LIMIT ?1")?;
+                let rows = st.query_map([limit as i64], |r| {
+                    Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64, r.get::<_, i64>(3)? != 0))
+                })?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .await?;
+        let mut by: std::collections::HashMap<u64, Vec<crate::listening::Listen>> = std::collections::HashMap::new();
+        for (id, listened_ms, duration_ms, ended) in rows {
+            by.entry(id).or_default().push(crate::listening::Listen { listened_ms, duration_ms, ended });
+        }
+        Ok(by.into_iter().collect())
+    }
+
     /// Liked / played / disliked tracks whose metadata is missing (a damaged
     /// cache restored without them): fetched again in the background.
     pub async fn orphan_track_ids(&self) -> AppResult<Vec<u64>> {
@@ -486,32 +529,32 @@ impl Db {
         Ok(ids.into_iter().collect())
     }
 
-    /// «Итоги»: listening since `since` (unix seconds), all from local history.
-    pub async fn stats(&self, since: i64) -> AppResult<Stats> {
+    /// «Итоги»: listening from `since` up to `until` (unix seconds), all from local history.
+    pub async fn stats(&self, since: i64, until: i64) -> AppResult<Stats> {
         self.run(move |c| {
             let (plays, ms, tracks, artists): (i64, i64, i64, i64) = c.query_row(
                 "SELECT COUNT(*), COALESCE(SUM(t.duration_ms), 0), COUNT(DISTINCT p.track_id), COUNT(DISTINCT t.user_id)
-                 FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.at >= ?1",
-                [since],
+                 FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.at >= ?1 AND p.at < ?2",
+                [since, until],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )?;
             let mut st = c.prepare_cached(&format!(
                 "SELECT {TRACK_COLS}, COUNT(*) AS n FROM plays p JOIN tracks t ON t.id = p.track_id
-                 WHERE p.at >= ?1 GROUP BY p.track_id ORDER BY n DESC, MAX(p.at) DESC LIMIT 10"
+                 WHERE p.at >= ?1 AND p.at < ?2 GROUP BY p.track_id ORDER BY n DESC, MAX(p.at) DESC LIMIT 10"
             ))?;
             let top_tracks = st
-                .query_map([since], |r| Ok(StatTrack { track: row_to_dto(r)?, plays: r.get::<_, i64>(8)? as u64 }))?
+                .query_map([since, until], |r| Ok(StatTrack { track: row_to_dto(r)?, plays: r.get::<_, i64>(8)? as u64 }))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             // the artist's most played track gives the picture
             let mut st = c.prepare_cached(
                 "SELECT t.user_id, MAX(t.artist), COUNT(*) AS n, SUM(t.duration_ms),
                         (SELECT t2.artwork_url FROM plays p2 JOIN tracks t2 ON t2.id = p2.track_id
-                          WHERE t2.user_id = t.user_id AND p2.at >= ?1 GROUP BY p2.track_id ORDER BY COUNT(*) DESC LIMIT 1)
+                          WHERE t2.user_id = t.user_id AND p2.at >= ?1 AND p2.at < ?2 GROUP BY p2.track_id ORDER BY COUNT(*) DESC LIMIT 1)
                  FROM plays p JOIN tracks t ON t.id = p.track_id
-                 WHERE p.at >= ?1 GROUP BY t.user_id ORDER BY n DESC LIMIT 10",
+                 WHERE p.at >= ?1 AND p.at < ?2 GROUP BY t.user_id ORDER BY n DESC LIMIT 10",
             )?;
             let top_artists = st
-                .query_map([since], |r| {
+                .query_map([since, until], |r| {
                     Ok(StatArtist {
                         user_id: r.get::<_, i64>(0)? as u64,
                         name: r.get(1)?,
@@ -521,23 +564,45 @@ impl Db {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
+            // minutes of music per hour of the day (a track counts in the hour it began), local time
             let mut hours = [0u32; 24];
             let mut st = c.prepare_cached(
-                "SELECT CAST(strftime('%H', at, 'unixepoch', 'localtime') AS INTEGER), COUNT(*) FROM plays WHERE at >= ?1 GROUP BY 1",
+                "SELECT CAST(strftime('%H', p.at, 'unixepoch', 'localtime') AS INTEGER), CAST(SUM(t.duration_ms) / 60000.0 + 0.5 AS INTEGER)
+                 FROM plays p JOIN tracks t ON t.id = p.track_id WHERE p.at >= ?1 AND p.at < ?2 GROUP BY 1",
             )?;
-            for row in st.query_map([since], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+            for row in st.query_map([since, until], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
                 let (h, n) = row?;
                 if let Some(slot) = hours.get_mut(h as usize) {
                     *slot = n as u32;
                 }
             }
+            // a single day: what played and when
+            let mut timeline = Vec::new();
+            if until < i64::MAX {
+                let mut st = c.prepare_cached(&format!(
+                    "SELECT {TRACK_COLS}, p.at FROM plays p JOIN tracks t ON t.id = p.track_id
+                     WHERE p.at >= ?1 AND p.at < ?2 ORDER BY p.at DESC LIMIT 300"
+                ))?;
+                timeline = st
+                    .query_map([since, until], |r| Ok(StatPlay { track: row_to_dto(r)?, at: r.get(8)? }))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+            }
+            // genres: each played track counts under its genre and its tags (folded: "Hip-hop & Rap" = "Hip Hop/rap")
             let mut st = c.prepare_cached(
-                "SELECT LOWER(TRIM(t.genre)) AS g, COUNT(*) AS n FROM plays p JOIN tracks t ON t.id = p.track_id
-                 WHERE p.at >= ?1 AND t.genre IS NOT NULL AND TRIM(t.genre) != '' GROUP BY g ORDER BY n DESC LIMIT 6",
+                "SELECT t.json, COUNT(*) FROM plays p JOIN tracks t ON t.id = p.track_id
+                 WHERE p.at >= ?1 AND p.at < ?2 GROUP BY p.track_id",
             )?;
-            let genres = st
-                .query_map([since], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut by_genre: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+            for row in st.query_map([since, until], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))? {
+                let (json, n) = row?;
+                let Ok(t) = serde_json::from_str::<ScTrack>(&json) else { continue };
+                for g in crate::genres::labels(t.genre.as_deref(), t.tag_list.as_deref().unwrap_or("")) {
+                    *by_genre.entry(g).or_default() += n;
+                }
+            }
+            let mut genres: Vec<(String, u64)> = by_genre.into_iter().collect();
+            genres.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            genres.truncate(30);
             // days with music, newest first, for the streak
             let mut st = c.prepare_cached("SELECT DISTINCT date(at, 'unixepoch', 'localtime') FROM plays ORDER BY 1 DESC LIMIT 400")?;
             let days = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -549,9 +614,24 @@ impl Db {
                 top_tracks,
                 top_artists,
                 hours,
+                timeline,
                 genres,
                 streak: streak(&days),
             })
+        })
+        .await
+    }
+
+    /// Unix-second bounds of the local day `offset` days back from today (0 = today).
+    pub async fn day_bounds(&self, offset: i64) -> AppResult<(i64, i64)> {
+        self.run(move |c| {
+            let m = format!("-{} days", offset.max(0));
+            let start: i64 = c.query_row(
+                "SELECT CAST(strftime('%s', 'now', 'localtime', 'start of day', ?1, 'utc') AS INTEGER)",
+                [&m],
+                |r| r.get(0),
+            )?;
+            Ok((start, start + 86_400))
         })
         .await
     }
@@ -816,6 +896,13 @@ impl Db {
                 r.collect::<rusqlite::Result<Vec<_>>>()?
             };
             let signals = table3("SELECT track_id, signal, at FROM wave_signals")?;
+            let listens = {
+                let mut st = c.prepare("SELECT track_id, at, listened_ms, duration_ms, ended, wave FROM listens ORDER BY id DESC LIMIT 30000")?;
+                let r = st.query_map([], |r| {
+                    Ok(json!([r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?]))
+                })?;
+                r.collect::<rusqlite::Result<Vec<_>>>()?
+            };
             let tracks = {
                 let mut st = c.prepare(
                     "SELECT json FROM tracks WHERE id IN (
@@ -830,7 +917,7 @@ impl Db {
             };
             Ok(json!({
                 "likes": likes, "disliked_artists": disliked_artists, "disliked_tracks": disliked_tracks,
-                "plays": plays, "wave_signals": signals, "tracks": tracks,
+                "plays": plays, "wave_signals": signals, "listens": listens, "tracks": tracks,
             }))
         })
         .await
@@ -870,6 +957,17 @@ impl Db {
             for s in arr("wave_signals") {
                 if let (Some(id), Some(sig), Some(at)) = (s[0].as_i64(), s[1].as_i64(), s[2].as_i64()) {
                     tx.execute("INSERT OR IGNORE INTO wave_signals (track_id, signal, at) VALUES (?1, ?2, ?3)", params![id, sig, at])?;
+                }
+            }
+            for l in arr("listens") {
+                if let (Some(id), Some(at), Some(ms), Some(dur), Some(end), Some(wave)) =
+                    (l[0].as_i64(), l[1].as_i64(), l[2].as_i64(), l[3].as_i64(), l[4].as_i64(), l[5].as_i64())
+                {
+                    tx.execute(
+                        "INSERT INTO listens (track_id, at, listened_ms, duration_ms, ended, wave)
+                         SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE NOT EXISTS (SELECT 1 FROM listens WHERE track_id = ?1 AND at = ?2)",
+                        params![id, at, ms, dur, end, wave],
+                    )?;
                 }
             }
             tx.commit()
@@ -1150,6 +1248,12 @@ pub struct StatTrack {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct StatPlay {
+    pub track: TrackDto,
+    pub at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct StatArtist {
     pub user_id: u64,
     pub name: String,
@@ -1167,9 +1271,11 @@ pub struct Stats {
     pub artists: u64,
     pub top_tracks: Vec<StatTrack>,
     pub top_artists: Vec<StatArtist>,
-    /// plays per hour of the day, local time
+    /// minutes of music per hour of the day, local time
     pub hours: [u32; 24],
-    /// lower-case genre, plays
+    /// the plays of a single day, newest first (empty for longer periods)
+    pub timeline: Vec<StatPlay>,
+    /// lower-case genre or tag with the plays of the tracks that carry it (a track counts under several)
     pub genres: Vec<(String, u64)>,
     /// days in a row with music, ending today or yesterday
     pub streak: u32,

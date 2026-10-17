@@ -13,6 +13,7 @@ import { updates } from '../update_dialog';
 import { btn, viewHead, type View } from './common';
 import { mb } from './profile';
 import { currentLang, setLang, T, type Lang } from '../i18n';
+import qrcode from 'qrcode-generator';
 import { HOTKEY_ACTIONS, hotkeys, recorder, resetCombos, setInGames, setMiniClickSecs } from '../hotkeys';
 
 function toggle(on: boolean, onChange: (v: boolean) => void): HTMLButtonElement {
@@ -56,6 +57,9 @@ export class SettingsView implements View {
   private cfg: AppConfig | null = null;
   private account = h('div');
   private discordBox = h('div');
+  private phoneBox = h('div');
+  /** the QR code is on screen (the computer waits for a phone) */
+  private pairing: string | null = null;
   private lyricsBox = h('div');
   private netBox = h('div');
   private vpnBox = h('div');
@@ -66,17 +70,68 @@ export class SettingsView implements View {
   private hotkeysBox = h('div');
 
   constructor() {
-    this.el = h(
-      'section',
-      { class: 'view' },
-      viewHead(T('Настройки')),
-      h(
-        'div',
-        { class: 'view-scroll pad' },
-        h('div', { class: 'settings' }, this.account, this.themeBox, this.langBox, this.hotkeysBox, this.discordBox, this.lyricsBox, this.netBox, this.systemBox, this.storageBox),
-      ),
-    );
+    // categories: a list on the left, one category's settings on the right (the last one is remembered)
+    const cats: [string, string, HTMLElement[]][] = [
+      ['account', T('Аккаунт'), [this.account]],
+      ['look', T('Внешний вид'), [this.themeBox, this.langBox]],
+      ['keys', T('Клавиши'), [this.hotkeysBox]],
+      ['lyrics', T('Тексты'), [this.lyricsBox]],
+      ['net', T('Сеть'), [this.netBox]],
+      ['apps', T('Интеграции'), [this.phoneBox, this.discordBox]],
+      ['system', T('Система и память'), [this.systemBox, this.storageBox]],
+    ];
+    let saved = '';
+    try {
+      saved = localStorage.getItem('scdesk.settings.cat') ?? '';
+    } catch {
+      /* no storage: start from the first */
+    }
+    const nav = h('nav', { class: 'set-nav', role: 'tablist', 'aria-orientation': 'vertical' });
+    const panes = h('div', { class: 'view-scroll pad set-panes' });
+    const buttons = new Map<string, HTMLElement>();
+    const pages = new Map<string, HTMLElement>();
+    const open = (id: string): void => {
+      for (const [k, b] of buttons) {
+        b.classList.toggle('is-on', k === id);
+        b.setAttribute('aria-selected', String(k === id));
+        pages.get(k)!.hidden = k !== id;
+      }
+      panes.scrollTop = 0;
+      try {
+        localStorage.setItem('scdesk.settings.cat', id);
+      } catch {
+        /* not kept */
+      }
+    };
+    for (const [id, label, boxes] of cats) {
+      const b = h('button', { type: 'button', class: 'set-cat', role: 'tab', text: label });
+      b.addEventListener('click', () => open(id));
+      buttons.set(id, b);
+      nav.append(b);
+      const page = h('div', { class: 'settings', role: 'tabpanel' }, ...boxes);
+      pages.set(id, page);
+      panes.append(page);
+    }
+    open(buttons.has(saved) ? saved : 'account');
+    this.el = h('section', { class: 'view' }, viewHead(T('Настройки')), h('div', { class: 'set-layout' }, nav, panes));
     store.on('auth', () => this.renderAccount());
+    void listen('devices:changed', () => void this.renderPhone());
+    void listen<{ name: string; user: string }>('devices:account-offer', async (ev) => {
+      const ok = await confirmDialog(T('Войти на компьютере как «{0}»?', ev.payload.user), T('Телефон «{0}» передаёт на компьютер вход в SoundCloud. Подтверждайте, только если этот код показали вы сами.', ev.payload.name), T('Да, войти'));
+      await api.devicesAccountAnswer(ok).catch((e) => toast(errorMessage(e), 'error'));
+      this.pairing = null;
+      void this.renderPhone();
+    });
+    void listen<{ name: string }>('devices:vpn-request', async (ev) => {
+      const ok = await confirmDialog(T('Дать телефону «{0}» серверы подписки?', ev.payload.name), T('Телефон получит список серверов вашей VPN-подписки, чтобы выходить в сеть через них. Подписка при этом не считает ещё одно устройство. Давайте только своему телефону.'), T('Дать'));
+      await api.devicesVpnAnswer(ok).catch((e) => toast(errorMessage(e), 'error'));
+    });
+    void listen<{ name: string }>('devices:pair-request', async (ev) => {
+      const ok = await confirmDialog(T('Подключить телефон «{0}»?', ev.payload.name), T('Телефон получит доступ к вашему аккаунту SoundCloud и сможет играть вместе с компьютером. Подключайте только свой телефон.'), T('Подключить'));
+      await api.devicesPairAnswer(ok).catch((e) => toast(errorMessage(e), 'error'));
+      this.pairing = null;
+      void this.renderPhone();
+    });
     onPrefs(() => this.renderTheme());
   }
 
@@ -86,6 +141,7 @@ export class SettingsView implements View {
     this.renderTheme();
     this.renderLyrics();
     this.renderHotkeys();
+    void this.renderPhone();
     void this.load();
   }
 
@@ -309,6 +365,66 @@ export class SettingsView implements View {
     this.langBox.replaceChildren(group('Язык / Language', row(T('Язык интерфейса'), langs, T('Тексты песен не переводятся'))));
   }
 
+  // ------------------------------------------------------------ phone
+
+  /** «Телефон»: the QR code to link the SC Desk app of a phone, and the devices that are linked (devices.rs). */
+  private async renderPhone(): Promise<void> {
+    let view;
+    try {
+      view = await api.devicesView();
+    } catch {
+      return; // the link is still starting
+    }
+    const signed = (await api.authStatus().catch(() => null))?.has_credentials ?? false;
+    const rows: HTMLElement[] = [];
+    if (this.pairing) {
+      const qr = qrcode(0, 'M');
+      qr.addData(this.pairing);
+      qr.make();
+      const code = h('div', { class: 'phone-qr' });
+      code.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 3, scalable: true });
+      const cancel = btn(T('Отмена'), null);
+      cancel.addEventListener('click', () => {
+        this.pairing = null;
+        void api.devicesPairCancel().catch(() => {});
+        void this.renderPhone();
+      });
+      rows.push(code, h('p', { class: 'muted small', text: signed ? T('Откройте SC Desk на телефоне и наведите камеру на этот код. Он действует 5 минут.') : T('Откройте SC Desk на телефоне, где уже есть вход в SoundCloud, и наведите камеру на этот код. Аккаунт перейдёт на компьютер, когда вы подтвердите здесь. Код действует 5 минут.') }), h('div', { class: 'row-actions' }, cancel));
+    } else {
+      const add = btn(signed ? T('Подключить телефон') : T('Войти по QR с телефона'), I.login, true);
+      add.addEventListener('click', async () => {
+        try {
+          this.pairing = await api.devicesPairStart();
+          void this.renderPhone();
+        } catch (e) {
+          toast(errorMessage(e), 'error');
+        }
+      });
+      rows.push(h('div', { class: 'row-actions' }, add));
+    }
+    for (const d of view.peers) {
+      const playing = d.remote?.track ? `${d.remote.playing ? '▶ ' : ''}${d.remote.track.artist} · ${d.remote.track.title}` : d.online ? T('в сети') : T('не в сети');
+      const here = btn(T('Играть здесь'), null);
+      here.disabled = !d.online;
+      here.addEventListener('click', () => void api.devicesTransfer(d.dev, true).catch((e) => toast(errorMessage(e), 'error')));
+      const there = btn(T('Играть там'), null);
+      there.disabled = !d.online;
+      there.addEventListener('click', () => void api.devicesTransfer(d.dev, false).catch((e) => toast(errorMessage(e), 'error')));
+      rows.push(row(d.name || T('Телефон'), h('div', { class: 'row-actions' }, here, there), playing));
+    }
+    if (view.linked) {
+      const off = btn(T('Отключить все устройства'), null);
+      off.addEventListener('click', async () => {
+        if (await confirmDialog(T('Отключить все устройства?'), T('Телефон перестанет играть вместе с компьютером. Подключить его можно снова по QR-коду.'), T('Отключить'))) {
+          await api.devicesUnlink().catch((e) => toast(errorMessage(e), 'error'));
+          void this.renderPhone();
+        }
+      });
+      rows.push(h('div', { class: 'row-actions' }, off));
+    }
+    this.phoneBox.replaceChildren(group(T('Телефон'), h('p', { class: 'muted small', text: signed ? T('Приложение SC Desk на телефоне: вход по QR-коду без пароля, музыку можно переключать с одного устройства на другое.') : T('Если в приложении SC Desk на телефоне уже есть вход в SoundCloud, на компьютере можно не вводить пароль: войдите по QR-коду с телефона.') }), ...rows));
+  }
+
   // ---------------------------------------------------------- discord
 
   private renderDiscord(): void {
@@ -530,7 +646,7 @@ export class SettingsView implements View {
         T('Хранилище'),
         line(T('Библиотека'), s.database, T('треки, тексты песен, история: то, что программа уже знает, чтобы не спрашивать SoundCloud снова')),
         line(T('Обложки'), s.covers, T('не больше 12 МБ, старые удаляются сами')),
-        line(T('Кэш встроенного браузера'), s.browser, T('окно входа и проверки SoundCloud; не больше 8 МБ с версии 1.2.1')),
+        line(T('Кэш встроенного браузера'), s.browser, T('окно входа и проверки SoundCloud; держится около 25 МБ, лишнее удаляется само')),
         line(T('Модель распознавания песен'), s.model, T('скачивается, только когда песню надо узнать по словам; удалите, если не нужна')),
         line(T('Мои файлы'), s.local, T('ваши треки, сжатые и зашифрованные')),
         h('div', { class: 'row-actions' }, clear, model),

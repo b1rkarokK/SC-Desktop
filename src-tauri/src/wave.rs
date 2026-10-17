@@ -10,8 +10,11 @@
 //! 6. Weighted random sample without replacement (Efraimidis–Spirakis),
 //!    max 2 tracks per artist, ~15 % familiar liked tracks mixed in,
 //!    no artist twice in a row.
-//! 7. Mood: fresh (no liked tracks, unknown artists up), familiar (half
-//!    liked, known artists up), calm / energetic (genre & tag keywords).
+//! 7. Novelty: fresh (no liked tracks, unknown artists up), familiar (half
+//!    liked, known artists up). Mood ("настроение", wave_vibe.rs): calm, energetic,
+//!    sad, happy, aggressive, romantic, party, focus, night, read from the words of a
+//!    track's genre, tags and title; more tracks of the mood are searched for.
+//!    An artist that played lately is held back, so one artist never fills the wave.
 //! 8. Listening feedback: a wave track listened to the end is a soft like
 //!    (profile + seed), one skipped in the first seconds lowers its artist and
 //!    genre (smoothed ratio, so one skip is not a ban). Within the session an
@@ -44,15 +47,10 @@ const MAX_PER_ARTIST: usize = 2;
 const MIN_DURATION_MS: u64 = 30_000;
 const MAX_DURATION_MS: u64 = 15 * 60_000;
 
-/// SoundCloud has no BPM/energy data — moods are approximated by genre/tag words.
-const CALM_WORDS: &[&str] = &[
-    "ambient", "chill", "lofi", "lo-fi", "acoustic", "piano", "downtempo", "classical", "jazz", "sleep", "relax",
-    "soul", "folk", "indie", "dream", "slow", "r&b", "rnb",
-];
-const ENERGY_WORDS: &[&str] = &[
-    "techno", "dnb", "drum", "hardstyle", "house", "edm", "trap", "phonk", "rock", "metal", "dubstep", "hard",
-    "rave", "electro", "bass", "punk", "jungle", "trance",
-];
+/// The last artists the wave played (what was handed out in the latest batches): they sit out for a while.
+const RECENT_ARTISTS: usize = 24;
+/// of those, the newest this many are held back hard
+const RECENT_ARTISTS_HARD: usize = 12;
 
 /// Signals: listened to the end / skipped early.
 pub const LISTENED: i8 = 1;
@@ -98,6 +96,10 @@ pub struct WaveState {
     no_liked: std::sync::atomic::AtomicBool,
     context: Mutex<Option<std::sync::Arc<WaveContext>>>,
     session: Mutex<Session>,
+    /// the chosen mood of the wave, "any" when none (wave_vibe.rs)
+    vibe: Mutex<String>,
+    /// artists of the latest batches, newest first
+    recent_artists: Mutex<VecDeque<u64>>,
 }
 
 impl WaveState {
@@ -159,37 +161,98 @@ impl WaveState {
         self.recent_seeds.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
+    pub fn vibe(&self) -> String {
+        let v = self.vibe.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        if v.is_empty() {
+            "any".into()
+        } else {
+            v
+        }
+    }
+
+    pub fn set_vibe(&self, vibe: &str) {
+        *self.vibe.lock().unwrap_or_else(|p| p.into_inner()) = vibe.to_owned();
+        self.recent_seeds.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    }
+
+    /// Remembers the artists a batch has just handed out (in play order).
+    fn note_artists(&self, ids: &[u64]) {
+        let mut r = self.recent_artists.lock().unwrap_or_else(|p| p.into_inner());
+        for &id in ids.iter().rev() {
+            r.retain(|&x| x != id);
+            r.push_front(id);
+        }
+        r.truncate(RECENT_ARTISTS);
+    }
+
+    /// 1.0 for an artist not heard lately, much less for one of the last batches.
+    fn artist_recency(&self, id: u64) -> f64 {
+        let r = self.recent_artists.lock().unwrap_or_else(|p| p.into_inner());
+        recency_penalty(r.iter().position(|&x| x == id))
+    }
+
     pub fn reason(&self, track_id: u64) -> Option<String> {
         self.reasons.lock().unwrap_or_else(|p| p.into_inner()).get(&track_id).cloned()
     }
 }
 
+/// An older wave could still hold "calm" / "energetic" as its novelty mood: they are moods now (wave_vibe.rs).
 fn mood_factor(mood: &str, t: &ScTrack) -> f64 {
-    let words = |list: &[&str]| {
-        let hay = format!("{} {}", t.genre.as_deref().unwrap_or(""), t.tag_list.as_deref().unwrap_or("")).to_lowercase();
-        list.iter().any(|w| hay.contains(w))
-    };
-    match mood {
-        "calm" => {
-            if words(CALM_WORDS) {
-                2.5
-            } else if words(ENERGY_WORDS) {
-                0.3
-            } else {
-                1.0
-            }
-        }
-        "energetic" => {
-            if words(ENERGY_WORDS) {
-                2.5
-            } else if words(CALM_WORDS) {
-                0.3
-            } else {
-                1.0
-            }
-        }
+    crate::wave_vibe::factor(mood, t)
+}
+
+/// Position in the list of the latest artists (None: not there) → how much it is held back.
+fn recency_penalty(position: Option<usize>) -> f64 {
+    match position {
+        None => 1.0,
+        Some(i) if i < RECENT_ARTISTS_HARD => 0.12,
+        Some(_) => 0.45,
+    }
+}
+
+/// A listener of mostly Russian songs gets fewer foreign ones and the other way round; a mixed taste is left alone.
+fn language_factor(ru_share: f64, russian: bool) -> f64 {
+    match (ru_share, russian) {
+        (s, true) if s >= 0.65 => 1.15,
+        (s, false) if s >= 0.65 => 0.55,
+        (s, true) if s <= 0.35 => 0.55,
+        (s, false) if s <= 0.35 => 1.1,
         _ => 1.0,
     }
+}
+
+/// A track with neither genre nor tags gives nothing to judge by; one almost nobody played is more often unfinished.
+fn evidence_factor(t: &ScTrack) -> f64 {
+    let known = norm_genre(t).is_some() || !parse_tags(t.tag_list.as_deref().unwrap_or("")).is_empty();
+    let base = if known { 1.0 } else { 0.75 };
+    let plays = match t.playback_count {
+        Some(n) if n < 20 => 0.6,
+        Some(n) if n < 200 => 0.85,
+        _ => 1.0,
+    };
+    base * plays
+}
+
+/// A genre and tags the taste knows nothing of: probably not for this listener (less so when new music is asked for).
+fn taste_fit(profile: &Profile, t: &ScTrack, fresh: bool) -> f64 {
+    let known = norm_genre(t).is_some() || !parse_tags(t.tag_list.as_deref().unwrap_or("")).is_empty();
+    if !known {
+        return 1.0;
+    }
+    if profile.genre_affinity(t) == 0.0 && profile.tag_affinity(t) == 0.0 {
+        if fresh { 0.85 } else { 0.6 }
+    } else {
+        1.0
+    }
+}
+
+/// The share of the likes with Cyrillic in the title or the artist.
+fn russian_share(tracks: &[ScTrack]) -> f64 {
+    if tracks.is_empty() {
+        return 0.5;
+    }
+    let ru = |t: &ScTrack| format!("{}{}", t.title, t.artist_name()).chars().any(|c| ('\u{400}'..='\u{4ff}').contains(&c));
+    tracks.iter().filter(|t| ru(t)).count() as f64 / tracks.len() as f64
 }
 
 #[derive(Default)]
@@ -380,6 +443,11 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     let disliked_tracks = state.db.disliked_track_ids().await?;
     let recent = state.db.recent_plays(RECENT_PLAYS_EXCLUDED).await?;
     let signals = state.db.wave_signals(SIGNALS_USED).await?;
+    // how every play went (listening.rs): heard to the end, left at 3 seconds, played again and again
+    let listen_agg: HashMap<u64, crate::listening::Agg> =
+        state.db.listens_by_track(8000).await?.into_iter().map(|(id, ls)| (id, crate::listening::aggregate(&ls))).collect();
+    let listen_tracks: Vec<ScTrack> = state.db.tracks_by_ids(listen_agg.keys().copied().collect()).await?;
+    let replay = |id: u64| listen_agg.get(&id).map_or(1.0, crate::listening::replay_weight);
     let liked_ids: HashSet<u64> = liked.iter().map(|t| t.id).collect();
     let ctx_ids: HashSet<u64> = ctx_tracks.iter().map(|t| t.id).collect();
     let profile = {
@@ -417,9 +485,15 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         }
         // plain plays: a weak yes, with the hour and weekday they happened at
         for (i, (t, hour, weekday)) in state.db.plays_timed(1500).await?.into_iter().enumerate() {
-            if !liked_ids.contains(&t.id) {
+            if !liked_ids.contains(&t.id) && !listen_agg.contains_key(&t.id) {
                 let ctx = Some(crate::wave_model::context(hour, weekday));
                 samples.push(Sample { track: t, positive: true, weight: g * 0.4 * recency_weight(i) as f32, ctx });
+            }
+        }
+        // the listening log: heard to the end is a yes, left in seconds a no, played again and again a strong yes
+        for t in &listen_tracks {
+            if let Some((positive, w)) = listen_agg.get(&t.id).and_then(crate::listening::training_sample) {
+                samples.push(Sample { track: t.clone(), positive, weight: g * 0.8 * w, ctx: None });
             }
         }
         // wave feedback: listened to the end > plain play; an early skip is a no
@@ -441,6 +515,14 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     };
     let model_ms = trained_at.elapsed().as_millis() as u64;
     let mut rng = StdRng::from_entropy();
+    let mood = gen.mood.map(String::from).unwrap_or_else(|| state.wave.mood());
+    // the chosen mood belongs to the wave itself, not to Smart Shuffle (which names its own)
+    let vibe = if gen.mood.is_some() { "any".to_owned() } else { state.wave.vibe() };
+    let ru_share = russian_share(&liked);
+    let mut artist_likes: HashMap<u64, usize> = HashMap::new();
+    for t in &liked {
+        *artist_likes.entry(t.artist_id()).or_default() += 1;
+    }
     // the wave's own filters (Моя волна): only Russian / only foreign songs, nothing ever played before
     let ui = state.config.get().ui;
     let lang = ui["waveLang"].as_str().unwrap_or("all").to_owned();
@@ -492,7 +574,11 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
                 .iter()
                 .enumerate()
                 .filter(|(_, t)| !disliked_artists.contains(&t.artist_id()) && !recent_seeds.contains(&t.id))
-                .map(|(i, t)| (recency_weight(i), t.id))
+                .map(|(i, t)| {
+                    // many likes of one artist must not make it the seed every time; with a mood, tracks of the mood lead
+                    let spread = 1.0 / (*artist_likes.get(&t.artist_id()).unwrap_or(&1) as f64).sqrt();
+                    (recency_weight(i) * spread * crate::wave_vibe::factor(&vibe, t).max(0.3) * replay(t.id), t.id)
+                })
                 .collect()
         } else {
             ctx_tracks.iter().filter(|t| !recent_seeds.contains(&t.id)).map(|t| (1.0, t.id)).collect()
@@ -535,7 +621,7 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     // one favourite artist (by likes, or by the context's tracks) for "more from this artist"
     let fav_artist = {
         let pool: Vec<(f64, u64)> = if ctx_tracks.is_empty() {
-            profile.artists.iter().map(|(id, n)| (*n, *id)).collect()
+            profile.artists.iter().map(|(id, n)| (n.sqrt(), *id)).collect()
         } else {
             let mut n: HashMap<u64, f64> = HashMap::new();
             for t in ctx_tracks {
@@ -552,7 +638,6 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     let fetches = seeds.iter().map(|&id| related_cached(state, &sc, id));
     let results = futures::future::join_all(fetches).await;
 
-    let mood = gen.mood.map(String::from).unwrap_or_else(|| state.wave.mood());
     // how much a track the model has hardly seen is worth
     let explore = match mood.as_str() {
         "fresh" => 1.0,
@@ -593,6 +678,79 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         }
     }
 
+    // people who keep the seeds keep these too: the neighbours of each seed in playlists (wave_social.rs)
+    let mut social_via: HashMap<u64, u64> = HashMap::new();
+    {
+        let (st, scr) = (state, &sc);
+        let lookups = seeds.iter().map(|&id| async move { (id, crate::wave_social::neighbours_cached(st, scr, id).await) });
+        // id → (strength over the seeds, how many seeds point to it, the seed it sat nearest to)
+        let mut score: HashMap<u64, (f32, u32, u64, f32)> = HashMap::new();
+        for (seed, r) in futures::future::join_all(lookups).await {
+            match r {
+                Ok(list) => {
+                    for (id, w) in list {
+                        let e = score.entry(id).or_insert((0.0, 0, seed, 0.0));
+                        e.0 += w;
+                        e.1 += 1;
+                        if w > e.3 {
+                            e.2 = seed;
+                            e.3 = w;
+                        }
+                    }
+                }
+                Err(e) => tracing::debug!(error = %e, "playlist neighbours failed"),
+            }
+        }
+        let mut ranked: Vec<(u64, (f32, u32, u64, f32))> = score
+            .into_iter()
+            .filter(|(id, _)| !liked_ids.contains(id) && !exclude.contains(id) && !disliked_tracks.contains(id) && !ctx_ids.contains(id))
+            .collect();
+        ranked.sort_by(|a, b| b.1 .0.total_cmp(&a.1 .0).then(a.0.cmp(&b.0)));
+        ranked.truncate(40);
+        let ids: Vec<u64> = ranked.iter().map(|r| r.0).collect();
+        // what the cache has, the rest from SoundCloud in one go
+        let mut have: HashMap<u64, ScTrack> = state.db.tracks_by_ids(ids.clone()).await?.into_iter().map(|t| (t.id, t)).collect();
+        let missing: Vec<u64> = ids.iter().filter(|i| !have.contains_key(i)).copied().collect();
+        if !missing.is_empty() {
+            match sc.tracks_by_ids(&missing).await {
+                Ok(ts) => {
+                    state.db.upsert_tracks(ts.clone()).await?;
+                    have.extend(ts.into_iter().map(|t| (t.id, t)));
+                }
+                Err(e) => tracing::debug!(error = %e, "playlist neighbours: tracks not fetched"),
+            }
+        }
+        for (id, (_, n, seed, _)) in ranked {
+            if let Some(t) = have.remove(&id) {
+                // pointed to by two seeds counts as two recommendations
+                hits.entry(id).or_insert_with(|| (t, 0)).1 += if n >= 2 { 2 } else { 1 };
+                social_via.insert(id, seed);
+            }
+        }
+    }
+
+    // a mood: look for more tracks of it (a search by the mood's word and the listener's own genres)
+    if vibe != "any" && ctx_tracks.is_empty() {
+        let mut genres: Vec<(&String, &f64)> = profile.genres.iter().collect();
+        genres.sort_by(|a, b| b.1.total_cmp(a.1));
+        if let Some(base) = crate::wave_vibe::query(&vibe, ru_share >= 0.5) {
+            let mut queries = vec![base.clone()];
+            queries.extend(genres.iter().take(2).map(|(g, _)| format!("{base} {g}")));
+            let searches = queries.iter().map(|q| sc.search_tracks(q, rng.gen_range(0..3u32) * 20));
+            for r in futures::future::join_all(searches).await {
+                match r {
+                    Ok((tracks, _)) => {
+                        state.db.upsert_tracks(tracks.clone()).await?;
+                        for t in tracks {
+                            hits.entry(t.id).or_insert_with(|| (t, 0)).1 += 1;
+                        }
+                    }
+                    Err(e) => tracing::debug!(error = %e, "mood search failed"),
+                }
+            }
+        }
+    }
+
     // ---- score
     let scored: Vec<(f64, ScTrack)> = hits
         .into_values()
@@ -614,6 +772,13 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
                 }
                 (0.2 + 1.2 * c.genre_affinity(&t) + 1.4 * c.tag_affinity(&t) + 0.5 * c.artist_affinity(&t)).clamp(0.2, 3.0)
             });
+            // outside a context: the listener's language, a genre they know, and an artist that has not just played
+            let broad = if ctx_tracks.is_empty() {
+                let ru = format!("{}{}", t.title, t.artist_name()).chars().any(|c| ('\u{400}'..='\u{4ff}').contains(&c));
+                language_factor(ru_share, ru) * taste_fit(&profile, &t, mood == "fresh") * state.wave.artist_recency(t.artist_id())
+            } else {
+                1.0
+            };
             let w = (1.0
                 + 0.6 * (n.saturating_sub(1)) as f64
                 + 1.5 * profile.genre_affinity(&t)
@@ -621,6 +786,9 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
                 + artist_w * profile.artist_affinity(&t))
                 * novelty
                 * mood_factor(&mood, &t)
+                * crate::wave_vibe::factor(&vibe, &t)
+                * evidence_factor(&t)
+                * broad
                 * profile.feedback_factor(&t)
                 * model.as_ref().map_or(1.0, |m| m.factor(&t, explore))
                 * session
@@ -679,25 +847,48 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         out
     };
 
+    // the best of what is not chosen now: they come up again, and by then their sound is known (wave_ear.rs)
+    let mut runners: Vec<(f64, ScTrack)> = scored.iter().filter(|(_, t)| crate::audio_feat::get(t.id).is_none()).cloned().collect();
+    runners.sort_by(|a, b| b.0.total_cmp(&a.0));
     let fresh = take_capped(weighted_order(scored, &mut rng), fresh_n);
     let familiar_pool: Vec<(f64, ScTrack)> = if ctx_tracks.is_empty() {
         liked
             .iter()
             .enumerate()
             .filter(|(_, t)| !recent.contains(&t.id) && allowed(t))
-            .map(|(i, t)| (recency_weight(i) * mood_factor(&mood, t), t.clone()))
+            .map(|(i, t)| {
+                let spread = 1.0 / (*artist_likes.get(&t.artist_id()).unwrap_or(&1) as f64).sqrt();
+                let w = recency_weight(i) * spread * mood_factor(&mood, t) * crate::wave_vibe::factor(&vibe, t) * state.wave.artist_recency(t.artist_id()) * replay(t.id);
+                (w, t.clone())
+            })
+            // what is played again and again without a like belongs to the familiar ones too
+            .chain(
+                listen_tracks
+                    .iter()
+                    .filter(|t| !liked_ids.contains(&t.id) && listen_agg.get(&t.id).is_some_and(|a| a.full >= 2) && !recent.contains(&t.id) && allowed(t))
+                    .map(|t| (0.5 * replay(t.id) * crate::wave_vibe::factor(&vibe, t) * state.wave.artist_recency(t.artist_id()), t.clone())),
+            )
             .collect()
     } else {
         ctx_tracks
             .iter()
             .filter(|t| !recent.contains(&t.id) && allowed(t))
-            .map(|t| (mood_factor(&mood, t), t.clone()))
+            .map(|t| (mood_factor(&mood, t) * crate::wave_vibe::factor(&vibe, t), t.clone()))
             .collect()
     };
     // if discovery came up short, fill with more familiar tracks (unless they are off)
     let familiar_off = !gen.familiar || (no_liked && ctx_tracks.is_empty());
     let familiar_want = if familiar_off { 0 } else { familiar_n + fresh_n.saturating_sub(fresh.len()) };
     let familiar = take_capped(weighted_order(familiar_pool, &mut rng), familiar_want);
+
+    // warm the runners-up in the background (a few clips, low priority, never in the way: see wave_ear.rs)
+    {
+        let taken: HashSet<u64> = fresh.iter().chain(familiar.iter()).map(|t| t.id).collect();
+        let pool: Vec<ScTrack> = runners.into_iter().map(|(_, t)| t).filter(|t| !taken.contains(&t.id)).take(24).collect();
+        if let Ok(sc) = state.sc() {
+            crate::wave_ear::warm(sc, state.db.clone(), pool);
+        }
+    }
 
     // ---- reasons shown in the Wave view
     {
@@ -710,7 +901,10 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
                 .get(&t.id)
                 .map(|s| s.iter().filter_map(|id| titles.get(id)).take(2).map(|n| format!("«{n}»")).collect())
                 .unwrap_or_default();
-            let text = if names.is_empty() {
+            let social = social_via.get(&t.id).and_then(|s| titles.get(s));
+            let text = if names.is_empty() && social.is_some() {
+                format!("в плейлистах рядом с «{}»", social.expect("checked"))
+            } else if names.is_empty() {
                 format!("больше от {}", t.artist_name())
             } else {
                 format!("похоже на {}", names.join(", "))
@@ -744,6 +938,9 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         }
     }
 
+    if ctx_tracks.is_empty() {
+        state.wave.note_artists(&mixed.iter().map(|t| t.artist_id()).collect::<Vec<_>>());
+    }
     tracing::info!(seeds = seeds.len(), out = mixed.len(), context = ctx.is_some(), model = model.is_some(), model_ms, "wave batch generated");
     if mixed.is_empty() && ctx.is_some() && gen.familiar {
         // the context ran dry: carry on from the likes rather than stop
@@ -791,6 +988,40 @@ mod tests {
         assert_eq!(scripts(&mk("तेरे बिना", "")), 1);
         assert_eq!(scripts(&mk("Tere Bina", "bollywood")), 1);
         assert_eq!(scripts(&mk("夜に駆ける", "")), 4);
+    }
+
+    #[test]
+    fn an_artist_that_played_lately_is_held_back_and_the_rest_is_free() {
+        let w = WaveState::default();
+        w.note_artists(&[1, 2, 3]);
+        assert_eq!(w.artist_recency(9), 1.0);
+        assert!(w.artist_recency(1) < 0.2);
+        // older batches push them down the list: after enough newer artists it is only a mild hold
+        let many: Vec<u64> = (100..100 + RECENT_ARTISTS_HARD as u64).collect();
+        w.note_artists(&many);
+        assert!(w.artist_recency(1) > 0.4 && w.artist_recency(1) < 0.5);
+        // and out of the list altogether
+        let more: Vec<u64> = (200..200 + RECENT_ARTISTS as u64).collect();
+        w.note_artists(&more);
+        assert_eq!(w.artist_recency(1), 1.0);
+    }
+
+    #[test]
+    fn the_language_of_the_likes_steers_the_new_songs() {
+        assert!(language_factor(0.9, true) > language_factor(0.9, false));
+        assert!(language_factor(0.1, false) > language_factor(0.1, true));
+        assert_eq!(language_factor(0.5, true), 1.0);
+        assert_eq!(language_factor(0.5, false), 1.0);
+    }
+
+    #[test]
+    fn a_track_nobody_played_and_without_tags_is_worth_less() {
+        let mk = |genre: &str, plays: u64| -> ScTrack {
+            serde_json::from_value(serde_json::json!({ "id": 1, "title": "t", "duration": 180000, "genre": genre, "playback_count": plays, "user": { "id": 2, "username": "x" } })).unwrap()
+        };
+        assert_eq!(evidence_factor(&mk("phonk", 5000)), 1.0);
+        assert!(evidence_factor(&mk("", 5000)) < 1.0);
+        assert!(evidence_factor(&mk("phonk", 5)) < evidence_factor(&mk("phonk", 5000)));
     }
 
     #[test]

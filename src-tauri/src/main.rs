@@ -8,6 +8,7 @@ mod charts;
 mod commands;
 mod config;
 mod deeplink;
+mod devices;
 mod db;
 mod dedupe;
 mod discord;
@@ -15,7 +16,9 @@ mod downloads;
 mod error;
 mod fingerprint;
 mod geniusweb;
+mod genres;
 mod home;
+mod housekeeping;
 mod autopause;
 mod backup;
 mod hotkeys;
@@ -35,6 +38,7 @@ mod tray;
 mod updater;
 mod import;
 mod lang;
+mod listening;
 mod hear;
 mod local;
 mod lyrics_align;
@@ -46,7 +50,10 @@ mod smtc;
 mod news;
 mod upload;
 mod wave;
+mod wave_vibe;
+mod wave_ear;
 mod wave_model;
+mod wave_social;
 
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
@@ -99,6 +106,8 @@ fn main() {
             app.manage(state);
             // the browser's cache asked to be cleared: now, before any window holds it
             tauri::async_runtime::block_on(commands::clear_web_cache_if_asked(&handle));
+            // old installers of updates and the browser cache kept to a size, a little after the start and then every few hours
+            housekeeping::start(&handle);
             {
                 // the library cache without what older versions kept needlessly, once
                 let app = handle.clone();
@@ -162,6 +171,11 @@ fn main() {
             }
             charts::start_daily(&handle);
             autopause::start(handle.clone());
+            // the phone: pairing by QR, one device playing for another (devices.rs)
+            {
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move { devices::Devices::start(&app).await });
+            }
             {
                 // «Для стрима»: the OBS page, if it is on
                 let app = handle.clone();
@@ -316,6 +330,7 @@ fn main() {
             commands::my_tracks,
             commands::player_set_smart_shuffle,
             commands::wave_set_mood,
+            commands::wave_set_vibe,
             commands::wave_info,
             commands::wave_set_no_liked,
             commands::dislike_set,
@@ -383,6 +398,15 @@ fn main() {
             commands::theme_bg_set,
             commands::theme_bg_delete,
             commands::friends_list,
+            commands::devices_pair_start,
+            commands::devices_pair_answer,
+            commands::devices_account_answer,
+            commands::devices_vpn_answer,
+            commands::devices_pair_cancel,
+            commands::devices_view,
+            commands::devices_unlink,
+            commands::devices_command,
+            commands::devices_transfer,
             commands::friend_ids,
             commands::friend_request,
             commands::friend_accept,

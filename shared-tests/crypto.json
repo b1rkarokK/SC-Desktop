@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {
+      "blob": "FMRnBPXBzFVEoRoybumSLi+pyWoruoUDDLs+SD8leQN16kFb+rbhun7gNt0=",
+      "channel": "dl-test-channel-0123456789",
+      "plain": "play"
+    },
+    {
+      "blob": "9hpw8QZIA2oSEJW86V888QoVpQpIInTPFEbdUoaPqGZLZqFT+XbbPA==",
+      "channel": "dl-test-channel-0123456789",
+      "plain": ""
+    },
+    {
+      "blob": "Xoq+9dCS47yyacYbn7y0qO62r6Wqqh91NfTQ2GU+u9kbDiI4G1/iUKFvS1kTAsPKmUYNg1SfSyBEVAuzJIWZzObtF/aC6YVfiuvqFOebUH65ja1iYQ8=",
+      "channel": "dl-test-channel-0123456789",
+      "plain": "Привет, мир ♪ {\"t\":\"st\",\"pos\":1234}"
+    }
+  ],
+  "key_b64": "B4mYU7AkkLqn7y/Kk1FSDU3kgUdz/evBGL+uwV2wiqw="
+}

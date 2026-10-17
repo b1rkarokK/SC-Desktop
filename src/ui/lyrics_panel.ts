@@ -25,6 +25,9 @@ export class LyricsPanel {
     const fs = iconButton(I.fullscreen, T('Полный экран'));
     fs.addEventListener('click', onFullscreen);
     this.extBtn.addEventListener('click', () => this.url && void api.openExternal(this.url));
+    // search again: the sources are asked once more and, when nobody has the text, the song is heard once more
+    const again = iconButton(I.refresh, T('Искать текст заново'));
+    again.addEventListener('click', () => lyricsData.reload());
     const tr = iconButton(I.translate, T('Перевод строк'));
     tr.addEventListener('click', () => updatePrefs((p) => (p.lyricsTranslate = !p.lyricsTranslate)));
     this.trBtn = tr;
@@ -62,7 +65,7 @@ export class LyricsPanel {
     grip.addEventListener('dblclick', () => updatePrefs((p) => (p.lyricsWidth = 320)));
     host.append(
       grip,
-      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), sizeBtn('A−', T('Текст меньше'), -2), sizeBtn('A+', T('Текст больше'), 2), tr, fs, this.extBtn, hide),
+      h('header', { class: 'ly-head' }, h('span', { class: 'ly-label', text: T('Текст') }), this.badge, h('div', { class: 'spacer' }), sizeBtn('A−', T('Текст меньше'), -2), sizeBtn('A+', T('Текст больше'), 2), again, tr, fs, this.extBtn, hide),
       this.view.el,
       this.nudgeBox,
       this.footer,
@@ -135,12 +138,12 @@ export class LyricsPanel {
         this.view.setMessage(T('По названию текста нет. Слушаю песню, чтобы узнать её по словам…'));
         return;
       case 'error':
-        this.view.setMessage(s.message);
+        this.view.setMessage(s.message, { label: T('Искать текст заново'), run: () => lyricsData.reload() });
         return;
       case 'ready': {
         const l = s.lyrics;
         if (!l.found) {
-          this.view.setMessage(T('Текст не найден ни в одном источнике.'));
+          this.view.setMessage(T('Текст не найден ни в одном источнике.'), { label: T('Искать текст заново'), run: () => lyricsData.reload() });
           return;
         }
         this.view.setLyrics(l);

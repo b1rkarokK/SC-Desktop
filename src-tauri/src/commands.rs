@@ -740,7 +740,13 @@ pub async fn storage_info(app: AppHandle, state: State<'_, AppState>) -> Cmd<Sto
         StorageDto {
             database: file("cache.sqlite3") + file("cache.sqlite3-wal"),
             covers: dir_size(&covers),
-            browser: dir_size(&local_data.join("EBWebView")),
+            // only what «Очистить кэш» can remove: the profile's own data (sign-in, settings) is not counted
+            browser: {
+                let web = local_data.join("EBWebView");
+                let profile = web.join("Default");
+                crate::housekeeping::PROFILE_CACHE_DIRS.iter().map(|d| dir_size(&profile.join(d))).sum::<u64>()
+                    + crate::housekeeping::ROOT_CACHE_DIRS.iter().map(|d| dir_size(&web.join(d))).sum::<u64>()
+            },
             model: dir_size(&data.join("models")),
             local: file("local.sqlite3"),
         }
@@ -775,10 +781,10 @@ pub async fn clear_web_cache_if_asked(app: &AppHandle) {
     if !asked && !big {
         return;
     }
-    for sub in ["Cache", "Code Cache", "GPUCache", "Service Worker", "DawnWebGPUCache", "DawnGraphiteCache"] {
+    for sub in crate::housekeeping::PROFILE_CACHE_DIRS {
         let _ = tokio::fs::remove_dir_all(profile.join(sub)).await;
     }
-    for sub in ["Subresource Filter", "component_crx_cache", "GrShaderCache"] {
+    for sub in crate::housekeeping::ROOT_CACHE_DIRS {
         let _ = tokio::fs::remove_dir_all(web.join(sub)).await;
     }
     let _ = state.db.kv_delete(WEB_CACHE_KEY).await;
@@ -1549,10 +1555,82 @@ pub async fn wave_start_playlist(player: State<'_, Arc<Player>>, playlist_id: u6
 
 #[tauri::command]
 pub async fn wave_set_mood(state: State<'_, AppState>, player: State<'_, Arc<Player>>, mood: String) -> Cmd<()> {
-    if !["normal", "fresh", "familiar", "calm", "energetic"].contains(&mood.as_str()) {
+    if !["normal", "fresh", "familiar"].contains(&mood.as_str()) {
         return Err(AppError::Config(format!("неизвестное настроение {mood}")));
     }
     state.wave.set_mood(&mood);
+    if player.snapshot().source == QueueSource::Wave {
+        player.inner().restart_wave().await?;
+    }
+    Ok(())
+}
+
+/// The wave by mood: "any" | "calm" | "energetic" | "sad" | "happy" | "aggressive" | "romantic" | "party" | "focus" | "night".
+// ------------------------------------------------------------ devices (devices.rs)
+
+fn devices_of(app: &AppHandle) -> Cmd<Arc<crate::devices::Devices>> {
+    app.try_state::<Arc<crate::devices::Devices>>().map(|d| d.inner().clone()).ok_or_else(|| AppError::Other("связь устройств ещё запускается".into()))
+}
+
+/// The address the QR code holds; the computer waits for the phone for five minutes.
+#[tauri::command]
+pub fn devices_pair_start(app: AppHandle) -> Cmd<String> {
+    devices_of(&app)?.pair_start()
+}
+
+#[tauri::command]
+pub async fn devices_pair_answer(app: AppHandle, allow: bool) -> Cmd<()> {
+    devices_of(&app)?.pair_answer(allow).await
+}
+
+/// This computer has no account and a phone offered its own: the user said yes or no.
+#[tauri::command]
+pub async fn devices_account_answer(app: AppHandle, allow: bool) -> Cmd<()> {
+    devices_of(&app)?.account_answer(allow).await
+}
+
+/// A phone asked for the servers of the VPN subscription: the user said yes or no.
+#[tauri::command]
+pub fn devices_vpn_answer(app: AppHandle, allow: bool) -> Cmd<()> {
+    devices_of(&app)?.vpn_answer(allow);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn devices_pair_cancel(app: AppHandle) -> Cmd<()> {
+    devices_of(&app)?.pair_stop();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn devices_view(app: AppHandle) -> Cmd<crate::devices::DevicesView> {
+    Ok(devices_of(&app)?.view())
+}
+
+#[tauri::command]
+pub async fn devices_unlink(app: AppHandle) -> Cmd<()> {
+    devices_of(&app)?.unlink().await
+}
+
+#[tauri::command]
+pub fn devices_command(app: AppHandle, to: String, op: String, value: Option<serde_json::Value>) -> Cmd<()> {
+    devices_of(&app)?.command(&to, &op, value);
+    Ok(())
+}
+
+/// `pull`: the other device gives its music to this computer; otherwise this computer gives its music to it.
+#[tauri::command]
+pub fn devices_transfer(app: AppHandle, to: String, pull: bool) -> Cmd<()> {
+    devices_of(&app)?.transfer(&to, pull);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn wave_set_vibe(state: State<'_, AppState>, player: State<'_, Arc<Player>>, vibe: String) -> Cmd<()> {
+    if !crate::wave_vibe::is_vibe(&vibe) {
+        return Err(AppError::Config(format!("неизвестное настроение {vibe}")));
+    }
+    state.wave.set_vibe(&vibe);
     if player.snapshot().source == QueueSource::Wave {
         player.inner().restart_wave().await?;
     }
@@ -1573,6 +1651,7 @@ pub async fn wave_set_no_liked(state: State<'_, AppState>, player: State<'_, Arc
 pub async fn wave_info(state: State<'_, AppState>, track_id: Option<u64>) -> Cmd<WaveInfo> {
     Ok(WaveInfo {
         mood: state.wave.mood(),
+        vibe: state.wave.vibe(),
         no_liked: state.wave.no_liked(),
         reason: track_id.and_then(|id| state.wave.reason(id)),
         context: state.wave.context().map(|c| c.label()),
@@ -1950,17 +2029,18 @@ pub fn mini_resize(app: AppHandle, height: f64) {
     crate::mini::resize(&app, height);
 }
 
-/// «Итоги»: "week" | "month" | "year" | "all".
+/// «Итоги»: "day" | "week" | "month" | "year" | "all". For "day", `days_ago` picks the day (0 = today).
 #[tauri::command]
-pub async fn stats_get(state: State<'_, AppState>, period: String) -> Cmd<crate::db::cache::Stats> {
+pub async fn stats_get(state: State<'_, AppState>, period: String, days_ago: Option<i64>) -> Cmd<crate::db::cache::Stats> {
     let day = 86_400;
-    let since = match period.as_str() {
-        "week" => now() - 7 * day,
-        "month" => now() - 30 * day,
-        "year" => now() - 365 * day,
-        _ => 0,
+    let (since, until) = match period.as_str() {
+        "day" => state.db.day_bounds(days_ago.unwrap_or(0)).await?,
+        "week" => (now() - 7 * day, i64::MAX),
+        "month" => (now() - 30 * day, i64::MAX),
+        "year" => (now() - 365 * day, i64::MAX),
+        _ => (0, i64::MAX),
     };
-    state.db.stats(since).await
+    state.db.stats(since, until).await
 }
 
 #[tauri::command]
@@ -1969,9 +2049,13 @@ pub fn sleep_get(player: State<'_, Arc<Player>>) -> crate::player::SleepState {
 }
 
 #[tauri::command]
-pub fn eq_set(state: State<'_, AppState>, player: State<'_, Arc<Player>>, eq: EqConfig, persist: bool) -> Cmd<()> {
+pub fn eq_set(app: AppHandle, state: State<'_, AppState>, player: State<'_, Arc<Player>>, eq: EqConfig, persist: bool) -> Cmd<()> {
     player.set_eq(eq.clone());
     if persist {
+        // a phone linked to this computer takes the same equalizer
+        if let Some(d) = app.try_state::<Arc<crate::devices::Devices>>() {
+            d.tell_eq(&eq);
+        }
         let device = player.current_device();
         state.config.update(|c| {
             c.eq = eq.clone();
@@ -2622,8 +2706,8 @@ pub async fn log_tail(app: AppHandle, lines: usize) -> Cmd<String> {
 /// Liked tracks whose (cached) lyrics contain the words typed: the track and the matching line.
 #[derive(serde::Serialize)]
 pub struct LyricHit {
-    track: TrackDto,
-    line: String,
+    pub track: TrackDto,
+    pub line: String,
 }
 
 #[tauri::command]

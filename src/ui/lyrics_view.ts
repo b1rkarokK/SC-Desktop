@@ -52,10 +52,17 @@ export class LyricsView {
     this.kick();
   }
 
-  setMessage(text: string): void {
+  /** A message in place of the text; `action` adds a button under it («Искать текст заново»). */
+  setMessage(text: string, action?: { label: string; run: () => void }): void {
     this.lyrics = null;
     this.lines = [];
-    this.el.replaceChildren(h('div', { class: 'empty', text }));
+    const box = h('div', { class: 'empty', text });
+    if (action) {
+      const b = h('button', { type: 'button', class: 'btn btn-quiet ly-retry', text: action.label });
+      b.addEventListener('click', action.run);
+      box.append(h('div', {}, b));
+    }
+    this.el.replaceChildren(box);
     this.stop();
   }
 
