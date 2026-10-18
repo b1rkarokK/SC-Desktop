@@ -32,6 +32,8 @@ const POLL_FADING: Duration = Duration::from_millis(50);
 const RELEASE_DEVICE_AFTER: Duration = Duration::from_secs(30);
 /// ticks are 250 ms apart → device check every 2 s while playing
 const DEVICE_CHECK_TICKS: u32 = 8;
+/// How long the list of output devices is trusted while the system's default device stays the same.
+const DEVICES_RELIST: Duration = Duration::from_secs(300);
 
 /// The longest a preview plays.
 const PREVIEW_MAX: Duration = Duration::from_secs(25);
@@ -153,6 +155,9 @@ struct Engine {
     device: Option<String>,
     /// the device the user picked; if it is not there (unplugged) the system's default plays
     preferred: Option<String>,
+    /// the names of the output devices, with when they were listed and which one was the default then: listing them
+    /// every couple of seconds makes the Windows audio service (audiodg) grow by megabytes a minute
+    names: std::sync::Mutex<Option<(Instant, Vec<String>, Option<String>)>>,
     ticks: u32,
     /// loudness gain and length of the current track
     gain: f32,
@@ -201,6 +206,7 @@ impl Engine {
             preview_since: None,
             device: None,
             preferred: None,
+            names: std::sync::Mutex::new(None),
             ticks: 0,
             stream: None,
             sink: None,
@@ -290,6 +296,7 @@ impl Engine {
             AudioCmd::Trim(f) => self.trim = f.clamp(0.9, 1.1),
             AudioCmd::Device(name) => {
                 self.preferred = name;
+                *self.names.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 // playing: move to the new device at the same place
                 if self.stream.is_some() && self.target_device() != self.device {
                     let (pos, paused) = self.sink.as_ref().map_or((None, false), |s| (Some(self.with_extra(s.get_pos())), s.is_paused()));
@@ -518,8 +525,24 @@ impl Engine {
     /// The device that should play now: the picked one if it is there, else the system's default.
     fn target_device(&self) -> Option<String> {
         match &self.preferred {
-            Some(want) if output_device_names().iter().any(|n| n == want) => Some(want.clone()),
+            Some(want) if self.device_listed(want) => Some(want.clone()),
             _ => default_device_name(),
+        }
+    }
+
+    /// Whether the picked device is there. The list is read again only when the system's default device changed,
+    /// or after a while (a wireless device that was switched off), not at every look.
+    fn device_listed(&self, want: &str) -> bool {
+        let default = default_device_name();
+        let mut cache = self.names.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.as_ref() {
+            Some((at, names, was)) if *was == default && at.elapsed() < DEVICES_RELIST => names.iter().any(|n| n == want),
+            _ => {
+                let names = output_device_names();
+                let found = names.iter().any(|n| n == want);
+                *cache = Some((Instant::now(), names, default));
+                found
+            }
         }
     }
 
@@ -533,6 +556,7 @@ impl Engine {
             self.stream = None;
         }
         if self.stream.is_none() {
+            *self.names.lock().unwrap_or_else(|e| e.into_inner()) = None;
             let target = self.target_device();
             let pair = match open_named(target.as_deref(), self.preferred.is_some()) {
                 Some(Ok(p)) => p,

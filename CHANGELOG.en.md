@@ -5,6 +5,7 @@ The release notes carry both; the "Update available" window shows the app's lang
 
 ## [1.4.2] - 2026-10-19
 
+- A memory leak of the Windows audio service (audiodg): with an output device picked in Settings, the program listed all the sound devices twice a second, and the service grew by gigabytes in a day. The list is now read rarely.
 - Moving the data into the program folder is now safe: the data is copied whole and put in place only when all of it went. If some file is still held by the old copy of the program, it works on the old data this time and the move is tried again at the next start. If the settings or the VPN engines went missing after 1.4.1, they come back by themselves.
 
 ## [1.4.1] - 2026-10-19
