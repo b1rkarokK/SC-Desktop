@@ -8,8 +8,18 @@ use std::sync::OnceLock;
 
 use tauri::{AppHandle, Manager};
 
-/// `<program folder>\data`, when the program lives in a folder it can write to (and is not a development build).
+/// Set by `prepare`: the data is in the program folder (the move is done, or there was nothing to move).
+static MOVED: OnceLock<bool> = OnceLock::new();
+/// The file that says the move was finished.
+const MARKER: &str = ".moved";
+
+/// `<program folder>/data`, once the data is there.
 pub fn root() -> Option<&'static PathBuf> {
+    folder().filter(|_| MOVED.get().copied().unwrap_or(false))
+}
+
+/// `<program folder>/data`, when the program lives in a folder it can write to (and is not a development build).
+fn folder() -> Option<&'static PathBuf> {
     static ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
     ROOT.get_or_init(|| {
         if std::env::var_os("SCDESK_APPDATA").is_some() {
@@ -60,24 +70,51 @@ pub fn web_dir() -> PathBuf {
     WEB.get().cloned().unwrap_or_default()
 }
 
-/// At the start, before the log and any window: fixes the browser folder and carries the old data over.
+/// At the start, before the log and any window: carries the old data over. Nothing is half done: the data is
+/// copied whole into a side folder and put in place only when every file went; if some file is held by another
+/// copy of the program (an update that has not finished closing the old one), this run keeps to AppData
+/// and the move is tried again at the next start.
 pub fn prepare(app: &AppHandle) {
+    let moved = move_data(app);
+    let _ = MOVED.set(moved);
     if let Ok(l) = local(app) {
         let _ = WEB.set(l);
     }
-    let Some(root) = root() else { return };
-    let (Ok(old_data), Ok(old_local)) = (app.path().app_data_dir(), app.path().app_local_data_dir()) else { return };
-    for (old, new) in [(old_data, root.join("roaming")), (old_local, root.join("local"))] {
-        if new.exists() || !old.exists() {
+}
+
+fn move_data(app: &AppHandle) -> bool {
+    let Some(root) = folder() else { return false };
+    if root.join(MARKER).exists() {
+        return true;
+    }
+    let (Ok(old_data), Ok(old_local)) = (app.path().app_data_dir(), app.path().app_local_data_dir()) else { return false };
+    let pairs = [(old_data, root.join("roaming")), (old_local, root.join("local"))];
+    transfer(&pairs, root)
+}
+
+/// Copies every old folder whole into its new place; the old ones go only when all of it is there.
+fn transfer(pairs: &[(PathBuf, PathBuf)], root: &Path) -> bool {
+    // a half move of an earlier version or of a failed try: start over from the old folders (kept until the end)
+    for (old, new) in pairs {
+        if !old.exists() {
             continue;
         }
-        if std::fs::rename(&old, &new).is_err() {
-            // another drive, or something in it is open: copy, and remove what could be copied
-            if copy_dir(&old, &new).is_ok() {
-                let _ = std::fs::remove_dir_all(&old);
-            }
+        let _ = std::fs::remove_dir_all(new);
+        let side = new.with_extension("moving");
+        let _ = std::fs::remove_dir_all(&side);
+        if copy_dir(old, &side).is_err() || std::fs::rename(&side, new).is_err() {
+            let _ = std::fs::remove_dir_all(&side);
+            return false;
         }
     }
+    if std::fs::write(root.join(MARKER), b"").is_err() {
+        return false;
+    }
+    // the old copies are not needed any more
+    for (old, _) in pairs {
+        let _ = std::fs::remove_dir_all(old);
+    }
+    true
 }
 
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -88,9 +125,53 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         if entry.file_type()?.is_dir() {
             copy_dir(&entry.path(), &target)?;
         } else {
-            // a file held open by another copy of the program is left behind
-            let _ = std::fs::copy(entry.path(), &target);
+            std::fs::copy(entry.path(), &target)?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("scdesk-portable-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn the_old_data_moves_whole_and_the_old_folder_goes() {
+        let t = scratch("ok");
+        let (old, root) = (t.join("old"), t.join("data"));
+        std::fs::create_dir_all(old.join("bin")).unwrap();
+        std::fs::write(old.join("config.json"), b"{}").unwrap();
+        std::fs::write(old.join("bin").join("engine.exe"), b"x").unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(transfer(&[(old.clone(), root.join("roaming"))], &root));
+        assert!(root.join("roaming").join("bin").join("engine.exe").exists());
+        assert!(root.join(MARKER).exists());
+        assert!(!old.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_in_use_postpones_the_move_and_leaves_nothing_half_done() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = scratch("busy");
+        let (old, root) = (t.join("old"), t.join("data"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("a.txt"), b"a").unwrap();
+        std::fs::write(old.join("held.sqlite3"), b"db").unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        // another copy of the program holds the file exclusively
+        let _held = std::fs::OpenOptions::new().read(true).write(true).share_mode(0).open(old.join("held.sqlite3")).unwrap();
+        assert!(!transfer(&[(old.clone(), root.join("roaming"))], &root));
+        assert!(!root.join("roaming").exists());
+        assert!(!root.join("roaming.moving").exists());
+        assert!(!root.join(MARKER).exists());
+        assert!(old.join("a.txt").exists());
+    }
 }

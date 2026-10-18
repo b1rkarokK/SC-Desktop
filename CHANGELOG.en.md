@@ -3,6 +3,10 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.2] - 2026-10-19
+
+- Moving the data into the program folder is now safe: the data is copied whole and put in place only when all of it went. If some file is still held by the old copy of the program, it works on the old data this time and the move is tried again at the next start. If the settings or the VPN engines went missing after 1.4.1, they come back by themselves.
+
 ## [1.4.1] - 2026-10-19
 
 - The program's data now lives in the `data` folder next to sc-desk.exe: settings, cache, covers, engines and models. Nothing is left in AppData. The first start moves the old data over by itself. The «delete data» box of the uninstaller removes this folder too.

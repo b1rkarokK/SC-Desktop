@@ -4458,7 +4458,7 @@ dependencies = [
 
 [[package]]
 name = "sc-desk"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "audiopus",
  "base64 0.22.1",
