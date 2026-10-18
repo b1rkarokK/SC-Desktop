@@ -20,6 +20,9 @@ class App : Application() {
     val vpnWaiting = kotlinx.coroutines.flow.MutableStateFlow(false)
     val vpnNote = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
+    /** work that goes on when a screen is left (the saving of all the likes) */
+    val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
     /** the ids of the liked tracks (asked of the computer, which does the liking), and the sleep timer in minutes (0: off) */
     val liked = kotlinx.coroutines.flow.MutableStateFlow<Set<Long>>(emptySet())
     val sleepMin = kotlinx.coroutines.flow.MutableStateFlow(0)

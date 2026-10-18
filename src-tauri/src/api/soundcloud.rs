@@ -22,7 +22,7 @@ const API_BASE: &str = "https://api-v2.soundcloud.com";
 pub const PAGE_SIZE: u32 = 50;
 /// Upper bound for likes sync: 400 pages × 50.
 const MAX_LIKE_PAGES: usize = 400;
-const HLS_PARALLEL_SEGMENTS: usize = 6;
+const HLS_PARALLEL_SEGMENTS: usize = 10;
 
 // ---------------------------------------------------------------- models
 

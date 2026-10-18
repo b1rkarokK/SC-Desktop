@@ -32,6 +32,7 @@ mod models;
 mod picks;
 mod net;
 mod player;
+mod portable;
 mod secrets;
 mod state;
 mod tray;
@@ -97,7 +98,8 @@ fn main() {
             app.manage(sync::service::Rooms::default());
             app.manage(sync::shared::SharedPlaylists::default());
             app.manage(sync::friends::Friends::default());
-            let guard = logging::init(&app.path().app_log_dir()?)?;
+            portable::prepare(&handle);
+            let guard = logging::init(&portable::log(&handle)?)?;
             app.manage(logging::LogGuard(guard));
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
 

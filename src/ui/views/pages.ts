@@ -298,6 +298,30 @@ export class PlaylistPageView implements View {
               },
             });
           }
+          // own playlist: a ✕ at the end of every row takes the track out (no need to enter «Изменить»)
+          if (own && !series?.parts) {
+            el.querySelectorAll<HTMLElement>('[data-index]').forEach((row) => {
+              const rm = iconButton(I.close, T('Убрать из плейлиста'));
+              rm.classList.add('row-remove');
+              rm.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const i = Number(row.dataset.index);
+                const t = tracks[i];
+                if (!t) return;
+                tracks.splice(i, 1);
+                showList();
+                api.playlistRemoveTrack(p.id, t.id).then(
+                  () => toast(T('Убрано из плейлиста')),
+                  (e) => {
+                    tracks.splice(i, 0, t);
+                    showList();
+                    toast(errorMessage(e), 'error');
+                  },
+                );
+              });
+              row.append(rm);
+            });
+          }
           listBox.replaceChildren(el);
         };
         const editBtn = own && !series?.parts ? btn(T('Изменить'), I.edit) : null;

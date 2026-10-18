@@ -133,7 +133,7 @@ fn open_sealed(id: u64, sealed: &[u8]) -> Option<Vec<u8>> {
 
 /// The storage file of «Мои файлы».
 pub fn store_path(app: &AppHandle) -> AppResult<PathBuf> {
-    Ok(app.path().app_data_dir()?.join("local.sqlite3"))
+    Ok(crate::portable::data(app)?.join("local.sqlite3"))
 }
 
 fn open(path: &PathBuf) -> AppResult<Connection> {

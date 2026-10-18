@@ -66,6 +66,13 @@ mod imp {
         RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
     };
 
+    /// Screen recorders and game overlays that take the microphone to put it into a clip, not to talk (NVIDIA's Instant
+    /// Replay / ShadowPlay among them): their use of the microphone must not pause the music.
+    const RECORDERS: &[&str] = &[
+        "nvidia", "nvcontainer", "nvsphelper", "nvoverlay", "shadowplay", "obs64", "obs-studio", "obs studio", "streamlabs", "medal", "xboxgamingoverlay", "gamebar",
+        "overwolf", "radeonsoftware", "amdrsserv", "bandicam", "action.exe", "fraps", "lightshot", "sharex", "outplayed",
+    ];
+
     const MIC: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone";
 
     fn wide(s: &str) -> Vec<u16> {
@@ -97,6 +104,10 @@ mod imp {
             let sub = String::from_utf16_lossy(&name[..len as usize]);
             let lower = sub.to_lowercase();
             if lower.contains("sc-desk") || lower.contains("sc desk") || lower.contains("scdesk") {
+                continue;
+            }
+            // a program that records the screen (and the microphone with it) is not a call: the music goes on while it records
+            if RECORDERS.iter().any(|r| lower.contains(r)) {
                 continue;
             }
             let path = wide(&sub);

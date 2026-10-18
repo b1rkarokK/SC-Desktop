@@ -100,12 +100,31 @@ pub fn factor(v: &str, t: &ScTrack) -> f64 {
     let toks = tokens(t);
     let (yes, no) = (hits(vibe.yes, &toks), hits(vibe.no, &toks));
     match (yes, no) {
-        (0, 0) => 0.5,
+        // a mood is asked for: a track with none of its words (most uploads have no tags) is mostly a stranger to it,
+        // it stays only as a rare guess (a heard one can be judged by its sound, see audio_factor)
+        (0, 0) => 0.2,
         (0, _) => 0.12,
         (y, 0) => (2.8 + 0.5 * (y.min(3) - 1) as f64).min(3.8),
         (y, n) if y > n => 1.4,
         _ => 0.3,
     }
+}
+
+/// What the sound says about the mood (audio_feat.rs: tempo, brightness, loudness, dynamics, bass share, busyness, each 0..7),
+/// for a track that was heard: 1.0 when nothing is known, 0.3..2.2 otherwise.
+pub fn audio_factor(v: &str, feat: Option<crate::audio_feat::Feat>) -> f64 {
+    let Some(f) = feat else { return 1.0 };
+    let [tempo, bright, loud, dynamics, bass, busy] = f.map(f64::from);
+    // 0 (the opposite) … 1 (the very thing)
+    let fit = match v {
+        "aggressive" => ((loud / 7.0) * 0.35 + (busy / 7.0) * 0.25 + (bright / 7.0) * 0.2 + (1.0 - dynamics / 7.0) * 0.1 + (bass / 7.0) * 0.1).clamp(0.0, 1.0),
+        "energetic" | "party" => ((tempo / 7.0) * 0.35 + (loud / 7.0) * 0.3 + (busy / 7.0) * 0.2 + (bass / 7.0) * 0.15).clamp(0.0, 1.0),
+        "calm" | "night" | "focus" | "romantic" => ((1.0 - loud / 7.0) * 0.4 + (1.0 - busy / 7.0) * 0.3 + (1.0 - tempo / 7.0) * 0.3).clamp(0.0, 1.0),
+        "sad" => ((1.0 - tempo / 7.0) * 0.4 + (1.0 - loud / 7.0) * 0.3 + (1.0 - bright / 7.0) * 0.3).clamp(0.0, 1.0),
+        "happy" => ((tempo / 7.0) * 0.4 + (bright / 7.0) * 0.4 + (loud / 7.0) * 0.2).clamp(0.0, 1.0),
+        _ => return 1.0,
+    };
+    0.3 + 1.9 * fit * fit
 }
 
 /// A search that finds more tracks of the mood, in the listener's language.
@@ -132,14 +151,14 @@ mod tests {
         let none = track("Untitled 4", "", "");
         assert!(factor("sad", &sad) > 2.5, "{}", factor("sad", &sad));
         assert!(factor("sad", &happy) < 0.2);
-        assert_eq!(factor("sad", &none), 0.5);
+        assert_eq!(factor("sad", &none), 0.2);
         assert!(factor("happy", &happy) > 2.5);
     }
 
     #[test]
     fn a_word_is_matched_whole_unless_it_is_a_stem() {
         // "blue" is a sad word, but "blueprint" is not
-        assert_eq!(factor("sad", &track("Blueprint", "", "")), 0.5);
+        assert_eq!(factor("sad", &track("Blueprint", "", "")), 0.2);
         // a stem catches the forms of a Russian word
         assert!(factor("sad", &track("Тоскую по тебе", "", "")) > 2.5);
     }

@@ -224,7 +224,7 @@ fn language_factor(ru_share: f64, russian: bool) -> f64 {
 /// A track with neither genre nor tags gives nothing to judge by; one almost nobody played is more often unfinished.
 fn evidence_factor(t: &ScTrack) -> f64 {
     let known = norm_genre(t).is_some() || !parse_tags(t.tag_list.as_deref().unwrap_or("")).is_empty();
-    let base = if known { 1.0 } else { 0.75 };
+    let base = if known { 1.0 } else { 0.6 };
     let plays = match t.playback_count {
         Some(n) if n < 20 => 0.6,
         Some(n) if n < 200 => 0.85,
@@ -240,7 +240,8 @@ fn taste_fit(profile: &Profile, t: &ScTrack, fresh: bool) -> f64 {
         return 1.0;
     }
     if profile.genre_affinity(t) == 0.0 && profile.tag_affinity(t) == 0.0 {
-        if fresh { 0.85 } else { 0.6 }
+        // nothing in common with any liked track: it is the wave's «something random», the cause of «why is this here»
+        if fresh { 0.55 } else { 0.25 }
     } else {
         1.0
     }
@@ -450,6 +451,15 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
     let replay = |id: u64| listen_agg.get(&id).map_or(1.0, crate::listening::replay_weight);
     let liked_ids: HashSet<u64> = liked.iter().map(|t| t.id).collect();
     let ctx_ids: HashSet<u64> = ctx_tracks.iter().map(|t| t.id).collect();
+    // what the user said no to is a taste of its own: a candidate that looks like those tracks (genre, tags, artist) and not like the
+    // likes is held back, not only the very tracks that were disliked
+    let disliked_full: Vec<ScTrack> = state.db.tracks_by_ids(disliked_tracks.iter().copied().take(500).collect()).await?;
+    let dislike_profile = if disliked_full.len() >= 3 {
+        let w: Vec<(&ScTrack, f64)> = disliked_full.iter().map(|t| (t, 1.0)).collect();
+        Some(Profile::build(&w, &[]))
+    } else {
+        None
+    };
     let profile = {
         // with a context its tracks lead; the likes only colour it a little
         let like_w = if ctx_tracks.is_empty() { 1.0 } else { 0.06 };
@@ -735,7 +745,11 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
         genres.sort_by(|a, b| b.1.total_cmp(a.1));
         if let Some(base) = crate::wave_vibe::query(&vibe, ru_share >= 0.5) {
             let mut queries = vec![base.clone()];
-            queries.extend(genres.iter().take(2).map(|(g, _)| format!("{base} {g}")));
+            // the same mood in the other language too, and with the listener's genres: more of the tracks that really carry it
+            if let Some(other) = crate::wave_vibe::query(&vibe, ru_share < 0.5) {
+                queries.push(other);
+            }
+            queries.extend(genres.iter().take(3).map(|(g, _)| format!("{base} {g}")));
             let searches = queries.iter().map(|q| sc.search_tracks(q, rng.gen_range(0..3u32) * 20));
             for r in futures::future::join_all(searches).await {
                 match r {
@@ -787,12 +801,18 @@ pub async fn generate_with(state: &AppState, batch: usize, exclude: &HashSet<u64
                 * novelty
                 * mood_factor(&mood, &t)
                 * crate::wave_vibe::factor(&vibe, &t)
+                * crate::wave_vibe::audio_factor(&vibe, crate::audio_feat::get(t.id))
                 * evidence_factor(&t)
                 * broad
                 * profile.feedback_factor(&t)
                 * model.as_ref().map_or(1.0, |m| m.factor(&t, explore))
                 * session
-                * fit;
+                * fit
+                * dislike_profile.as_ref().map_or(1.0, |d| {
+                    let bad = d.genre_affinity(&t) + d.tag_affinity(&t) + 0.5 * d.artist_affinity(&t);
+                    let good = profile.genre_affinity(&t) + profile.tag_affinity(&t);
+                    1.0 / (1.0 + 1.6 * (bad - 0.5 * good).max(0.0))
+                });
             (w, t)
         })
         .collect();

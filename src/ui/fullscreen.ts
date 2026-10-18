@@ -123,6 +123,20 @@ export class Fullscreen {
       this.drawer,
     );
     this.el.hidden = true;
+    // the wheel changes the volume anywhere on the screen except over the lyrics (they scroll) and the settings drawer
+    this.el.addEventListener(
+      'wheel',
+      (e) => {
+        const over = e.target as HTMLElement | null;
+        if (over?.closest('.lyrics-view, .fs-drawer, input, textarea')) return;
+        e.preventDefault();
+        const now = store.snapshot?.volume ?? 0;
+        const v = Math.min(1, Math.max(0, Math.round((now + (e.deltaY < 0 ? 0.05 : -0.05)) * 100) / 100));
+        this.volume.set(v);
+        void api.setVolume(v, true);
+      },
+      { passive: false },
+    );
     this.el.querySelector('.fs-art')!.addEventListener('contextmenu', (e) => {
       const tr = t();
       if (tr) trackMenu(e as MouseEvent, tr, () => void api.toggle());
@@ -318,7 +332,7 @@ export class Fullscreen {
       seg<FsLayout>('layout', T('Раскладка'), [['side', T('Рядом')], ['text', T('Текст')], ['cover', T('Обложка')]], (v) => (prefs().fs.layout = v)),
       seg<FsBackground>('background', T('Фон'), [['theme', T('Тема')], ['cover', T('По обложке')], ['oled', 'OLED']], (v) => (prefs().fs.background = v)),
       seg<Highlight>('highlight', T('Подсветка'), [['word', T('Слово')], ['line', T('Строка')], ['none', T('Нет')]], (v) => (prefs().fs.highlight = v)),
-      seg<VizMode>('viz', T('Визуализатор'), [['bars', T('Столбики')], ['mirror', T('Зеркало')], ['line', T('Линия')], ['wave', T('Волна')], ['ring', T('Кольцо')], ['off', T('Нет')]], (v) => (prefs().fs.viz = v)),
+      seg<VizMode>('viz', T('Визуализатор'), [['bars', T('Столбики')], ['mirror', T('Зеркало')], ['line', T('Линия')], ['wave', T('Волна')], ['ring', T('Кольцо')], ['aurora', T('Аврора')], ['pulse', T('Пульс')], ['particles', T('Частицы')], ['mountains', T('Горы')], ['off', T('Нет')]], (v) => (prefs().fs.viz = v)),
       seg<VizColor>('vizColor', T('Цвет визуализатора'), [['accent', T('Акцент')], ['cover', T('По обложке')], ['white', T('Белый')]], (v) => (prefs().fs.vizColor = v)),
       seg<'left' | 'center'>('align', T('Выравнивание'), [['left', T('Слева')], ['center', T('По центру')]], (v) => (prefs().fs.align = v)),
       h('div', { class: 'dr-row' }, h('div', { class: 'muted small', text: T('Размер текста') }), h('div', { class: 'dr-inline' }, this.sizeSlider.el, this.sizeVal)),

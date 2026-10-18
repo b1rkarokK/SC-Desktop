@@ -31,7 +31,7 @@ pub fn open(app: &AppHandle) -> AppResult<()> {
     }
     let url = Url::parse("https://soundcloud.com/signin")?;
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
-        .additional_browser_args(crate::net::bypass::browser_args())
+        .additional_browser_args(crate::net::bypass::browser_args()).data_directory(crate::portable::web_dir())
         .title(crate::lang::pick("Вход в SoundCloud", "Sign in to SoundCloud"))
         // SoundCloud's desktop layout needs ~860px, narrower windows scroll sideways
         .inner_size(900.0, 780.0)
@@ -46,7 +46,7 @@ pub fn open(app: &AppHandle) -> AppResult<()> {
                 static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                 let label = format!("sc-login-popup-{}", N.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
                 match WebviewWindowBuilder::new(&app, label, WebviewUrl::External("about:blank".parse().expect("static url")))
-                    .additional_browser_args(crate::net::bypass::browser_args())
+                    .additional_browser_args(crate::net::bypass::browser_args()).data_directory(crate::portable::web_dir())
                     .window_features(features)
                     .user_agent(POPUP_UA)
                     .title(url.host_str().unwrap_or("SoundCloud"))

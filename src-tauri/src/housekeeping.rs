@@ -72,7 +72,7 @@ fn trim(dirs: &[PathBuf], high: u64, low: u64) -> u64 {
 }
 
 fn cache_dirs(app: &AppHandle) -> Vec<PathBuf> {
-    let Ok(local) = app.path().app_local_data_dir() else { return Vec::new() };
+    let Ok(local) = crate::portable::local(app) else { return Vec::new() };
     let web = local.join("EBWebView");
     let profile = web.join("Default");
     PROFILE_CACHE_DIRS.iter().map(|d| profile.join(d)).chain(ROOT_CACHE_DIRS.iter().map(|d| web.join(d))).collect()

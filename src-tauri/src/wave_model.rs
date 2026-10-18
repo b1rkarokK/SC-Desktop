@@ -374,7 +374,8 @@ impl Model {
     /// Multiplier for the wave score. `explore` 0 … 1: how much novelty is
     /// worth (mood "fresh" high, "familiar" low).
     pub fn factor(&self, t: &ScTrack, explore: f64) -> f64 {
-        let f = (0.5 + self.score(t) as f64) * (1.0 + 0.4 * explore * self.novelty(t) as f64);
+        // squared a little: the model's opinion was too weak to tell a song of the taste from a stranger
+        let f = (0.5 + self.score(t) as f64).max(0.05).powf(1.5) * (1.0 + 0.4 * explore * self.novelty(t) as f64);
         if f.is_finite() {
             f
         } else {

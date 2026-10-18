@@ -113,6 +113,10 @@ class Store(ctx: Context) {
     var downloads: String
         get() = p.getString("dls", "") ?: ""
         set(v) = p.edit().putString("dls", v).apply()
+    /** «Скачать все» only on Wi-Fi (the mobile data is not spent on gigabytes of music) */
+    var downloadWifiOnly: Boolean
+        get() = p.getBoolean("dlwifi", true)
+        set(v) = p.edit().putBoolean("dlwifi", v).apply()
     var downloadLimitGb: Int
         get() = p.getInt("dlimit", 5)
         set(v) = p.edit().putInt("dlimit", v).apply()

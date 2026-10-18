@@ -106,6 +106,51 @@ object Downloads {
         }
     }
 
+    /** How the saving of a whole list goes: [done] of [total], [failed] of them failed; [running] false when it ended; [note] says why it stopped. */
+    data class Batch(val done: Int, val total: Int, val failed: Int, val running: Boolean, val note: String? = null)
+
+    val batch = kotlinx.coroutines.flow.MutableStateFlow<Batch?>(null)
+    @Volatile private var stop = false
+
+    fun stopAll() { stop = true }
+    fun dismissBatch() { if (batch.value?.running != true) batch.value = null }
+
+    private fun onWifi(ctx: Context): Boolean {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    /** Saves the tracks one after another (blocking, run it off the main thread); what is saved already is skipped. */
+    fun saveAll(ctx: Context, app: App, tracks: List<Track>) {
+        if (batch.value?.running == true) return
+        if (app.store.downloadWifiOnly && !onWifi(ctx)) {
+            batch.value = Batch(0, 0, 0, false, "Нет Wi-Fi. Подключитесь к нему или разрешите мобильную сеть: Настройки, Скачанное.")
+            return
+        }
+        stop = false
+        val todo = tracks.filter { localFile(it.id) == null }
+        var done = 0
+        var failed = 0
+        batch.value = Batch(0, todo.size, 0, true)
+        for (t in todo) {
+            if (stop) break
+            try {
+                save(ctx, app, t)
+            } catch (e: Exception) {
+                failed++
+                // no room left: it is no use to go on
+                if (e.message?.contains("лимит") == true) {
+                    batch.value = Batch(done, todo.size, failed, false, e.message)
+                    return
+                }
+            }
+            done++
+            batch.value = Batch(done, todo.size, failed, true)
+        }
+        batch.value = Batch(done, todo.size, failed, false, if (stop) "Остановлено" else null)
+    }
+
     fun remove(app: App, id: Long) {
         saved.remove(id)?.let { File(it.file).delete() }
         persist(app.store)

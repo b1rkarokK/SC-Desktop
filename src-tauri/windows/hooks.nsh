@@ -25,6 +25,10 @@
 ; an update runs the old uninstaller too: only a real uninstall takes the shortcut and the flag away
 !macro NSIS_HOOK_POSTUNINSTALL
   StrCmp $UpdateMode "1" scdesk_un_done
+  ; the data lives in the program folder: the "delete the application data" box takes it away
+  ${If} $DeleteAppDataCheckboxState = 1
+    RMDir /r "$INSTDIR\data"
+  ${EndIf}
   Delete "$DESKTOP\SC Desk.lnk"
   DeleteRegValue HKCU "Software\SC Desk" "DesktopShortcutMade"
   DeleteRegKey /ifempty HKCU "Software\SC Desk"

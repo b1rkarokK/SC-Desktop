@@ -83,6 +83,8 @@ internal fun SettingsScreen(app: App, onEq: () -> Unit, onUnlinked: () -> Unit, 
             Column(Modifier.padding(16.dp)) {
                 Text("Сколько места можно отдать скачанным трекам", color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
                 Segments(listOf("1 ГБ", "2 ГБ", "5 ГБ", "10 ГБ"), listOf(1, 2, 5, 10).indexOf(gb).coerceAtLeast(0)) { gb = listOf(1, 2, 5, 10)[it]; app.store.downloadLimitGb = gb }
+                var wifi by remember { mutableStateOf(app.store.downloadWifiOnly) }
+                Toggle("Только по Wi-Fi", "«Скачать все» не тратит мобильный интернет", wifi) { wifi = it; app.store.downloadWifiOnly = it }
                 Text("Качество: как у потока SoundCloud (AAC, если он есть, иначе MP3). Занято: ${fmtSize(Downloads.usedBytes())}.", color = C.faint, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
                 Spacer(Modifier.height(16.dp))
                 BigButton("Открыть скачанное", false) { onPage("downloads") }

@@ -34,7 +34,7 @@ export interface CustomTheme {
 export type FsLayout = 'side' | 'text' | 'cover';
 export type FsBackground = 'theme' | 'cover' | 'oled';
 export type Highlight = 'word' | 'line' | 'none';
-export type VizMode = 'off' | 'bars' | 'mirror' | 'line' | 'wave' | 'ring';
+export type VizMode = 'off' | 'bars' | 'mirror' | 'line' | 'wave' | 'ring' | 'aurora' | 'pulse' | 'particles' | 'mountains';
 export type VizColor = 'accent' | 'cover' | 'white';
 
 export interface UiPrefs {
@@ -48,6 +48,8 @@ export interface UiPrefs {
   accentFromCover?: boolean;
   /** the height of track rows in lists */
   density?: 'compact' | 'normal' | 'large';
+  /** how round the corners of the whole program are */
+  radius?: 'sharp' | 'normal' | 'soft' | 'round';
   /** the lyrics panel shows a translation under each line */
   lyricsTranslate?: boolean;
   /** «Для стрима»: the page for OBS on 127.0.0.1 */
@@ -239,4 +241,11 @@ function applyTheme(): void {
 export function previewTheme(t: CustomTheme | null, image?: string | null): void {
   if (!t) return applyTheme();
   void paintCustom(t, image);
+}
+
+
+/** The roundness of the corners: the scale every radius of the style sheet is multiplied by (0 sharp … 2.8 very round). */
+export function applyRadius(r: UiPrefs['radius']): void {
+  const scale = r === 'sharp' ? 0 : r === 'soft' ? 1.8 : r === 'round' ? 2.8 : 1;
+  document.documentElement.style.setProperty('--rs', String(scale));
 }

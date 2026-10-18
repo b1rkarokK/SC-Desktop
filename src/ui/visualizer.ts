@@ -17,6 +17,12 @@ export class Visualizer {
   private raf = 0;
   private unlisten: UnlistenFn | null = null;
   private phase = 0;
+  /** the rings of «Пульс» (born on a bass hit): radius 0..1, strength 0..1 */
+  private rings: { r: number; a: number }[] = [];
+  private bassBefore = 0;
+  private lastRing = 0;
+  /** the sparks of «Частицы» */
+  private sparks: { x: number; y: number; vy: number; vx: number; life: number; size: number }[] = [];
 
   private colorMode: VizColor = 'accent';
   private cover: string | null = null;
@@ -83,7 +89,7 @@ export class Visualizer {
     this.draw();
     // standing still (paused): look again rarely until sound comes back
     this.raf =
-      peak > 0.01 || this.mode === 'wave'
+      peak > 0.01 || this.mode === 'wave' || this.mode === 'aurora' || this.mode === 'pulse' || this.mode === 'particles' || this.mode === 'mountains'
         ? requestAnimationFrame(() => this.frame())
         : (window.setTimeout(() => this.frame(), 250) as unknown as number);
   }
@@ -163,6 +169,108 @@ export class Visualizer {
       for (let i = 0; i < BANDS; i++) {
         const bh = Math.max(2 * k, this.level[i]! * maxH);
         ctx.fillRect(x0 + i * (bw + gap), base - bh, bw, bh);
+      }
+    } else if (this.mode === 'aurora') {
+      // slow ribbons of light, hung from the top: the bass swells them, the treble ripples their edges
+      this.phase += 0.006;
+      const bass = (this.level[1]! + this.level[2]! + this.level[3]!) / 3;
+      const treble = (this.level[16]! + this.level[22]! + this.level[28]!) / 3;
+      const ribbons = 4;
+      for (let i = 0; i < ribbons; i++) {
+        const top = h * (0.12 + i * 0.07);
+        const depth = h * (0.18 + bass * 0.22 + i * 0.03);
+        const grad = ctx.createLinearGradient(0, top - depth * 0.3, 0, top + depth);
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(0.35, accent);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.globalAlpha = 0.16 + 0.1 * (1 - i / ribbons) + bass * 0.12;
+        ctx.beginPath();
+        const steps = 80;
+        for (let s = 0; s <= steps; s++) {
+          const x = (s / steps) * w;
+          const lv = this.level[Math.min(BANDS - 1, Math.floor((s / steps) * BANDS))]!;
+          const y = top + Math.sin(s / 11 + this.phase * (1.5 + i * 0.4) + i * 2) * h * 0.05 + Math.sin(s / 5 - this.phase * 4 + i) * h * 0.02 * (0.3 + treble) - lv * h * 0.05;
+          if (s === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.lineTo(w, top + depth);
+        ctx.lineTo(0, top + depth);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillStyle = accent;
+    } else if (this.mode === 'pulse') {
+      // rings leave the middle on every bass hit and fade out
+      const bass = (this.level[0]! + this.level[1]! + this.level[2]! + this.level[3]!) / 4;
+      const now = performance.now();
+      if (bass > 0.35 && bass > this.bassBefore * 1.18 && now - this.lastRing > 180) {
+        this.rings.push({ r: 0.04, a: Math.min(1, 0.5 + bass) });
+        this.lastRing = now;
+      }
+      this.bassBefore = this.bassBefore * 0.7 + bass * 0.3;
+      const cx = w / 2;
+      const cy = h * 0.46;
+      const maxR = Math.hypot(w, h) * 0.5;
+      ctx.lineWidth = 3 * k;
+      this.rings = this.rings.filter((ring) => ring.a > 0.02);
+      for (const ring of this.rings) {
+        ring.r += 0.012 + bass * 0.006;
+        ring.a *= 0.968;
+        ctx.globalAlpha = ring.a * 0.8;
+        ctx.beginPath();
+        ctx.arc(cx, cy, ring.r * maxR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // a soft core that breathes with the bass
+      const core = Math.min(w, h) * (0.05 + bass * 0.08);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, core * 3);
+      g.addColorStop(0, accent);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.28 + bass * 0.3;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, core * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = accent;
+    } else if (this.mode === 'particles') {
+      // sparks rise from the bottom: a louder band throws more of them, faster
+      for (let i = 0; i < BANDS; i += 2) {
+        const lv = this.level[i]!;
+        if (lv > 0.15 && Math.random() < lv * 0.6 && this.sparks.length < 260) {
+          this.sparks.push({ x: ((i + Math.random()) / BANDS) * w, y: h * (0.9 + Math.random() * 0.08), vy: -(1.2 + lv * 5) * k, vx: (Math.random() - 0.5) * 1.2 * k, life: 1, size: (1.5 + lv * 3.5) * k });
+        }
+      }
+      this.sparks = this.sparks.filter((p) => p.life > 0.02 && p.y > -10);
+      for (const p of this.sparks) {
+        p.x += p.vx + Math.sin(p.y / 60) * 0.4 * k;
+        p.y += p.vy;
+        p.life *= 0.985;
+        ctx.globalAlpha = Math.min(0.9, p.life);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (this.mode === 'mountains') {
+      // three ranges one behind the other, the far ones calmer: the whole spectrum is the skyline
+      this.phase += 0.004;
+      for (let layer = 0; layer < 3; layer++) {
+        const base = h * (0.62 + layer * 0.14);
+        const amp = h * (0.28 - layer * 0.07);
+        ctx.globalAlpha = 0.18 + layer * 0.14;
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        const steps = 60;
+        for (let s = 0; s <= steps; s++) {
+          const f = s / steps;
+          const lv = this.level[Math.min(BANDS - 1, Math.floor(f * (BANDS - 1)))]!;
+          const calm = 1 - layer * 0.3;
+          const y = base - (lv * amp * calm + Math.sin(f * 7 + this.phase * (1 + layer) + layer * 2) * h * 0.02);
+          ctx.lineTo(f * w, y);
+        }
+        ctx.lineTo(w, h);
+        ctx.closePath();
+        ctx.fill();
       }
     } else {
       this.phase += 0.012;

@@ -49,7 +49,50 @@ export function openPalette(pick?: (t: Track) => void | Promise<void>): void {
   const chips = h('div', { class: 'pal-chips' });
   const list = h('div', { class: 'pal-list', role: 'listbox' });
   const foot = h('div', { class: 'pal-foot muted small', text: pick ? T('Enter или клик - добавить · Esc - закрыть') : T('Enter - играть · Ctrl+Enter - в очередь · Esc - закрыть') });
-  const box = h('div', { class: 'pal panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': T('Быстрый поиск') }, input, chips, list, foot);
+  // a grip above the field: the window can be moved (the place is remembered; a double click puts it back)
+  const grip = h('div', { class: 'pal-grip', title: T('Потяните, чтобы переместить') });
+  const box = h('div', { class: 'pal panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': T('Быстрый поиск') }, grip, input, chips, list, foot);
+  let shift = { x: 0, y: 0 };
+  try {
+    const saved = JSON.parse(localStorage.getItem('palette:pos') ?? 'null') as { x: number; y: number } | null;
+    if (saved && Math.abs(saved.x) < 3000 && Math.abs(saved.y) < 3000) shift = saved;
+  } catch {
+    /* no saved place */
+  }
+  const place = () => {
+    box.style.transform = `translate(${shift.x}px, ${shift.y}px)`;
+  };
+  place();
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    const from = { x: e.clientX - shift.x, y: e.clientY - shift.y };
+    const move = (m: PointerEvent) => {
+      // not out of the window: some of the box always stays on the screen
+      shift = { x: Math.max(-window.innerWidth * 0.5, Math.min(window.innerWidth * 0.5, m.clientX - from.x)), y: Math.max(-40, Math.min(window.innerHeight - 120, m.clientY - from.y)) };
+      place();
+    };
+    const up = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      try {
+        localStorage.setItem('palette:pos', JSON.stringify(shift));
+      } catch {
+        /* not kept */
+      }
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+  });
+  grip.addEventListener('dblclick', () => {
+    shift = { x: 0, y: 0 };
+    place();
+    try {
+      localStorage.removeItem('palette:pos');
+    } catch {
+      /* nothing to remove */
+    }
+  });
   const backdrop = h('div', { class: 'upd-backdrop pal-backdrop' }, box);
 
   // Esc closes it from anywhere, not only while the focus is inside the box

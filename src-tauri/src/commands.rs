@@ -561,7 +561,7 @@ fn vpn_dto(s: &crate::net::vpn::Saved) -> VpnDto {
 }
 
 fn vpn_dir(app: &AppHandle) -> AppResult<std::path::PathBuf> {
-    Ok(app.path().app_data_dir()?.join("bin"))
+    Ok(crate::portable::data(app)?.join("bin"))
 }
 
 #[tauri::command]
@@ -732,8 +732,8 @@ const WEB_CACHE_KEY: &str = "storage:clear_web_cache";
 /// Settings → Хранилище: what the app keeps on this computer.
 #[tauri::command]
 pub async fn storage_info(app: AppHandle, state: State<'_, AppState>) -> Cmd<StorageDto> {
-    let data = app.path().app_data_dir()?;
-    let local_data = app.path().app_local_data_dir()?;
+    let data = crate::portable::data(&app)?;
+    let local_data = crate::portable::local(&app)?;
     let covers = state.covers.dir().to_path_buf();
     tokio::task::spawn_blocking(move || {
         let file = |n: &str| std::fs::metadata(data.join(n)).map(|m| m.len()).unwrap_or(0);
@@ -765,14 +765,14 @@ pub async fn storage_clear_cache(state: State<'_, AppState>) -> Cmd<()> {
 /// The speech model (57 MB): downloaded again only if a song is to be recognised again.
 #[tauri::command]
 pub async fn storage_delete_model(app: AppHandle) -> Cmd<()> {
-    let _ = tokio::fs::remove_dir_all(app.path().app_data_dir()?.join("models")).await;
+    let _ = tokio::fs::remove_dir_all(crate::portable::data(&app)?.join("models")).await;
     Ok(())
 }
 
 /// At the start, before any window: the browser's cache asked to be cleared last time.
 pub async fn clear_web_cache_if_asked(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let Ok(dir) = app.path().app_local_data_dir() else { return };
+    let Ok(dir) = crate::portable::local(app) else { return };
     let web = dir.join("EBWebView");
     let profile = web.join("Default");
     // asked in Settings, or the cache grew past its limit (older versions had none: hundreds of MB)
@@ -845,15 +845,32 @@ async fn flush_pending_likes(app: &AppHandle, state: &AppState, quiet: bool) -> 
         return Ok(0);
     }
     let mut left = Vec::new();
+    let mut halted = false;
     for (id, liked) in pending {
-        // after one refusal the rest would be refused too: don't hammer SoundCloud
-        if !left.is_empty() {
+        // after a block / captcha / no net the rest would fail too: don't hammer SoundCloud
+        if halted {
             left.push((id, liked));
-        } else if let Err(e) = send_like(app, state, id, liked, quiet).await {
-            tracing::debug!(error = %e, track = id, "queued like still refused");
-            left.push((id, liked));
-        } else {
-            let _ = app.emit("likes:queue", ());
+            continue;
+        }
+        match send_like(app, state, id, liked, quiet).await {
+            Ok(()) => {
+                let _ = app.emit("likes:queue", ());
+            }
+            // the track is gone: this like can never go through, it must not hold the others back
+            Err(AppError::NotFound) => {
+                tracing::info!(track = id, "queued like dropped: the track is gone");
+                let _ = app.emit("likes:queue", ());
+            }
+            // a refusal about this track only: keep it, go on with the next
+            Err(e @ (AppError::Forbidden | AppError::Http(400..=499))) => {
+                tracing::debug!(error = %e, track = id, "queued like refused, the next goes on");
+                left.push((id, liked));
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, track = id, "queued like still refused");
+                halted = true;
+                left.push((id, liked));
+            }
         }
     }
     state.db.kv_put(PENDING_LIKES, &left).await?;
@@ -1745,7 +1762,22 @@ pub async fn lyrics_get(state: State<'_, AppState>, track: TrackDto, force: bool
         }
     }
     let before = state.lyrics.mxm_session();
-    let (found, failed) = lyrics::find_counted(&http, &state.lyrics, &q).await?;
+    let (mut found, mut failed) = lyrics::find_counted(&http, &state.lyrics, &q).await?;
+    // "Название - Исполнитель" (many uploads are named this way, the usual order is the other): nothing was found with the
+    // first guess, so the halves of the title are swapped and the search is made again
+    if found.is_none() {
+        if let Some((left, right)) = [" - ", " – ", " — "].iter().find_map(|sep| track.title.split_once(sep)) {
+            let (artist2, title2) = genius::query_from(right, left);
+            if !artist2.is_empty() && !title2.is_empty() && (artist2 != q.artist || title2 != q.title) {
+                let q2 = Query { artist: artist2, title: title2, duration_ms: track.duration_ms, version_of: None, kind: q.kind };
+                tracing::debug!(artist = %q2.artist, title = %q2.title, "lyrics: trying the title the other way round");
+                if let Ok((f2, e2)) = lyrics::find_counted(&http, &state.lyrics, &q2).await {
+                    failed = failed.min(e2);
+                    found = f2;
+                }
+            }
+        }
+    }
     let after = state.lyrics.mxm_session();
     if after != before {
         state.db.kv_put(MXM_KEY, &after.unwrap_or_default()).await?;
@@ -1811,7 +1843,7 @@ pub async fn lyrics_hear(app: AppHandle, state: State<'_, AppState>, player: Sta
         return Ok(none);
     }
     let Some(audio) = player.audio_of(track.id) else { return Ok(HearDto { wait: true, lyrics: None }) };
-    let models = app.path().app_data_dir()?.join("models");
+    let models = crate::portable::data(&app)?.join("models");
     let cyrillic = format!("{}{}", track.artist, track.title).chars().any(|c| ('\u{400}'..='\u{4ff}').contains(&c));
     let found = crate::hear::find(&state.http(), &state.lyrics, &models, audio, track.duration_ms, cyrillic).await?;
     state.db.kv_put(&key, &true).await?;
@@ -2683,7 +2715,7 @@ pub async fn backup_import(app: AppHandle, state: State<'_, AppState>) -> Cmd<Op
 /// The end of today's log, for «Скопировать лог» in Настройки (to send with an error report).
 #[tauri::command]
 pub async fn log_tail(app: AppHandle, lines: usize) -> Cmd<String> {
-    let dir = app.path().app_log_dir().map_err(|e| AppError::Other(e.to_string()))?;
+    let dir = crate::portable::log(&app).map_err(|e| AppError::Other(e.to_string()))?;
     let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
     if let Ok(mut rd) = tokio::fs::read_dir(&dir).await {
         while let Ok(Some(e)) = rd.next_entry().await {

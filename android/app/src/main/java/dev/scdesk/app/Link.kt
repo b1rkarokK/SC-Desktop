@@ -217,8 +217,15 @@ class Link(private val app: App) {
 
     /** Asks the computer for the servers of its VPN subscription (it asks its owner first). */
     fun requestVpn() {
+        // the link must be up while the answer is awaited
+        refreshConnection()
         app.vpnWaiting.value = true
         app.vpnNote.value = "Ждём ответа на компьютере…"
+        // no answer for a minute: it is told, the button works again
+        Thread {
+            Thread.sleep(60_000)
+            if (app.vpnWaiting.value) { app.vpnWaiting.value = false; app.vpnNote.value = "Ответа нет. Откройте SC Desk на компьютере и нажмите ещё раз." }
+        }.apply { isDaemon = true }.start()
         send(JSONObject().put("t", "vpnreq").put("dev", store.deviceId).put("to", store.pcDev))
     }
 

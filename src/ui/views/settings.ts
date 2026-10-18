@@ -5,7 +5,7 @@ import { api, coverUrl, errorMessage, type AppConfig, type DiscordConfig, type N
 import { confirmDialog } from '../confirm';
 import { h, toast } from '../dom';
 import { icon, I } from '../icons';
-import { customThemes, onPrefs, prefs, updatePrefs, type Theme } from '../prefs';
+import { applyRadius, customThemes, onPrefs, prefs, updatePrefs, type Theme } from '../prefs';
 import { deleteTheme, editTheme, importTheme } from '../theme_editor';
 import { store } from '../store';
 import { lyricsData } from '../lyrics_data';
@@ -360,7 +360,20 @@ export class SettingsView implements View {
       location.reload();
     });
     return sel;
-  })(), T('Высота строк с треками: мельче или с крупными обложками')), row(T('Акцент из обложки'), toggle(!!p.accentFromCover, (v) => updatePrefs((x) => (x.accentFromCover = v))), T('Цвет кнопок и подсветки подстраивается под обложку играющего трека'))),
+  })(), T('Высота строк с треками: мельче или с крупными обложками')), row(T('Скругление углов'), (() => {
+    const sel = h('select', { class: 'input' }) as HTMLSelectElement;
+    for (const [v, label] of [['sharp', T('Острые')], ['normal', T('Обычные')], ['soft', T('Мягкие')], ['round', T('Круглые')]] as const) {
+      const o = h('option', { value: v, text: label }) as HTMLOptionElement;
+      o.selected = (p.radius ?? 'normal') === v;
+      sel.append(o);
+    }
+    sel.addEventListener('change', () => {
+      const v = sel.value as 'sharp' | 'normal' | 'soft' | 'round';
+      updatePrefs((x) => (x.radius = v));
+      applyRadius(v);
+    });
+    return sel;
+  })(), T('Насколько круглые углы у кнопок, карточек и окон программы')), row(T('Акцент из обложки'), toggle(!!p.accentFromCover, (v) => updatePrefs((x) => (x.accentFromCover = v))), T('Цвет кнопок и подсветки подстраивается под обложку играющего трека'))),
     );
     this.langBox.replaceChildren(group('Язык / Language', row(T('Язык интерфейса'), langs, T('Тексты песен не переводятся'))));
   }

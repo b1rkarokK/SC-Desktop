@@ -471,6 +471,10 @@ impl Engine {
     fn tick(&mut self) {
         if self.fade.is_some() {
             self.apply_volume();
+        } else if let Some(stray) = self.fading_out.take() {
+            // a sink that should have faded out and is still there: it would play over the current track
+            tracing::warn!("a leftover sink stopped");
+            stray.stop();
         }
         self.preview_tick();
         self.track_progress();

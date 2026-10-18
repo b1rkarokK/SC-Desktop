@@ -21,7 +21,9 @@ export function initPreview(): void {
     if (playing && playing !== hovered) stop();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Alt' || e.repeat) return;
+    // Alt with another key (Alt+Tab, Alt+Left …) is a shortcut, not a listen
+    if (e.key !== 'Alt') return stop();
+    if (e.repeat) return;
     e.preventDefault();
     const track = hovered?.__track;
     if (!hovered || !track || playing === hovered) return;

@@ -41,6 +41,8 @@ const MAX_AUTO_SKIPS: u32 = 5;
 /// "Previous" restarts the track if we're further in than this.
 const PREV_RESTART_MS: u64 = 3_000;
 /// Start fetching the next wave batch when this few tracks are left.
+/// How many of the next tracks are downloaded ahead of time (each is a few MB in memory).
+const PREFETCH_AHEAD: usize = 2;
 const WAVE_PREFETCH_LEFT: usize = 3;
 const WAVE_BATCH: usize = 25;
 /// Smart Shuffle: a recommendation after every this many list tracks, at most this many.
@@ -290,7 +292,9 @@ pub struct Player {
     /// recording is shifted by in that upload). The lyrics shift with it.
     stand_in: Mutex<Option<(u64, f32)>>,
     /// the next track's audio, fetched while the current one plays (one slot)
-    prefetched: Mutex<Option<(u64, Arc<Vec<u8>>, Option<f32>)>>,
+    prefetched: Mutex<Vec<(u64, Arc<Vec<u8>>, Option<f32>)>>,
+    /// counts the starts and stops of the Alt preview: a start whose download ends after a stop is dropped
+    preview_seq: AtomicU64,
     /// the audio of the track that plays now (for the lyrics alignment, see lyrics_align.rs)
     last_audio: Mutex<Option<(u64, Arc<Vec<u8>>)>>,
     eq: Arc<EqShared>,
@@ -347,7 +351,8 @@ impl Player {
             external: std::sync::atomic::AtomicBool::new(false),
             drm_only: Mutex::new(HashSet::new()),
             stand_in: Mutex::new(None),
-            prefetched: Mutex::new(None),
+            prefetched: Mutex::new(Vec::new()),
+            preview_seq: AtomicU64::new(0),
             listen_open: Mutex::new(None),
             last_audio: Mutex::new(None),
             eq,
@@ -561,9 +566,9 @@ impl Player {
         let next = self.upcoming(1).first().map(|t| t.id);
         {
             let mut slot = self.prefetched.lock().unwrap_or_else(|e| e.into_inner());
-            if slot.as_ref().is_some_and(|(id, ..)| Some(*id) != next) {
-                *slot = None;
-            }
+            let keep: Vec<u64> = self.upcoming(PREFETCH_AHEAD).iter().map(|t| t.id).collect();
+            let _ = next;
+            slot.retain(|(id, ..)| keep.contains(id));
         }
         self.emit();
         let _ = self.app.emit("player:queue", ());
@@ -1513,13 +1518,10 @@ impl Player {
             // already fetched while the previous track played: start at once
             let ready = {
                 let mut slot = this.prefetched.lock().unwrap_or_else(|e| e.into_inner());
-                match slot.take() {
-                    Some((id, data, stand_in)) if id == track.id => Some((data, stand_in)),
-                    other => {
-                        *slot = other;
-                        None
-                    }
-                }
+                slot.iter().position(|(id, ..)| *id == track.id).map(|i| {
+                    let (_, data, stand_in) = slot.remove(i);
+                    (data, stand_in)
+                })
             };
             let result = match ready {
                 Some((data, stand_in)) => {
@@ -1632,6 +1634,7 @@ impl Player {
 
     /// A short listen to `track` over the playing one: from a third in, while the user holds the key.
     pub async fn preview(self: &Arc<Self>, track: TrackDto) -> AppResult<()> {
+        let seq = self.preview_seq.fetch_add(1, Ordering::SeqCst) + 1;
         let data = match self.audio_of(track.id) {
             Some(d) => d,
             None => match Box::pin(self.fetch_audio(track.id)).await? {
@@ -1639,12 +1642,17 @@ impl Player {
                 Fetched::Widget(_) => return Err(AppError::UnsupportedStream("этот трек играет только виджет SoundCloud".into())),
             },
         };
+        // Alt was let go while the track was being fetched: nothing may start now
+        if self.preview_seq.load(Ordering::SeqCst) != seq {
+            return Ok(());
+        }
         let at = Duration::from_millis(track.duration_ms / 3);
         self.out(AudioCmd::Preview { data, at });
         Ok(())
     }
 
     pub fn preview_stop(&self) {
+        self.preview_seq.fetch_add(1, Ordering::SeqCst);
         self.out(AudioCmd::PreviewStop);
     }
 
@@ -1819,15 +1827,18 @@ impl Player {
     /// ear too), or, if only SoundCloud's own player can play it, that player
     /// loads it paused. Only one track ahead: little memory, little traffic.
     fn lookahead(self: &Arc<Self>) {
-        let Some(next) = self.upcoming(1).into_iter().next() else { return };
-        if self.prefetched.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(id, ..)| *id == next.id) {
+        let ahead = self.upcoming(PREFETCH_AHEAD);
+        let Some(next) = ({
+            let have = self.prefetched.lock().unwrap_or_else(|e| e.into_inner());
+            ahead.into_iter().find(|t| !have.iter().any(|(id, ..)| *id == t.id))
+        }) else {
             return;
-        }
+        };
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
             // let the current track settle first
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            if this.upcoming(1).first().map(|t| t.id) != Some(next.id) {
+            if !this.upcoming(PREFETCH_AHEAD).iter().any(|t| t.id == next.id) {
                 return;
             }
             // its lyrics too, so that the line is there the moment it starts (the search takes seconds: several
@@ -1841,7 +1852,8 @@ impl Player {
                 });
             }
             let fetched = Box::pin(this.fetch_audio(next.id)).await;
-            let still_next = this.upcoming(1).first().map(|t| t.id) == Some(next.id);
+            let still_next = this.upcoming(PREFETCH_AHEAD).iter().any(|t| t.id == next.id);
+            let is_first = this.upcoming(1).first().map(|t| t.id) == Some(next.id);
             match fetched {
                 Ok(Fetched::Bytes(data)) if still_next => {
                     let stand_in = {
@@ -1858,9 +1870,11 @@ impl Player {
                     let data = Arc::new(data);
                     // measured now, so the next start stays instant
                     this.gain_for(next.id, &data).await;
-                    *this.prefetched.lock().unwrap_or_else(|e| e.into_inner()) = Some((next.id, data, stand_in));
+                    this.prefetched.lock().unwrap_or_else(|e| e.into_inner()).push((next.id, data, stand_in));
+                    // the one after it, while there is time
+                    this.lookahead();
                 }
-                Ok(Fetched::Widget(play_id)) if still_next => this.widget.preload(play_id),
+                Ok(Fetched::Widget(play_id)) if is_first => this.widget.preload(play_id),
                 Ok(_) => {}
                 Err(e) => tracing::debug!(track = next.id, error = %e, "prefetch failed"),
             }
@@ -1873,7 +1887,7 @@ impl Player {
     fn start_crossfade(self: &Arc<Self>) {
         let next = self.upcoming(1).into_iter().next();
         let ready = next.as_ref().is_some_and(|n| {
-            self.prefetched.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(id, ..)| *id == n.id)
+            self.prefetched.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(id, ..)| *id == n.id)
         });
         let (repeat_one, finished) = {
             let s = self.lock();

@@ -222,6 +222,19 @@ impl Devices {
         client.send(crypto::seal(&key, &link.chan, v.to_string().as_bytes()), false, None);
     }
 
+    /// Like send_link, but the relay keeps the message for the phone that is not connected right now (the answer to a
+    /// request that took long: the user went to the computer to confirm while the phone screen went off); a newer message
+    /// with the same id replaces it.
+    fn send_link_kept(&self, v: Value, id: &str) {
+        let (client, link) = {
+            let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            (g.client.clone(), g.link.clone())
+        };
+        let (Some(client), Some(link)) = (client, link) else { return };
+        let Some(key) = Self::key_of(&link) else { return };
+        client.send(crypto::seal(&key, &link.chan, v.to_string().as_bytes()), true, Some(id.to_owned()));
+    }
+
     fn say_present(&self) {
         let Some(link) = self.inner.lock().unwrap_or_else(|e| e.into_inner()).link.clone() else { return };
         self.send_link(json!({ "t": "pres", "dev": link.dev, "name": link.name, "kind": "pc", "ts": now_ms() }));
@@ -282,6 +295,12 @@ impl Devices {
                 let name = self.inner.lock().unwrap_or_else(|e| e.into_inner()).peers.get(&from).map(|p| p.name.clone()).unwrap_or_else(|| "Телефон".into());
                 self.inner.lock().unwrap_or_else(|e| e.into_inner()).vpn_ask = Some((from.clone(), name.clone()));
                 let _ = self.app.emit("devices:vpn-request", json!({ "dev": from, "name": name }));
+                // a test aid of the development build only: a flag file in the temp folder answers "yes" by itself
+                #[cfg(debug_assertions)]
+                if std::env::temp_dir().join("scdesk-debug-vpn").exists() {
+                    tracing::info!("devices: vpn request answered by the debug flag");
+                    self.vpn_answer(true);
+                }
             }
             "xfer" => {
                 let this = self.clone();
@@ -522,7 +541,7 @@ impl Devices {
         let Some((phone, _)) = self.inner.lock().unwrap_or_else(|e| e.into_inner()).vpn_ask.take() else { return };
         let Some(link) = self.inner.lock().unwrap_or_else(|e| e.into_inner()).link.clone() else { return };
         if !allow {
-            self.send_link(json!({ "t": "vpn", "dev": link.dev, "to": phone, "servers": [], "err": "denied" }));
+            self.send_link_kept(json!({ "t": "vpn", "dev": link.dev, "to": phone, "servers": [], "err": "denied" }), "vpn");
             return;
         }
         let saved = crate::net::vpn::load();
@@ -534,7 +553,8 @@ impl Devices {
             .take(150)
             .collect();
         let err = if servers.is_empty() { Some("none") } else { None };
-        self.send_link(json!({ "t": "vpn", "dev": link.dev, "to": phone, "servers": servers, "err": err }));
+        tracing::info!(servers = servers.len(), "devices: servers of the subscription go to the phone");
+        self.send_link_kept(json!({ "t": "vpn", "dev": link.dev, "to": phone, "servers": servers, "err": err }), "vpn");
     }
 
     /// This computer set its equalizer: the others are told.

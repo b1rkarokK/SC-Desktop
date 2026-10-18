@@ -14,7 +14,10 @@ interface RenderedLine {
 }
 
 const USER_SCROLL_PAUSE_MS = 4000;
-const TICK_MS = 80;
+// words of fast reading last 150 to 250 ms: 12 updates a second were too coarse, a word was shown up to 80 ms late.
+const TICK_MS = 33;
+/** The sound leaves the speakers a little after the player counted it (the output buffer): the words are lit this much ahead. */
+const LEAD_MS = 70;
 
 export class LyricsView {
   readonly el: HTMLDivElement;
@@ -140,7 +143,7 @@ export class LyricsView {
 
   private tick(): void {
     if (!this.lyrics?.synced || !this.lines.length) return;
-    const t = clock.now() + this.offset;
+    const t = clock.now() + this.offset + LEAD_MS;
     const idx = findLine(this.lines, t);
     if (idx !== this.activeLine) {
       this.lines.forEach((r, i) => {
@@ -190,18 +193,30 @@ function findLine(lines: RenderedLine[], t: number): number {
   return ans;
 }
 
-/** Line-level lyrics → word timings distributed by character length. */
+/** Syllables of a word (vowel groups, Latin and Cyrillic); a word without a vowel ("в", "k") counts as half. */
+function syllables(word: string): number {
+  const groups = word.toLowerCase().match(/[aeiouyаеёиоуыэюяіїє]+/g);
+  return groups ? groups.length : 0.5;
+}
+
+/**
+ * Line-level lyrics → word timings. A word takes time by its syllables (not its letters): fast reading is
+ * syllable by syllable, and a long consonant cluster is not sung longer. A comma or a dash holds a short breath.
+ * When the gap to the next line is about as long as the line takes to say, the words fill all of it (fast rap has
+ * no pause to lose); when the gap is much longer (a held note, a pause) they take 80% so the line is not late.
+ */
 function estimateWords(line: LyricLine): Word[] {
   const start = line.start_ms ?? 0;
-  // the gap to the next line often includes a pause / held notes; words are
-  // sung in the first ~70% of it — highlight there so it doesn't fall behind
-  const end = Math.max(start + 400, Math.min(line.end_ms ?? start + 4000, start + 7000));
+  const end = Math.max(start + 400, Math.min(line.end_ms ?? start + 4000, start + 9000));
   const tokens = line.text.match(/\S+\s*/g) ?? [line.text];
-  const total = tokens.reduce((n, t) => n + t.trim().length + 1, 0);
-  const span = (end - start) * 0.7;
+  const weights = tokens.map((tok) => syllables(tok) + (/[,;:-]\s*$/.test(tok) ? 0.6 : 0));
+  const total = weights.reduce((n, x) => n + x, 0) || 1;
+  const natural = total * 170;
+  const gap = end - start;
+  const span = gap * (gap < natural * 1.8 ? 0.97 : 0.8);
   let acc = start;
-  return tokens.map((tok) => {
-    const d = (span * (tok.trim().length + 1)) / total;
+  return tokens.map((tok, i) => {
+    const d = (span * weights[i]!) / total;
     const w = { start_ms: Math.round(acc), end_ms: Math.round(acc + d), text: tok };
     acc += d;
     return w;

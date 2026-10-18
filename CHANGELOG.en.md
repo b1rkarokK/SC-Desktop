@@ -3,6 +3,19 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.1] - 2026-10-19
+
+- The program's data now lives in the `data` folder next to sc-desk.exe: settings, cache, covers, engines and models. Nothing is left in AppData. The first start moves the old data over by itself. The «delete data» box of the uninstaller removes this folder too.
+- Tracks start faster: the next two tracks are downloaded ahead instead of one, connections to SoundCloud live longer, a track's pieces are fetched in ten streams.
+- Likes stuck in the queue: one dead track no longer holds the others back, and tracks removed from SoundCloud leave the queue by themselves.
+- The Alt preview no longer starts a song over the playing one if Alt was let go while the track loaded. Alt with another key (Alt+Tab) does not trigger it.
+- A safeguard against two sounds at once: a sound left from the previous track stops by itself.
+- The lyrics search finds songs with the title in reverse order, and the words hit the beat more exactly, especially in fast reading.
+- Visualizer modes, volume by the mouse wheel in full screen and the equalizer, a movable Ctrl+K, a button to remove a track from a playlist, corner roundness in the theme.
+- My Wave is stricter about mood and dislikes and has its own settings.
+- Auto-pause no longer reacts to screen recorders.
+- Android: «Download all» in likes (on Wi-Fi), word highlighting, downloads, rooms and charts closer to the computer version.
+
 ## [1.4.0] - 2026-10-17
 
 - SC Desk for Android (the file "SC-Desk-1.4.0-android.apk" in this release). It pairs with the computer by a QR code: Settings, "Connect a phone". The SoundCloud sign-in goes over from the computer without a password, and if the computer is not signed in, the phone can sign in for it.

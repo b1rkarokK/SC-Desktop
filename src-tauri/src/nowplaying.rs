@@ -28,7 +28,7 @@ pub async fn show(app: &AppHandle, lyrics: bool) {
         None => {
             let url = format!("index.html?np=1&mode={}&ms={SHOW_MS}", if lyrics { "lyrics" } else { "track" });
             let built = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App(url.into()))
-                .additional_browser_args(crate::net::bypass::browser_args())
+                .additional_browser_args(crate::net::bypass::browser_args()).data_directory(crate::portable::web_dir())
                 .title("SC Desk")
                 .inner_size(WIDTH, HEIGHT)
                 .resizable(false)

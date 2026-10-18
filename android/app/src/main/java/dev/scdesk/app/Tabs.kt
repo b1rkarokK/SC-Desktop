@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
@@ -246,7 +247,36 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 12.dp)) {
             when (inner) {
                 0 -> {
-                    if (tracks.isNotEmpty()) item { Text("${tracks.size}${if (next != null) "+" else ""} треков", color = C.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 20.dp, bottom = 4.dp)) }
+                    if (tracks.isNotEmpty()) item {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        val batch by Downloads.batch.collectAsState()
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${tracks.size}${if (next != null) "+" else ""} треков", color = C.muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                val b = batch
+                                if (b?.running == true) Text("Остановить", color = C.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable { Downloads.stopAll() }.padding(6.dp))
+                                else Text("Скачать все", color = C.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
+                                    // all the likes (not only the pages shown), saved one after another off the screen
+                                    app.appScope.launch {
+                                        Downloads.batch.value = Downloads.Batch(0, 0, 0, true, "Собираем список лайков…")
+                                        val all = runCatching { app.api.likesDated(5000).map { it.first } }.getOrDefault(tracks)
+                                        Downloads.saveAll(ctx, app, all)
+                                    }
+                                }.padding(6.dp))
+                            }
+                            batch?.let { b ->
+                                if (b.running || b.note != null || b.total > 0) {
+                                    Text(
+                                        b.note ?: (if (b.running) "Скачивается ${b.done} из ${b.total}" else "Скачано ${b.done - b.failed} из ${b.total}" + if (b.failed > 0) ", не вышло: ${b.failed}" else ""),
+                                        color = C.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp).pressable { Downloads.dismissBatch() },
+                                    )
+                                    if (b.total > 0) Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(C.panel2)) {
+                                        Box(Modifier.fillMaxWidth((b.done.toFloat() / b.total).coerceIn(0f, 1f)).height(4.dp).background(C.accent))
+                                    }
+                                }
+                            }
+                        }
+                    }
                     itemsIndexed(visible, key = { _, t -> t.id }) { i, t ->
                         TrackRow(t, shown.track?.id == t.id, trailing = {
                             if (app.rooms.state.value != null) Box(Modifier.size(40.dp).pressable {

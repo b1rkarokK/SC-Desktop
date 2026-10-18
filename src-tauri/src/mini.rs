@@ -85,7 +85,7 @@ pub async fn open(app: &AppHandle) -> tauri::Result<()> {
     let pin = pinned(app).await;
     PIN.store(pin, std::sync::atomic::Ordering::Relaxed);
     let w = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?mini=1".into()))
-        .additional_browser_args(crate::net::bypass::browser_args())
+        .additional_browser_args(crate::net::bypass::browser_args()).data_directory(crate::portable::web_dir())
         .title("SC Desk")
         .inner_size(WIDTH, HEIGHT)
         .resizable(false)

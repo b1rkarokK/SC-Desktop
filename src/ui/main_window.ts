@@ -22,7 +22,7 @@ import { WaveView } from './views/wave';
 import { T } from './i18n';
 import { initCoverAccent } from './cover_accent';
 import { applyDensity } from './track_row';
-import { prefs } from './prefs';
+import { applyRadius, prefs } from './prefs';
 
 const NAV: [Section, string, Parameters<typeof icon>[0]][] = [
   ['home', T('Главная'), I.home],
@@ -54,6 +54,7 @@ export class MainWindow {
     initCoverAccent();
     void listen<{ ms: number }>('player:resumed', (e) => toast(T('Продолжаю с {0}: перемотайте на начало, если нужно', fmtTime(e.payload.ms))));
     applyDensity(prefs().density);
+    applyRadius(prefs().radius);
     const list = h('div', { class: 'nav-list', role: 'tablist' });
     for (const [id, label, ic] of NAV) {
       const b = h('button', { type: 'button', class: 'nav-item', role: 'tab' }, icon(ic), h('span', { class: 'nav-label', text: label }));

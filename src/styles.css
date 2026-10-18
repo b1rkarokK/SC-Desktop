@@ -28,7 +28,9 @@ html {
   --strong: #ffffff;
   --ok: #4caf7a;
   --err: #e5735a;
-  --radius: 4px;
+  /* the roundness of the corners (Настройки, Тема): the scale of every radius below */
+  --rs: 1;
+  --radius: calc(4px * var(--rs));
   --nav-w: 56px;
   --nav-open-w: 200px;
   --ly-w: 320px;
@@ -798,7 +800,7 @@ select {
 .row-cover {
   width: var(--row-cover, 32px);
   height: var(--row-cover, 32px);
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--border);
   object-fit: cover;
 }
@@ -890,7 +892,7 @@ select {
   position: relative;
   aspect-ratio: 1;
   background: var(--border);
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   overflow: hidden;
 }
 
@@ -1009,7 +1011,7 @@ select {
 .hero-cover {
   width: 200px;
   height: 200px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--border);
   object-fit: cover;
   flex: none;
@@ -1077,7 +1079,7 @@ select {
   justify-content: center;
   width: 96px;
   height: 96px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--border);
   color: var(--muted);
   grid-row: span 2;
@@ -1306,7 +1308,7 @@ select {
   left: 2px;
   width: 12px;
   height: 12px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--muted);
 }
 
@@ -1438,7 +1440,7 @@ select {
   bottom: 8px;
   width: 12px;
   height: 12px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: #ff5500;
 }
 
@@ -1512,7 +1514,7 @@ select {
   width: 44px;
   height: 44px;
   margin-right: 2px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--border);
   object-fit: cover;
   cursor: pointer;
@@ -1609,7 +1611,7 @@ select {
   width: 10px;
   height: 10px;
   margin: -5px 0 0 -5px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--text);
   opacity: 0;
 }
@@ -2079,7 +2081,7 @@ select {
   height: 30px;
   padding: 0 10px;
   border: 0;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: none;
   color: var(--text);
   text-align: left;
@@ -2242,7 +2244,7 @@ select {
   background: var(--border);
   border: 3px solid transparent;
   background-clip: padding-box;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--rs, 1));
 }
 
 ::-webkit-scrollbar-track {
@@ -2281,7 +2283,7 @@ select {
   gap: 10px;
   height: 44px;
   padding: 0 8px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--rs, 1));
   cursor: pointer;
 }
 
@@ -2346,7 +2348,7 @@ select {
 
 .shelf::-webkit-scrollbar-thumb {
   background: transparent;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
 }
 
 .shelf:hover::-webkit-scrollbar-thumb {
@@ -2401,7 +2403,7 @@ select {
   margin-bottom: 6px;
   padding: 0 5px;
   border: 1px solid var(--accent);
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   color: var(--accent);
   font-size: 11px;
   line-height: 16px;
@@ -2437,7 +2439,7 @@ select {
   width: 60px;
   height: 60px;
   object-fit: cover;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   border: 1px solid var(--border);
   background: var(--bg);
   transition: transform 0.15s ease;
@@ -2788,7 +2790,7 @@ select {
 .q-cover {
   width: 32px;
   height: 32px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--border);
   object-fit: cover;
   flex: none;
@@ -2934,7 +2936,7 @@ body.is-sorting * {
 .st-cover {
   width: 32px;
   height: 32px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--border);
   object-fit: cover;
   flex: none;
@@ -2991,7 +2993,7 @@ body.is-sorting * {
 
 .st-bar {
   height: 6px;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--rs, 1));
   background: var(--border);
   overflow: hidden;
 }
@@ -3165,7 +3167,7 @@ body.mini #app {
 }
 
 .mini-box.is-open {
-  border-radius: 18px;
+  border-radius: calc(18px * var(--rs, 1));
 }
 
 .mini-top {
@@ -3291,7 +3293,7 @@ html.np body {
   min-height: 64px;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: calc(16px * var(--rs, 1));
   opacity: 0;
   transform: translateY(-6px);
   transition: opacity 0.25s, transform 0.25s;
@@ -3305,7 +3307,7 @@ html.np body {
 .np-cover {
   width: 48px;
   height: 48px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--rs, 1));
   object-fit: cover;
   flex: none;
 }
@@ -3441,7 +3443,7 @@ body.mini .q-pop.mini-queue {
   width: auto;
   max-height: 300px;
   margin-top: 6px;
-  border-radius: 14px;
+  border-radius: calc(14px * var(--rs, 1));
 }
 
 /* the mini player's window is transparent: only the capsule is drawn */
@@ -3942,7 +3944,7 @@ kbd {
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--rs, 1));
   background: var(--accent, #ff5500);
   color: #fff;
 }
@@ -3960,7 +3962,7 @@ kbd {
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--rs, 1));
   border-left: 3px solid transparent;
 }
 
@@ -4138,7 +4140,7 @@ kbd {
   gap: 16px;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--rs, 1));
   background: var(--panel);
 }
 
@@ -4148,7 +4150,7 @@ kbd {
   place-items: center;
   width: 92px;
   height: 92px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--rs, 1));
   background: color-mix(in srgb, var(--accent, #ff5500) 18%, var(--panel));
   color: var(--muted);
 }
@@ -4161,14 +4163,14 @@ kbd {
 .rm-bar {
   height: 4px;
   margin: 12px 0 4px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .rm-barfill {
   width: 0;
   height: 4px;
-  border-radius: 2px;
+  border-radius: calc(2px * var(--rs, 1));
   background: var(--accent, #ff5500);
 }
 
@@ -4220,7 +4222,7 @@ kbd {
   gap: 10px;
   padding: 8px 10px;
   margin-bottom: 4px;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--rs, 1));
   background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 
@@ -4253,7 +4255,7 @@ kbd {
   padding: 0;
   background: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--rs, 1));
   color: var(--muted);
   cursor: pointer;
 }
@@ -4316,7 +4318,7 @@ kbd {
 .sp-tile {
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: calc(10px * var(--rs, 1));
   background: var(--panel);
   cursor: pointer;
 }
@@ -4362,7 +4364,7 @@ kbd {
 .sp-strip {
   height: 110px;
   margin-bottom: 14px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--rs, 1));
   background-position: center;
   background-size: cover;
 }
@@ -4384,7 +4386,7 @@ kbd {
   width: 92px;
   height: 92px;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--rs, 1));
   background: color-mix(in srgb, var(--text) 8%, var(--panel));
   color: var(--muted);
 }
@@ -4474,7 +4476,7 @@ kbd {
 .rm-forget {
   background: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--rs, 1));
 }
 
 .rm-forget:hover {
@@ -4570,7 +4572,7 @@ kbd {
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: calc(10px * var(--rs, 1));
   background: var(--panel);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
@@ -4648,7 +4650,7 @@ kbd {
   max-width: 340px;
   padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: calc(10px * var(--rs, 1));
   background: var(--panel);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
@@ -4673,7 +4675,7 @@ kbd {
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--rs, 1));
   text-align: left;
 }
 
@@ -4913,3 +4915,12 @@ kbd {
 .reorder-line { position: fixed; height: 2px; background: var(--accent); border-radius: 1px; pointer-events: none; z-index: 1000; }
 .row.is-dragging { opacity: 0.45; }
 body.is-reordering, body.is-reordering * { cursor: grabbing !important; user-select: none; }
+
+/* Ctrl+K: the grip to move the window */
+.pal-grip { height: 16px; margin: -6px 0 6px; cursor: grab; display: flex; align-items: center; justify-content: center; touch-action: none; }
+.pal-grip::before { content: ''; width: 42px; height: 4px; border-radius: calc(2px * var(--rs, 1)); background: var(--border); }
+.pal-grip:active { cursor: grabbing; }
+
+/* the ✕ that takes a track out of an own playlist: seen when the row is hovered */
+.track-list .row-remove { opacity: 0; margin-left: 4px; flex: none; }
+.track-list .row:hover .row-remove, .track-list .row-remove:focus-visible { opacity: 1; }
