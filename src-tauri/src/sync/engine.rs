@@ -162,7 +162,10 @@ mod timing {
     pub const HOST_SILENT: Duration = Duration::from_secs(12);
     pub const ELECT_STEP: Duration = Duration::from_secs(5);
     pub const BEAT_EVERY: Duration = Duration::from_secs(3);
-    pub const ENTER_WAIT: Duration = Duration::from_millis(2500);
+    /// How long a newcomer waits for a living host before it takes the room as an empty one. The host beats every
+    /// 3 s and a slow connection to the relay adds its own delay: 2.5 s was too short, and a newcomer that did not hear
+    /// the host made itself a second host of the same room (with the old saved queue).
+    pub const ENTER_WAIT: Duration = Duration::from_secs(7);
     pub const STATE_EVERY: Duration = Duration::from_secs(6);
 }
 #[cfg(test)]
@@ -910,6 +913,7 @@ impl Engine {
 
     /// Another host has the room (it won the tie, or it is the newer one): back to being a member of it.
     fn demote(&mut self, host: &str, term: u32, pubkey: String) {
+        tracing::info!(other = host, term, mine = self.term, "room: two hosts, this one gives way");
         self.p.host = false;
         self.room = None;
         self.round = None;
@@ -1288,7 +1292,14 @@ pub fn start(
                                 if !eng.p.host { return None; }
                                 eng.old_keys.iter().find_map(|k| crypto::open(k, &eng.p.channel, &blob).map(|p| (p, Some(*k))))
                             });
-                            let Some((plain, old)) = opened else { eng.undecrypted += 1; continue };
+                            let Some((plain, old)) = opened else {
+                                eng.undecrypted += 1;
+                                // the same room, two keys (another epoch after a kick, a different password): said at 1, 2, 4, 8 …
+                                if eng.undecrypted.is_power_of_two() {
+                                    tracing::warn!(count = eng.undecrypted, readable = eng.decrypted, host = eng.p.host, epoch = eng.epoch, "room: a message could not be read");
+                                }
+                                continue;
+                            };
                             let Ok(m) = serde_json::from_slice::<Msg>(&plain) else { continue };
                             // under an old key only a Hello counts: whoever was removed still knows that key
                             if old.is_some() && !matches!(m, Msg::Hello { .. }) { continue; }

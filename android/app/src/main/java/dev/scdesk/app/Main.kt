@@ -278,7 +278,6 @@ fun Root(app: App, pairLink: String? = null) {
             DevicesPanel(app, shown, onClose = { devices = false }, onLinkPc = { devices = false; scan = true }, onEq = { devices = false; eqOpen = true }, onControl = { control = it })
         }
 
-        update?.let { u -> UpdateDialog(u, ctx, onLater = { update = null }) }
         when (page) {
             "history" -> HistoryScreen(app, shown, play) { page = null }
             "stats" -> StatsScreen(app) { page = null }
@@ -301,6 +300,8 @@ fun Root(app: App, pairLink: String? = null) {
             account++
             app.engine.connect()
         }
+        // over everything, also over the settings page where «Проверить обновления» was pressed
+        update?.let { u -> UpdateDialog(u, ctx, onLater = { update = null }) }
     }
 }
 

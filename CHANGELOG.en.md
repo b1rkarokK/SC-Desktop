@@ -3,6 +3,12 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.6] - 2026-10-19
+
+- Rooms: on entering, the program waits for the host for 7 seconds instead of 2.5. With a slow connection a newcomer used to miss the host, declare itself a second host of an "empty" room with the old saved queue, and the two stopped seeing each other. Cases with two hosts and unreadable messages are written to the log, to find the cause.
+- Equalizer: a frequency-response graph above the bands, a "Reset" button, a double click on a band puts it back to zero, the wheel over a band changes it by 0.5 dB.
+- Phone: the "Version available" window now scrolls, the "Later" and "Update" buttons are always in sight, and the window is shown over the settings if you pressed the update check there. The text is in the app's language.
+
 ## [1.4.5] - 2026-10-19
 
 - Corners of the window: "Sharp" in settings now takes the rounding away from the program's window itself too (it used to change only the buttons and cards).

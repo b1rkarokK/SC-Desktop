@@ -4931,3 +4931,41 @@ body.is-reordering, body.is-reordering * { cursor: grabbing !important; user-sel
 /* the ✕ that takes a track out of an own playlist: seen when the row is hovered */
 .track-list .row-remove { opacity: 0; margin-left: 4px; flex: none; }
 .track-list .row:hover .row-remove, .track-list .row-remove:focus-visible { opacity: 1; }
+
+/* equalizer: the line of the sound over the bands */
+.eq-curve {
+  height: 52px;
+  margin: 4px 22px 0 34px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.eq-curve svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.eq-curve-zero {
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+  stroke-width: 0.4;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.eq-curve-fill {
+  fill: color-mix(in srgb, var(--accent) 16%, transparent);
+  stroke: none;
+}
+
+.eq-curve-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.eq-pop.is-off .eq-curve {
+  opacity: 0.35;
+}

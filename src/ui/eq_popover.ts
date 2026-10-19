@@ -42,6 +42,9 @@ export class EqPopover {
   private preampSlider: Slider;
   private preampValue = h('span', { class: 'eq-val' });
   private open = false;
+  /** the line of the sound over the bands: how the equalizer bends it */
+  private curve!: SVGPathElement;
+  private curveFill!: SVGPathElement;
   private fx: FxConfig = { speed: 1, reverb: 0, normalize: true, crossfade: 0 };
   private speedSlider: Slider;
   private speedValue = h('span', { class: 'eq-val' });
@@ -73,6 +76,32 @@ export class EqPopover {
     });
     const close = iconButton(I.close, T('Закрыть'));
     close.addEventListener('click', () => this.setOpen(false));
+    // «Сбросить»: every band and the preamp to zero
+    const reset = h('button', { type: 'button', class: 'chip-btn', text: T('Сбросить'), title: T('Все полосы и предусилитель на ноль') });
+    reset.addEventListener('click', () => {
+      this.eq.gains = Array(10).fill(0);
+      this.eq.preamp = 0;
+      this.eq.preset = 'flat';
+      this.commit(true);
+    });
+    const NS = 'http://www.w3.org/2000/svg';
+    const curveSvg = document.createElementNS(NS, 'svg');
+    curveSvg.setAttribute('viewBox', '0 0 100 40');
+    curveSvg.setAttribute('preserveAspectRatio', 'none');
+    curveSvg.setAttribute('aria-hidden', 'true');
+    const zero = document.createElementNS(NS, 'line');
+    zero.setAttribute('x1', '0');
+    zero.setAttribute('x2', '100');
+    zero.setAttribute('y1', '20');
+    zero.setAttribute('y2', '20');
+    zero.setAttribute('class', 'eq-curve-zero');
+    this.curveFill = document.createElementNS(NS, 'path');
+    this.curveFill.setAttribute('class', 'eq-curve-fill');
+    this.curve = document.createElementNS(NS, 'path');
+    this.curve.setAttribute('class', 'eq-curve-line');
+    curveSvg.append(zero, this.curveFill, this.curve);
+    const curveBox = h('div', { class: 'eq-curve' });
+    curveBox.append(curveSvg);
 
     const bands = h('div', { class: 'eq-bands' });
     BANDS.forEach((label, i) => {
@@ -82,6 +111,17 @@ export class EqPopover {
         (v) => this.setBand(i, v, false),
         (v) => this.setBand(i, v, true),
         { vertical: true, bipolar: true },
+      );
+      // a double click puts the band back to 0 dB, the wheel moves it by half a decibel
+      s.el.addEventListener('dblclick', () => this.setBand(i, toPos(0), true));
+      s.el.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          const db = Math.max(-12, Math.min(12, (this.eq.gains[i] ?? 0) + (e.deltaY < 0 ? 0.5 : -0.5)));
+          this.setBand(i, toPos(db), true);
+        },
+        { passive: false },
       );
       this.sliders.push(s);
       this.values.push(val);
@@ -119,9 +159,10 @@ export class EqPopover {
     this.el = h(
       'div',
       { class: 'eq-pop panel', role: 'dialog', 'aria-label': T('Эквалайзер') },
-      h('div', { class: 'eq-head' }, h('span', { class: 'strong', text: T('Эквалайзер') }), this.enabledBtn, h('div', { class: 'spacer' }), this.preset, close),
+      h('div', { class: 'eq-head' }, h('span', { class: 'strong', text: T('Эквалайзер') }), this.enabledBtn, h('div', { class: 'spacer' }), reset, this.preset, close),
       this.deviceRow,
       this.note,
+      curveBox,
       h('div', { class: 'eq-scale' }, h('span', { text: '+12' }), h('span', { text: '0' }), h('span', { text: '−12' })),
       bands,
       h('div', { class: 'eq-pre' }, h('span', { class: 'muted small', text: T('Предусилитель') }), this.preampSlider.el, this.preampValue),
@@ -232,6 +273,27 @@ export class EqPopover {
     }
   }
 
+  /** The smooth line through the ten bands (the preamp lifts or lowers all of it). */
+  private drawCurve(): void {
+    const pts = this.eq.gains.map((g, i) => {
+      const db = Math.max(-12, Math.min(12, g + this.eq.preamp));
+      return [(i + 0.5) * 10, 20 - (db / 12) * 18] as const;
+    });
+    // Catmull-Rom through the points, as cubic pieces
+    let d = `M ${pts[0]![0]} ${pts[0]![1].toFixed(2)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)]!;
+      const p1 = pts[i]!;
+      const p2 = pts[i + 1]!;
+      const p3 = pts[Math.min(pts.length - 1, i + 2)]!;
+      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+      const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+      d += ` C ${c1[0]!.toFixed(2)} ${c1[1]!.toFixed(2)}, ${c2[0]!.toFixed(2)} ${c2[1]!.toFixed(2)}, ${p2[0]} ${p2[1].toFixed(2)}`;
+    }
+    this.curve.setAttribute('d', d);
+    this.curveFill.setAttribute('d', `${d} L ${pts[pts.length - 1]![0]} 20 L ${pts[0]![0]} 20 Z`);
+  }
+
   private commit(persist: boolean): void {
     this.render();
     api.eqSet(this.eq, persist).catch((e) => toast(errorMessage(e), 'error'));
@@ -246,6 +308,7 @@ export class EqPopover {
       this.sliders[i]!.set(toPos(g));
       this.values[i]!.textContent = (g > 0 ? '+' : '') + String(g).replace('.', ',');
     });
+    this.drawCurve();
     this.preampSlider.set((this.eq.preamp + 18) / 24);
     this.preampValue.textContent = T('{0}{1} дБ', this.eq.preamp > 0 ? '+' : '', String(this.eq.preamp).replace('.', ','));
     this.el.classList.toggle('is-off', !this.eq.enabled);

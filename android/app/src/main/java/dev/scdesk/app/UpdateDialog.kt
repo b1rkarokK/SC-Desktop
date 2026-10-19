@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -61,7 +64,13 @@ internal fun UpdateDialog(u: UpdateInfo, ctx: Context, onLater: () -> Unit) {
         Column(Modifier.padding(24.dp).fillMaxWidth().clip(shape).background(C.panel).border(1.dp, C.border, shape).padding(22.dp)) {
             Text("Доступна версия ${u.versionName}", color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text("Что нового", color = C.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
-            Text(u.notes.ifEmpty { "Улучшения и исправления." }, color = C.text, fontSize = 14.sp)
+            // the notes hold the Russian text and the English one after a line; the one of the app's language is shown,
+            // and a long text scrolls inside its own box so that the buttons stay in sight
+            val parts = u.notes.split(Regex("\\n+---\\n+\\**English\\**\\n+"), limit = 2)
+            val notes = (if (L.lang == "en" && parts.size == 2) parts[1] else parts[0]).trim()
+            Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                Text(notes.ifEmpty { "Улучшения и исправления." }, color = C.text, fontSize = 14.sp)
+            }
             Text("Размер около ${"%.1f".format(u.size / 1_048_576.0)} МБ", color = C.faint, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
             if (busy) {
                 Box(Modifier.padding(top = 16.dp).fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(C.panel2)) {
