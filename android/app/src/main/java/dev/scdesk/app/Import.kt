@@ -147,7 +147,6 @@ internal fun NewPlaylist(app: App) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
         Text(if (open) "Скрыть" else "＋ Новый плейлист", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable { open = !open }.padding(vertical = 6.dp))
         if (!open) return@Column
-        if (!app.store.linked) { Text("Нужен подключённый компьютер: плейлисты меняет он.", color = C.muted, fontSize = 13.sp); return@Column }
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.panel2).padding(horizontal = 14.dp, vertical = 12.dp)) {
             if (name.isEmpty()) Text("Название плейлиста", color = C.faint, fontSize = 14.sp)
             BasicTextField(name, { name = it }, singleLine = true, textStyle = TextStyle(color = C.text, fontSize = 14.sp), cursorBrush = SolidColor(C.accent), modifier = Modifier.fillMaxWidth())
@@ -157,7 +156,7 @@ internal fun NewPlaylist(app: App) {
             if (busy || name.isBlank()) return@BigButton
             busy = true
             scope.launch {
-                runCatching { app.link.rpc("pl_create", JSONObject().put("title", name.trim())) }
+                runCatching { Writes.call(app, "pl_create", JSONObject().put("title", name.trim())) }
                     .onSuccess { android.widget.Toast.makeText(ctx, L.t("Плейлист «{0}» создан").replace("{0}", name.trim()), android.widget.Toast.LENGTH_SHORT).show(); name = ""; open = false }
                     .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
                 busy = false

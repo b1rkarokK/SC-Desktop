@@ -3,7 +3,9 @@ package dev.scdesk.app
 import android.util.LruCache
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -97,6 +99,48 @@ class ScApi(private val store: Store) {
         }
         return text
     }
+
+    /** A write to SoundCloud straight from the phone. Throws when SoundCloud refuses (the computer is then asked to do it). */
+    fun write(method: String, path: String, json: String? = null) {
+        val body = (json ?: "").toRequestBody("application/json".toMediaType())
+        val req = Request.Builder().url(url(path)).method(method, if (method == "DELETE" && json == null) null else body)
+            .header("User-Agent", USER_AGENT).header("Accept", "application/json").header("Authorization", "OAuth ${store.oauthToken}").build()
+        http.newCall(req).execute().use { r ->
+            android.util.Log.i("SCDesk", "$method $path -> ${r.code}")
+            if (!r.isSuccessful) throw java.io.IOException("SoundCloud ${r.code}")
+        }
+        forget()
+    }
+
+    fun likeTrack(id: Long, on: Boolean) = write(if (on) "PUT" else "DELETE", "/users/${store.userId}/track_likes/$id")
+    fun followUser(id: Long, on: Boolean) = write(if (on) "PUT" else "DELETE", "/me/followings/$id")
+    fun deletePlaylist(id: Long) = write("DELETE", "/playlists/$id")
+
+    /** The user's own playlists: number, name, how many tracks. */
+    fun ownPlaylists(): List<Triple<Long, String, Int>> {
+        val j = JSONObject(fetchText(url("/users/${store.userId}/playlists_without_albums", "limit" to "100"), store.oauthToken))
+        val a = j.optJSONArray("collection") ?: return emptyList()
+        return (0 until a.length()).map { a.getJSONObject(it) }.map { Triple(it.getLong("id"), it.optString("title"), it.optInt("track_count")) }
+    }
+
+    private fun playlistTrackIds(id: Long): List<Long> {
+        val j = JSONObject(fetchText(url("/playlists/$id"), store.oauthToken))
+        val a = j.optJSONArray("tracks") ?: return emptyList()
+        return (0 until a.length()).map { a.getJSONObject(it).getLong("id") }
+    }
+
+    private fun tracksBody(ids: List<Long>) = JSONObject().put("playlist", JSONObject().put("tracks", JSONArray(ids))).toString()
+
+    fun addToPlaylist(playlist: Long, track: Long) {
+        val ids = playlistTrackIds(playlist)
+        if (ids.contains(track)) throw java.io.IOException("Этот трек уже есть в плейлисте")
+        write("PUT", "/playlists/$playlist", tracksBody(ids + track))
+    }
+
+    fun removeFromPlaylist(playlist: Long, track: Long) = write("PUT", "/playlists/$playlist", tracksBody(playlistTrackIds(playlist).filter { it != track }))
+
+    fun createPlaylist(title: String, firstTrack: Long?) =
+        write("POST", "/playlists", JSONObject().put("playlist", JSONObject().put("title", title).put("sharing", "private").put("tracks", JSONArray(listOfNotNull(firstTrack)))).toString())
 
     /** forgets what was kept (a new account, or the user pulls to refresh) */
     fun forget() = seen.clear()

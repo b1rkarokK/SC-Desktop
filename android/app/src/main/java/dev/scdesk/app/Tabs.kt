@@ -290,7 +290,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                             else Box(Modifier.size(40.dp).pressable {
                                 // the heart takes the like off (the computer does it: the writes need its browser session)
                                 tracks = tracks - t
-                                scope.launch { runCatching { app.link.rpc("like", org.json.JSONObject().put("track", t.id).put("on", false)) }.onFailure { tracks = listOf(t) + tracks } }
+                                scope.launch { runCatching { Writes.call(app, "like", org.json.JSONObject().put("track", t.id).put("on", false)) }.onFailure { tracks = listOf(t) + tracks } }
                             }, contentAlignment = Alignment.Center) { Icon(Ico.Heart, 22.dp, C.accent) }
                         }) { play(visible, i) }
                     }
@@ -453,11 +453,10 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
                 Text(
                     if (following) "Вы подписаны" else "Подписаться", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.pressable {
-                        if (!app.store.linked) { android.widget.Toast.makeText(ctxF, L.t("Нужен подключённый компьютер: подписки отправляет он."), android.widget.Toast.LENGTH_SHORT).show(); return@pressable }
                         val on = !following
                         following = on
                         scopeF.launch {
-                            runCatching { app.link.rpc("follow", org.json.JSONObject().put("id", a.id).put("name", a.name).put("avatar", a.avatar ?: "").put("on", on)) }
+                            runCatching { Writes.call(app, "follow", org.json.JSONObject().put("id", a.id).put("name", a.name).put("avatar", a.avatar ?: "").put("on", on)) }
                                 .onFailure { following = !on; android.widget.Toast.makeText(ctxF, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
                         }
                     }.padding(12.dp),

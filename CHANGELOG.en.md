@@ -6,13 +6,10 @@ The release notes carry both; the "Update available" window shows the app's lang
 ## [1.4.8] - 2026-10-20
 
 - Equalizer: the graph above the bands no longer breaks the layout (the bands are across the whole width again, the labels do not run together).
-- Phone, playlists: a long press on any song in any list and inside a playlist opens a menu (queue, playlist, link, download and more), your own playlist has "Remove from this playlist", and "Likes, Playlists" has "New playlist".
-
-## [1.4.7] - 2026-10-20
-
+- Phone: likes, follows and playlists (add a song, remove, create, delete) are now tried by the phone itself, without the computer. If SoundCloud refuses, it still asks the connected computer to do it.
+- Phone: a long press on any song in any list and inside a playlist opens a menu (play next, to the end of the queue, to a playlist, to a shared playlist, a link, open on SoundCloud, download, remove from likes). Your own playlist has "Remove from this playlist", and "Likes, Playlists" has "New playlist".
 - Phone: screens (settings and others) no longer shrink when a spot that is not a button is pressed.
 - Phone: the English language should no longer crash the app (the translation is protected from a failure on long texts).
-- Phone: a long press on a song in "Likes" opens a menu: play next, to the end of the queue, to a playlist, to a shared playlist, share a link, open on SoundCloud, download, remove from likes.
 
 ## [1.4.6] - 2026-10-19
 

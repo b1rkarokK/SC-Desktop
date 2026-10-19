@@ -53,7 +53,12 @@ internal fun PlaylistPicker(app: App, track: Track, shared: Boolean = false, onC
     fun toast(s: String) = android.widget.Toast.makeText(ctx, s, android.widget.Toast.LENGTH_SHORT).show()
 
     LaunchedEffect(Unit) {
-        if (!app.store.linked) { note = "Нужен подключённый компьютер: плейлисты меняет он."; lists = emptyList(); return@LaunchedEffect }
+        if (!shared) {
+            // the user's own playlists: from SoundCloud itself
+            val own = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { app.api.ownPlaylists() } }.getOrNull()
+            if (own != null) { lists = own.map { MyList(it.first, it.second, it.third) }; return@LaunchedEffect }
+        }
+        if (!app.store.linked) { note = "Нужен подключённый компьютер для общих плейлистов."; lists = emptyList(); return@LaunchedEffect }
         runCatching { app.link.rpc(if (shared) "sp_list" else "my_playlists").getJSONArray("data") }
             .onSuccess { a ->
                 val objs = (0 until a.length()).map { a.getJSONObject(it) }
@@ -83,13 +88,13 @@ internal fun PlaylistPicker(app: App, track: Track, shared: Boolean = false, onC
                             if (busy || title.isBlank()) return@pressable
                             busy = true
                             scope.launch {
-                                runCatching { app.link.rpc("pl_create", JSONObject().put("title", title.trim()).put("track", track.id)) }
+                                runCatching { Writes.call(app, "pl_create", JSONObject().put("title", title.trim()).put("track", track.id)) }
                                     .onSuccess { toast("Плейлист «${title.trim()}» создан"); onClose() }
                                     .onFailure { note = "Не вышло: ${it.message}"; busy = false }
                             }
                         }.padding(vertical = 10.dp))
                     }
-                } else if (app.store.linked && !shared) {
+                } else if (!shared) {
                     Text("＋ Новый плейлист", color = C.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().pressable { creating = true }.padding(horizontal = 20.dp, vertical = 12.dp))
                 }
                 when (val l = lists) {
@@ -99,7 +104,7 @@ internal fun PlaylistPicker(app: App, track: Track, shared: Boolean = false, onC
                             if (busy) return@pressable
                             busy = true
                             scope.launch {
-                                runCatching { if (shared) app.link.rpc("sp_add", JSONObject().put("channel", p.channel).put("track", track.id)) else app.link.rpc("pl_add", JSONObject().put("playlist", p.id).put("track", track.id)) }
+                                runCatching { if (shared) app.link.rpc("sp_add", JSONObject().put("channel", p.channel).put("track", track.id)) else Writes.call(app, "pl_add", JSONObject().put("playlist", p.id).put("track", track.id)) }
                                     .onSuccess { toast("Добавлено в «${p.title}»"); onClose() }
                                     .onFailure { note = it.message ?: "Не вышло"; busy = false }
                             }
@@ -135,7 +140,7 @@ internal fun DeletePlaylist(app: App, id: Long, title: String, onClose: () -> Un
                     if (busy) return@pressable
                     busy = true
                     scope.launch {
-                        runCatching { app.link.rpc("pl_delete", JSONObject().put("playlist", id)) }
+                        runCatching { Writes.call(app, "pl_delete", JSONObject().put("playlist", id)) }
                             .onSuccess { onDeleted(); onClose() }
                             .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show(); busy = false }
                     }
@@ -199,14 +204,14 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
         },
         "Убрать из этого плейлиста" to {
             scope.launch {
-                runCatching { app.link.rpc("pl_remove", JSONObject().put("playlist", fromPlaylist ?: 0L).put("track", t.id)) }
+                runCatching { Writes.call(app, "pl_remove", JSONObject().put("playlist", fromPlaylist ?: 0L).put("track", t.id)) }
                     .onSuccess { onRemoved(); toast("Убрано из плейлиста") }
                     .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
             }
             onClose()
         },
         "Убрать из лайков" to {
-            scope.launch { runCatching { app.link.rpc("like", JSONObject().put("track", t.id).put("on", false)) } }
+            scope.launch { runCatching { Writes.call(app, "like", JSONObject().put("track", t.id).put("on", false)) } }
             toast("Убрано из лайков"); onClose()
         },
     )
@@ -215,7 +220,7 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
             Text(t.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(horizontal = 20.dp))
             Text(t.artist, color = C.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                items.filter { it.first != "Убрать из этого плейлиста" || (fromPlaylist != null && app.store.linked) }.forEach { (label, act) -> Text(label, color = C.text, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().pressable(act).padding(horizontal = 20.dp, vertical = 13.dp)) }
+                items.filter { it.first != "Убрать из этого плейлиста" || fromPlaylist != null }.forEach { (label, act) -> Text(label, color = C.text, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().pressable(act).padding(horizontal = 20.dp, vertical = 13.dp)) }
             }
         }
     }

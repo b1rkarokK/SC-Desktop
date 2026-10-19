@@ -361,7 +361,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                 Box(Modifier.padding(start = 12.dp).size(48.dp).clip(RoundedCornerShape(16.dp)).background(C.panel).pressable {
                     val on = !isLiked
                     app.liked.value = if (on) app.liked.value + t.id else app.liked.value - t.id
-                    scope.launch { runCatching { app.link.rpc("like", org.json.JSONObject().put("track", t.id).put("on", on)) }.onFailure { app.liked.value = if (on) app.liked.value - t.id else app.liked.value + t.id } }
+                    scope.launch { runCatching { Writes.call(app, "like", org.json.JSONObject().put("track", t.id).put("on", on)) }.onFailure { app.liked.value = if (on) app.liked.value - t.id else app.liked.value + t.id } }
                 }, contentAlignment = Alignment.Center) { Icon(if (isLiked) Ico.Heart else Ico.HeartOff, 24.dp, if (isLiked) C.accent else C.text) }
             }
             if (inRoom) room?.let { r ->
