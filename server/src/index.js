@@ -146,6 +146,10 @@ export class Stats extends DurableObject {
       const os = String(b.os || '').slice(0, 12);
       if (!/^[a-f0-9]{32}$/.test(id) || !/^[\d.]+$/.test(ver) || !/^[a-z]+$/.test(os)) return new Response('bad', { status: 400 });
       const day = new Date().toISOString().slice(0, 10);
+      // a number already counted today may come again; a flood of new made-up numbers is stopped
+      const [today] = this.sql.exec('SELECT COUNT(*) AS n FROM seen WHERE day = ?', day).toArray();
+      const known = this.sql.exec('SELECT 1 FROM seen WHERE day = ? AND id = ?', day, id).toArray().length > 0;
+      if (!known && today.n >= 20000) return new Response('busy', { status: 429 });
       this.sql.exec('INSERT OR REPLACE INTO seen (day, id, ver, os) VALUES (?, ?, ?, ?)', day, id, ver, os);
       // a year is plenty: older days go
       this.sql.exec("DELETE FROM seen WHERE day < date('now', '-400 day')");
@@ -154,7 +158,10 @@ export class Stats extends DurableObject {
     if (url.pathname === '/stat/summary' && req.method === 'GET') {
       // only for the owner: the key is a secret of the worker (wrangler secret put STATS_KEY)
       const key = this.env.STATS_KEY;
-      if (!key || url.searchParams.get('key') !== key) return new Response('no', { status: 403 });
+      const given = url.searchParams.get('key') || '';
+      let diff = key ? key.length ^ given.length : 1;
+      for (let i = 0; key && i < key.length; i++) diff |= key.charCodeAt(i) ^ (given.charCodeAt(i) || 0);
+      if (!key || diff !== 0) return new Response('no', { status: 403 });
       const one = (q, ...a) => this.sql.exec(q, ...a).toArray();
       const days = one("SELECT day, COUNT(*) AS n FROM seen WHERE day >= date('now', '-60 day') GROUP BY day ORDER BY day");
       const [w] = one("SELECT COUNT(DISTINCT id) AS n FROM seen WHERE day >= date('now', '-6 day')");

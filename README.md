@@ -43,6 +43,10 @@ By default the app goes online the same way your browser does, so if you use a V
 
 Tracks blocked in your country and SoundCloud Go+ tracks (they're DRM protected) are skipped.
 
+## What is sent
+
+Once a day SC Desk (the computer and the phone app) tells its own sync server three things: a random installation number made on your device, the version and the system (Windows or Android). The server counts each number once a day, only to know how many people use the app. Not sent: your name, your SoundCloud account, your address (the server does not look at it or keep it), what you play. It can be switched off: on the computer at the bottom of Settings, System and memory; on the phone at the bottom of Settings, About.
+
 ## Building it yourself
 
 You'll need Node.js 22+ and Rust.
