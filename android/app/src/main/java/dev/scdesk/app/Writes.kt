@@ -44,6 +44,6 @@ object Writes {
         val e = direct.exceptionOrNull()
         if (e?.message?.contains("уже есть") == true) throw e
         if (app.store.linked) return app.link.rpc(op, args)
-        throw java.io.IOException(e?.message ?: "Не получилось")
+        throw java.io.IOException(L.t("SoundCloud не принял запрос с телефона. Подключите компьютер: он отправит его от своего имени."))
     }
 }

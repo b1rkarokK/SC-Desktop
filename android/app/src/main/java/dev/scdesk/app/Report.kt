@@ -24,7 +24,13 @@ object Report {
     }
 
     fun send(ctx: Context) {
-        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, "SC Desk: отчёт об ошибке").putExtra(Intent.EXTRA_TEXT, build())
-        ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        // the log is read off the main thread, the chooser opens on it
+        Thread {
+            val text = build()
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, "SC Desk: отчёт об ошибке").putExtra(Intent.EXTRA_TEXT, text)
+                ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }.start()
     }
 }

@@ -139,7 +139,7 @@ internal fun PendingLikes(app: App, account: Int) {
 
 /** «Новый плейлист» of the likes list: a name, and the computer makes it (it holds the session that writes to SoundCloud). */
 @Composable
-internal fun NewPlaylist(app: App) {
+internal fun NewPlaylist(app: App, onCreated: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var open by remember { mutableStateOf(false) }
@@ -158,7 +158,7 @@ internal fun NewPlaylist(app: App) {
             busy = true
             scope.launch {
                 runCatching { Writes.call(app, "pl_create", JSONObject().put("title", name.trim())) }
-                    .onSuccess { android.widget.Toast.makeText(ctx, L.t("Плейлист «{0}» создан").replace("{0}", name.trim()), android.widget.Toast.LENGTH_SHORT).show(); name = ""; open = false }
+                    .onSuccess { android.widget.Toast.makeText(ctx, L.t("Плейлист «{0}» создан").replace("{0}", name.trim()), android.widget.Toast.LENGTH_SHORT).show(); name = ""; open = false; onCreated() }
                     .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
                 busy = false
             }

@@ -190,6 +190,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
     var playlists by remember(account) { mutableStateOf<List<Card>?>(null) }
     var artists by remember(account) { mutableStateOf<List<Artist>?>(null) }
     val signedIn = app.store.signedIn
+    var plTick by remember { mutableIntStateOf(0) }
     var actions by remember { mutableStateOf<Track?>(null) }
     actions?.let { tr -> TrackActions(app, tr, remote, onRemovedLike = { tracks = tracks.filter { x -> x.id != tr.id } }) { actions = null } }
 
@@ -212,7 +213,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
         }
     }
     LaunchedEffect(account) { if (signedIn) more(true) }
-    LaunchedEffect(inner, account) {
+    LaunchedEffect(inner, account, plTick) {
         if (!signedIn) return@LaunchedEffect
         try {
             if (inner == 1 && playlists == null) playlists = withContext(Dispatchers.IO) { app.api.likedPlaylists() }
@@ -295,7 +296,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                         }) { play(visible, i) }
                     }
                 }
-                1 -> { item { NewPlaylist(app) }; item { ImportPlaylist(app) }; items(playlists ?: emptyList(), key = { it.id }) { c ->
+                1 -> { item { NewPlaylist(app) { playlists = null; plTick++ } }; item { ImportPlaylist(app) }; items(playlists ?: emptyList(), key = { it.id }) { c ->
                     var askDelete by remember { mutableStateOf(false) }
                     val ctxP = androidx.compose.ui.platform.LocalContext.current
                     if (askDelete) DeletePlaylist(app, c.id, c.title, onClose = { askDelete = false }) { playlists = playlists?.filter { it.id != c.id } }
@@ -448,6 +449,7 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
             // an artist's page: follow, through the computer (it holds the session that writes to SoundCloud)
             opened.artist?.let { a ->
                 var following by remember(a.id) { mutableStateOf(false) }
+                LaunchedEffect(a.id) { following = runCatching { withContext(Dispatchers.IO) { app.api.followings().any { it.id == a.id } } }.getOrDefault(false) }
                 val scopeF = rememberCoroutineScope()
                 val ctxF = androidx.compose.ui.platform.LocalContext.current
                 Text(

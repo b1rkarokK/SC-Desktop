@@ -65,7 +65,8 @@ async fn once(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     // a development copy does not count as a user
-    if cfg!(debug_assertions) || std::env::var_os("SCDESK_NO_STATS").is_some() {
+    let from_build_folder = std::env::current_exe().ok().is_some_and(|p| p.components().any(|c| c.as_os_str().eq_ignore_ascii_case("target")));
+    if cfg!(debug_assertions) || from_build_folder || std::env::var_os("SCDESK_NO_STATS").is_some() {
         return Ok(());
     }
     let id = if cfg.install_id.len() == 32 { cfg.install_id.clone() } else { new_id() };

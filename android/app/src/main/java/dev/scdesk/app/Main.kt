@@ -172,7 +172,8 @@ fun Root(app: App, pairLink: String? = null) {
     // a track picked here plays here: what plays on the computer is stopped
     val playScope = rememberCoroutineScope()
     val play: (List<Track>, Int) -> Unit = { list, i ->
-        val pc = remote
+        // the computer plays the song when it was picked, or when it is playing now (not when it only was a moment ago)
+        val pc = remote?.takeIf { control != null || it.playing }
         if (pc != null && app.store.linked) {
             // the computer is the one that plays now (picked in «Играть на…»): the song plays there
             playScope.launch {

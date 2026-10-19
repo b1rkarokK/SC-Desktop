@@ -45,6 +45,7 @@ export class EqPopover {
   /** the line of the sound over the bands: how the equalizer bends it */
   private curve!: SVGPathElement;
   private curveFill!: SVGPathElement;
+  private wheelSave: number | undefined;
   private fx: FxConfig = { speed: 1, reverb: 0, normalize: true, crossfade: 0 };
   private speedSlider: Slider;
   private speedValue = h('span', { class: 'eq-val' });
@@ -119,7 +120,9 @@ export class EqPopover {
         (e) => {
           e.preventDefault();
           const db = Math.max(-12, Math.min(12, (this.eq.gains[i] ?? 0) + (e.deltaY < 0 ? 0.5 : -0.5)));
-          this.setBand(i, toPos(db), true);
+          this.setBand(i, toPos(db), false);
+          window.clearTimeout(this.wheelSave);
+          this.wheelSave = window.setTimeout(() => this.commit(true), 400);
         },
         { passive: false },
       );

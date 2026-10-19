@@ -602,4 +602,5 @@ val STRINGS_EN: Map<String, String> = mapOf(
     "Не получилось" to "Did not work",
     "Приложение ещё дорабатывается: функции переносятся с компьютера, что-то может не работать" to "The app is still being made: features are being moved over from the computer, something may not work",
     "При каждом открытии приложения, не чаще раза в несколько минут" to "At every opening of the app, not more than once in a few minutes",
+    "SoundCloud не принял запрос с телефона. Подключите компьютер: он отправит его от своего имени." to "SoundCloud did not take the request from the phone. Connect the computer: it will send it in its own name.",
 )

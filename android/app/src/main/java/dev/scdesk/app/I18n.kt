@@ -35,7 +35,7 @@ object L {
         }.sortedByDescending { it.first.pattern.length }
     }
 
-    private val seen = HashMap<String, String>()
+    private val seen = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     fun t(s: String): String {
         if (lang != "en" || s.isEmpty()) return s
