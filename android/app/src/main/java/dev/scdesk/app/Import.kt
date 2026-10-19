@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -87,5 +86,51 @@ internal fun ImportPlaylist(app: App) {
             }
         }
         note?.let { Text(it, color = C.faint, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }
+    }
+}
+
+/**
+ * «В очереди»: likes (and unlikes) that SoundCloud has not taken yet. The computer keeps the queue; here the number is
+ * shown with «Отправить сейчас». When SoundCloud wants a check that the user is not a robot, the computer must show it.
+ */
+@Composable
+internal fun PendingLikes(app: App, account: Int) {
+    val scope = rememberCoroutineScope()
+    var items by remember(account) { mutableStateOf<List<Pair<String, Boolean>>>(emptyList()) }
+    var check by remember(account) { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+    suspend fun load() {
+        if (!app.store.linked) return
+        runCatching { app.link.rpc("likes_pending", waitMs = 4_000).getJSONObject("data") }.onSuccess { d ->
+            val a = d.getJSONArray("items")
+            items = (0 until a.length()).map { a.getJSONObject(it) }.map { it.getJSONObject("t").optString("title") to it.optBoolean("liked") }
+            check = d.optBoolean("check")
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(account) { load() }
+    if (items.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp).clip(RoundedCornerShape(14.dp)).background(C.panel).padding(14.dp)) {
+        Text("В очереди: ${items.size}", color = C.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (check) "SoundCloud просит подтвердить, что вы не робот. Нажмите «Пройти проверку на компьютере»: откроется окно SoundCloud." else "SoundCloud пока не принял эти лайки. Программа повторит сама, можно отправить сейчас.",
+            color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp),
+        )
+        items.take(5).forEach { (title, liked) -> Text((if (liked) "♥ " else "✕ ") + title, color = C.faint, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp)) }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (busy) "Отправляем…" else if (check) "Отправить сейчас (на компьютере откроется проверка)" else "Отправить сейчас", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.pressable {
+                if (busy) return@pressable
+                busy = true
+                scope.launch {
+                    runCatching { app.link.rpc("likes_flush", waitMs = 120_000).optInt("data") }
+                        .onSuccess { left -> note = if (left == 0) "Все лайки отправлены" else "SoundCloud пока не принял: $left"; load() }
+                        .onFailure { note = "Не вышло: ${it.message}" }
+                    busy = false
+                }
+            }.padding(vertical = 6.dp),
+        )
+        note?.let { Text(it, color = C.faint, fontSize = 12.sp) }
     }
 }

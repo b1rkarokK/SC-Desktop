@@ -153,6 +153,13 @@ class Engine(private val ctx: Context) {
         }
     }
 
+    /** How fast the music plays (the pitch stays), 1 is usual. */
+    fun applySpeed(value: Float) = run { c -> c.setPlaybackSpeed(value) }
+    @Volatile var speed = 1f
+
+    /** This track right after the playing one. */
+    fun insertNext(t: Track) = run { c -> c.addMediaItem((c.currentMediaItemIndex + 1).coerceAtMost(c.mediaItemCount), item(t)) }
+
     /** More tracks at the end of the queue (the wave goes on). */
     fun append(tracks: List<Track>) = run { c -> c.addMediaItems(tracks.map(::item)) }
 

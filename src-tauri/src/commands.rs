@@ -456,8 +456,8 @@ async fn like_one(app: &AppHandle, state: &AppState, track: TrackDto, liked: boo
 
 #[derive(serde::Serialize)]
 pub struct PendingLike {
-    track: TrackDto,
-    liked: bool,
+    pub track: TrackDto,
+    pub liked: bool,
 }
 
 /// Likes / unlikes not yet accepted by SoundCloud (shown in Профиль → В очереди).
@@ -2184,6 +2184,7 @@ pub struct SystemPrefs {
     notify_new: bool,
     notify_rooms: bool,
     share_listening: bool,
+    stats_anon: bool,
 }
 
 /// «Уведомлять о новых треках подписок».
@@ -2210,6 +2211,7 @@ pub fn system_get(app: AppHandle, state: State<'_, AppState>) -> SystemPrefs {
         notify_new: cfg.notify_new,
         notify_rooms: cfg.notify_rooms,
         share_listening: cfg.share_listening,
+        stats_anon: cfg.stats_anon,
     }
 }
 
@@ -2648,6 +2650,13 @@ pub async fn friend_invite(app: AppHandle, state: State<'_, AppState>, friends: 
 #[tauri::command]
 pub async fn friends_listening(app: AppHandle, friends: State<'_, crate::sync::friends::Friends>) -> Cmd<Vec<crate::sync::friends::Listening>> {
     Ok(friends.listening(&app).await?)
+}
+
+/// «Считать меня в общей статистике» (anonymous, see stats.rs).
+#[tauri::command]
+pub fn stats_set(state: State<'_, AppState>, on: bool) -> Cmd<()> {
+    state.config.update(|c| c.stats_anon = on)?;
+    Ok(())
 }
 
 /// Whether friends see what we listen to.

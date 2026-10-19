@@ -352,6 +352,47 @@ impl Devices {
                 let r = c::import_run(app.clone(), app.state(), text("input"), text("title"), args["private"].as_bool().unwrap_or(false)).await?;
                 json!({ "title": r.title, "found": r.found, "total": r.total, "playlists": r.playlists, "missing": r.missing })
             }
+            // the user's own playlists, and writing into them (the computer holds the session that writes to SoundCloud)
+            "my_playlists" => {
+                let list = c::library_playlists(app.state(), false).await?;
+                Value::Array(list.iter().filter(|p| p.own && !p.is_album).map(|p| json!({ "id": p.id, "title": p.title, "n": p.track_count })).collect())
+            }
+            "pl_add" => {
+                c::playlist_add_track(app.clone(), app.state(), args["playlist"].as_u64().unwrap_or(0), args["track"].as_u64().unwrap_or(0)).await?;
+                Value::Null
+            }
+            "pl_create" => {
+                c::playlist_create(app.clone(), app.state(), text("title"), args["track"].as_u64()).await?;
+                Value::Null
+            }
+            "pl_delete" => {
+                c::playlist_delete(app.clone(), app.state(), args["playlist"].as_u64().unwrap_or(0)).await?;
+                Value::Null
+            }
+            // a track put into the queue of this computer, now or at the end
+            "enqueue" => {
+                let state = app.state::<AppState>();
+                let found = state.db.tracks_by_ids(vec![args["track"].as_u64().unwrap_or(0)]).await?;
+                let Some(t) = found.first() else { return Err(AppError::Other("track not known here".into())) };
+                if let Some(p) = app.try_state::<Arc<Player>>() {
+                    p.enqueue(TrackDto::from(t), args["next"].as_bool().unwrap_or(false));
+                }
+                Value::Null
+            }
+            // the likes that SoundCloud has not taken yet, and sending them again
+            "likes_pending" => {
+                let list = c::likes_pending(app.state()).await?;
+                json!({
+                    "check": c::captcha_waiting(),
+                    "items": list.iter().map(|l| json!({ "t": track_json(&l.track), "liked": l.liked })).collect::<Vec<_>>(),
+                })
+            }
+            "likes_flush" => json!(c::likes_pending_flush(app.clone(), app.state()).await?),
+            // lines of a song in the language of the phone
+            "translate" => {
+                let lines: Vec<String> = args["lines"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+                json!(c::lyrics_translate(app.state(), args["track"].as_u64().unwrap_or(0), lines, text("to")).await?)
+            }
             // the queue of this computer (what plays and what follows) for a phone that controls it
             "queue" => {
                 let view = app.try_state::<Arc<Player>>().map(|p| p.queue_view(100));
@@ -463,7 +504,7 @@ impl Devices {
                 let state = app.state::<AppState>();
                 let found = state.db.tracks_by_ids(vec![args["track"].as_u64().unwrap_or(0)]).await?;
                 let Some(t) = found.first() else { return Err(AppError::Other("track not known here".into())) };
-                let d = c::lyrics_get(app.state(), TrackDto::from(t), false).await?;
+                let d = c::lyrics_get(app.state(), TrackDto::from(t), args["force"].as_bool().unwrap_or(false)).await?;
                 json!({
                     "found": d.found, "synced": d.synced, "word": d.word_level,
                     "lines": d.lines.iter().map(|l| json!({

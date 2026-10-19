@@ -38,7 +38,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -261,6 +260,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
     /** the queue shown: its tracks, the one that plays, and (of the computer's queue) the place of each in its order */
     var queue by remember { mutableStateOf<Triple<List<Track>, Int, List<Int>?>?>(null) }
     var menu by remember { mutableStateOf(false) }
+    var pickList by remember { mutableStateOf(false) }
     var saveTick by remember { mutableIntStateOf(0) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) { if (app.liked.value.isEmpty() && app.store.linked) runCatching { val a = app.link.rpc("liked").getJSONArray("data"); app.liked.value = (0 until a.length()).map { a.getLong(it) }.toSet() } }
@@ -298,6 +298,31 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                                 }
                             },
                         )
+                        // the queue: this track next, or at the end (on the computer when it plays there)
+                        val toQueue = { next: Boolean ->
+                            menu = false
+                            if (remote != null) scope.launch { runCatching { app.link.rpc("enqueue", org.json.JSONObject().put("track", t.id).put("next", next)) } }
+                            else if (next) app.engine.insertNext(t) else app.engine.append(listOf(t))
+                            android.widget.Toast.makeText(ctx, if (next) "Сыграет следующим" else "Добавлено в конец очереди", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Играть следующим", color = C.text) }, onClick = { toQueue(true) })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("В конец очереди", color = C.text) }, onClick = { toQueue(false) })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Добавить в плейлист…", color = C.text) }, onClick = { menu = false; pickList = true })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Искать текст заново", color = C.text) }, onClick = {
+                            menu = false
+                            scope.launch {
+                                lyrics = null
+                                lyrics = LyricsApi.fromComputer(app, t, force = true) ?: withContext(Dispatchers.IO) { runCatching { LyricsApi.fetch(t) }.getOrNull() }
+                            }
+                        })
+                        // the speed of this phone's own playback: 0.75, 1, 1.25, 1.5
+                        if (remote == null) androidx.compose.material3.DropdownMenuItem(text = { Text("Скорость: ×" + app.engine.speed.toString().removeSuffix(".0"), color = C.text) }, onClick = {
+                            val steps = listOf(0.75f, 1f, 1.25f, 1.5f)
+                            val next = steps[(steps.indexOf(app.engine.speed).let { if (it < 0) 1 else it } + 1) % steps.size]
+                            app.engine.speed = next
+                            app.engine.applySpeed(next)
+                            menu = false
+                        })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Играть на…", color = C.text) }, onClick = { menu = false; onDevices() })
                     }
                 }
@@ -404,6 +429,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                 }, contentAlignment = Alignment.Center) { SIcon("queue", C.text) }
             }
         }
+        if (pickList) PlaylistPicker(app, t) { pickList = false }
         queue?.let { (list, current, ats) ->
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xAA000000)).pressable { queue = null }) {
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(480.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel).pressable { }.navigationBarsPadding().padding(top = 16.dp)) {

@@ -277,6 +277,7 @@ export interface SystemPrefs {
   notify_new: boolean;
   notify_rooms: boolean;
   share_listening: boolean;
+  stats_anon: boolean;
 }
 
 export interface AppErrorPayload {
@@ -538,6 +539,7 @@ export const api = {
   themeBgDelete: (id: string) => invoke<void>('theme_bg_delete', { id }),
   friendsList: () => invoke<FriendsView>('friends_list'),
   friendsListening: () => invoke<Listening[]>('friends_listening'),
+  statsSet: (on: boolean) => invoke<void>('stats_set', { on }),
   friendsShareSet: (on: boolean) => invoke<void>('friends_share_set', { on }),
   friendIds: () => invoke<number[]>('friend_ids'),
   friendRequest: (user: User) => invoke<void>('friend_request', { user }),

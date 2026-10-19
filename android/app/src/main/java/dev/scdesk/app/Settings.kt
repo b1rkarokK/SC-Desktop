@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -85,6 +85,8 @@ internal fun SettingsScreen(app: App, onEq: () -> Unit, onUnlinked: () -> Unit, 
                 Segments(listOf("1 ГБ", "2 ГБ", "5 ГБ", "10 ГБ"), listOf(1, 2, 5, 10).indexOf(gb).coerceAtLeast(0)) { gb = listOf(1, 2, 5, 10)[it]; app.store.downloadLimitGb = gb }
                 var wifi by remember { mutableStateOf(app.store.downloadWifiOnly) }
                 Toggle("Только по Wi-Fi", "«Скачать все» не тратит мобильный интернет", wifi) { wifi = it; app.store.downloadWifiOnly = it }
+                var counted by remember { mutableStateOf(app.store.statsAnon) }
+                Toggle("Считать меня в общей статистике", "Раз в сутки приложение отправляет разработчику случайный номер установки, версию и систему. Без имени, аккаунта и того, что вы слушаете.", counted) { counted = it; app.store.statsAnon = it }
                 Text("Качество: как у потока SoundCloud (AAC, если он есть, иначе MP3). Занято: ${fmtSize(Downloads.usedBytes())}.", color = C.faint, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
                 Spacer(Modifier.height(16.dp))
                 BigButton("Открыть скачанное", false) { onPage("downloads") }
@@ -308,6 +310,11 @@ private fun Appearance(app: App, onBack: () -> Unit) {
             }
             Label("ПЛОТНОСТЬ СПИСКОВ")
             Segments(listOf("Компактно", "Обычно", "Крупно"), density) { density = it; app.store.density = it; C.density = it }
+            Label("СКРУГЛЕНИЕ УГЛОВ")
+            var corners by remember { mutableIntStateOf(app.store.corners) }
+            Segments(listOf("Острые", "Обычные", "Круглые"), corners) { corners = it; app.store.corners = it; C.corners = it }
+            Label("СВОИ ЦВЕТА")
+            CustomColors(app)
             Label("КНОПКА ПЛЕЕРА")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf(true to "Квадрат", false to "Круг").forEach { (sq, name) ->
@@ -330,6 +337,46 @@ private fun Appearance(app: App, onBack: () -> Unit) {
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+/** Own colours instead of a theme: the hex of the background, the text and the accent; a wrong hex is not taken. */
+@Composable
+private fun CustomColors(app: App) {
+    fun hex(c: Color?) = c?.let { "%06X".format(it.toArgb() and 0xFFFFFF) } ?: ""
+    var bg by remember { mutableStateOf(hex(C.customBg)) }
+    var tx by remember { mutableStateOf(hex(C.customText)) }
+    var ac by remember { mutableStateOf(hex(C.customAccent)) }
+    fun parse(s: String): Color? = s.trim().removePrefix("#").takeIf { it.length == 6 }?.toLongOrNull(16)?.let { Color(0xFF000000 or it) }
+    fun apply() {
+        val b = parse(bg)
+        val t = parse(tx)
+        if (b != null && t != null) {
+            C.customBg = b; C.customText = t; C.customAccent = parse(ac)
+            app.store.customBg = b.toArgb(); app.store.customText = t.toArgb(); app.store.customAccent = parse(ac)?.toArgb() ?: 0
+        }
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.panel).padding(14.dp)) {
+        Text("Вставьте цвета в виде 16-ричных кодов: фон, текст и акцент. Нужны фон и текст.", color = C.muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+        listOf(Triple("Фон", bg, { v: String -> bg = v }), Triple("Текст", tx, { v: String -> tx = v }), Triple("Акцент", ac, { v: String -> ac = v })).forEach { (label, value, set) ->
+            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, color = C.text, fontSize = 14.sp, modifier = Modifier.width(72.dp))
+                Box(Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(parse(value) ?: C.panel2).border(1.dp, C.border, RoundedCornerShape(6.dp)))
+                Box(Modifier.padding(start = 10.dp).weight(1f).clip(RoundedCornerShape(10.dp)).background(C.panel2).padding(horizontal = 12.dp, vertical = 9.dp)) {
+                    if (value.isEmpty()) Text("#RRGGBB", color = C.faint, fontSize = 14.sp)
+                    androidx.compose.foundation.text.BasicTextField(value, { set(it.take(7)); apply() }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(color = C.text, fontSize = 14.sp), cursorBrush = androidx.compose.ui.graphics.SolidColor(C.accent), modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Вернуть обычную тему", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.pressable {
+                C.customBg = null; C.customText = null; C.customAccent = null
+                app.store.customBg = 0; app.store.customText = 0; app.store.customAccent = 0
+                bg = ""; tx = ""; ac = ""
+            }.padding(vertical = 8.dp),
+        )
     }
 }
 

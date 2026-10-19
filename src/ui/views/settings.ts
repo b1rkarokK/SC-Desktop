@@ -155,7 +155,7 @@ export class SettingsView implements View {
       this.renderNet();
       this.autoPause = await api.autopauseGet();
       const sys = await api.systemGet();
-      this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected, sys.notify_new, sys.notify_rooms, sys.share_listening);
+      this.renderSystem(sys.autostart, sys.start_minimized, sys.fast_protected, sys.notify_new, sys.notify_rooms, sys.share_listening, sys.stats_anon);
     } catch (e) {
       toast(errorMessage(e), 'error');
     }
@@ -772,7 +772,7 @@ export class SettingsView implements View {
     void api.autopauseSet(this.autoPause).catch((e) => toast(errorMessage(e), 'error'));
   }
 
-  private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean, notifyNew: boolean, notifyRooms: boolean, shareListening: boolean): void {
+  private renderSystem(autostart: boolean, minimized: boolean, fastProtected: boolean, notifyNew: boolean, notifyRooms: boolean, shareListening: boolean, statsAnon: boolean): void {
     let a = autostart;
     let m = minimized;
     let f = fastProtected;
@@ -781,7 +781,7 @@ export class SettingsView implements View {
       api.systemSet(a, m, f).catch(async (e) => {
         toast(errorMessage(e), 'error');
         const s = await api.systemGet();
-        this.renderSystem(s.autostart, s.start_minimized, s.fast_protected, s.notify_new, s.notify_rooms, s.share_listening);
+        this.renderSystem(s.autostart, s.start_minimized, s.fast_protected, s.notify_new, s.notify_rooms, s.share_listening, s.stats_anon);
       });
     const version = h('span', { class: 'muted small' });
     void invoke<string>('app_version').then((v) => (version.textContent = T('Версия {0}', v)));
@@ -882,6 +882,11 @@ export class SettingsView implements View {
           T('Показывать друзьям, что я слушаю'),
           toggle(shareListening, (v) => void api.friendsShareSet(v).catch((e) => toast(errorMessage(e), 'error'))),
           T('Видят только ваши друзья, больше никто. Выключено: друзья не увидят, что у вас играет.'),
+        ),
+        row(
+          T('Считать меня в общей статистике'),
+          toggle(statsAnon, (v) => void api.statsSet(v).catch((e) => toast(errorMessage(e), 'error'))),
+          T('Раз в сутки программа отправляет разработчику случайный номер установки, версию и систему, чтобы знать, сколько людей ею пользуется. Без имени, аккаунта и того, что вы слушаете.'),
         ),
         row(T('Пауза во время звонка'), toggle(this.autoPause.call, (v) => this.saveAutoPause({ call: v })), T('Музыка встаёт на паузу, когда другая программа включила микрофон (Discord, Zoom), и продолжается после звонка.')),
         row(T('Пауза в полноэкранной игре'), toggle(this.autoPause.game, (v) => this.saveAutoPause({ game: v })), T('Музыка встаёт на паузу, когда игра открылась на весь экран, и продолжается, когда вы вышли из неё. Выключено: музыка играет и в игре.')),

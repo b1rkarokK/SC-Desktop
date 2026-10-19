@@ -3,6 +3,15 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.5] - 2026-10-19
+
+- An anonymous count of people: once a day the program sends the developer a random installation number, the version and the system, to know how many people use it. No name, no account, no address, nothing about what you listen to. It can be switched off in Settings, System (on the phone: Settings, Downloads).
+- Phone, track menu: "Play next", "Add to the end of the queue", "Add to a playlist" (and a new playlist), "Search the lyrics again", playback speed.
+- Phone: a translation of the lyrics into Russian under each line.
+- Phone: in "Likes" the queue of likes that SoundCloud did not take is shown, with "Send now".
+- Phone: "Appearance" has the roundness of the corners (sharp, usual, round) and own theme colours (background, text, accent).
+- A table of what the computer has and what the phone has (PARITY.md in the project).
+
 ## [1.4.4] - 2026-10-19
 
 - Rooms: the "Online" counter no longer breaks. A member whose status message was lost used to stay "not online" for good although they were in the room and adding tracks. Now everyone repeats their status every few seconds.

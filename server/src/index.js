@@ -120,6 +120,54 @@ export class Directory extends DurableObject {
   }
 }
 
+// How many people use the program: an anonymous count. A program says once a day «a random number of this
+// installation, the version, the system»: nothing about who, no address (this code does not look at it, does not
+// keep it), nothing about what is played. The same number on the same day counts once.
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+export class Stats extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.env = env;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS seen (day TEXT NOT NULL, id TEXT NOT NULL, ver TEXT NOT NULL, os TEXT NOT NULL, PRIMARY KEY (day, id))');
+  }
+
+  async fetch(req) {
+    const url = new URL(req.url);
+    if (url.pathname === '/stat' && req.method === 'POST') {
+      let b;
+      try {
+        b = await req.json();
+      } catch {
+        return new Response('bad json', { status: 400 });
+      }
+      const id = String(b.id || '');
+      const ver = String(b.v || '').slice(0, 16);
+      const os = String(b.os || '').slice(0, 12);
+      if (!/^[a-f0-9]{32}$/.test(id) || !/^[\d.]+$/.test(ver) || !/^[a-z]+$/.test(os)) return new Response('bad', { status: 400 });
+      const day = new Date().toISOString().slice(0, 10);
+      this.sql.exec('INSERT OR REPLACE INTO seen (day, id, ver, os) VALUES (?, ?, ?, ?)', day, id, ver, os);
+      // a year is plenty: older days go
+      this.sql.exec("DELETE FROM seen WHERE day < date('now', '-400 day')");
+      return Response.json({ ok: true });
+    }
+    if (url.pathname === '/stat/summary' && req.method === 'GET') {
+      // only for the owner: the key is a secret of the worker (wrangler secret put STATS_KEY)
+      const key = this.env.STATS_KEY;
+      if (!key || url.searchParams.get('key') !== key) return new Response('no', { status: 403 });
+      const one = (q, ...a) => this.sql.exec(q, ...a).toArray();
+      const days = one("SELECT day, COUNT(*) AS n FROM seen WHERE day >= date('now', '-60 day') GROUP BY day ORDER BY day");
+      const [w] = one("SELECT COUNT(DISTINCT id) AS n FROM seen WHERE day >= date('now', '-6 day')");
+      const [m] = one("SELECT COUNT(DISTINCT id) AS n FROM seen WHERE day >= date('now', '-29 day')");
+      const [all] = one('SELECT COUNT(DISTINCT id) AS n FROM seen');
+      const versions = one("SELECT ver, COUNT(DISTINCT id) AS n FROM seen WHERE day >= date('now', '-6 day') GROUP BY ver ORDER BY n DESC");
+      const systems = one("SELECT os, COUNT(DISTINCT id) AS n FROM seen WHERE day >= date('now', '-29 day') GROUP BY os ORDER BY n DESC");
+      return Response.json({ days, week: w.n, month: m.n, all: all.n, versions, systems });
+    }
+    return new Response('not found', { status: 404 });
+  }
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -128,6 +176,7 @@ export default {
       if (!ID_RE.test(ch[1])) return new Response('bad channel id', { status: 400 });
       return env.HUB.get(env.HUB.idFromName(ch[1])).fetch(req);
     }
+    if (url.pathname === '/stat' || url.pathname === '/stat/summary') return env.STATS.get(env.STATS.idFromName('global')).fetch(req);
     if (url.pathname.startsWith('/dir')) return env.DIR.get(env.DIR.idFromName('global')).fetch(req);
     if (url.pathname === '/' || url.pathname === '/health') return new Response('sc-desk-sync ok');
     return new Response('not found', { status: 404 });

@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -247,6 +246,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 12.dp)) {
             when (inner) {
                 0 -> {
+                    item { PendingLikes(app, account) }
                     if (tracks.isNotEmpty()) item {
                         val ctx = androidx.compose.ui.platform.LocalContext.current
                         val batch by Downloads.batch.collectAsState()

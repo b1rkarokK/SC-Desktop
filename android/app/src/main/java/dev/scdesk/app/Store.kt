@@ -86,6 +86,20 @@ class Store(ctx: Context) {
     var accentFromCover: Boolean
         get() = p.getBoolean("acov", false)
         set(v) = p.edit().putBoolean("acov", v).apply()
+    /** the roundness of the corners: 0 sharp, 1 usual, 2 round */
+    var corners: Int
+        get() = p.getInt("corners", 1)
+        set(v) = p.edit().putInt("corners", v).apply()
+    /** the user's own colours (ARGB), 0: not set */
+    var customBg: Int
+        get() = p.getInt("cbg", 0)
+        set(v) = p.edit().putInt("cbg", v).apply()
+    var customText: Int
+        get() = p.getInt("ctx", 0)
+        set(v) = p.edit().putInt("ctx", v).apply()
+    var customAccent: Int
+        get() = p.getInt("cac", 0)
+        set(v) = p.edit().putInt("cac", v).apply()
     var density: Int
         get() = p.getInt("dens", 1)
         set(v) = p.edit().putInt("dens", v).apply()
@@ -117,6 +131,16 @@ class Store(ctx: Context) {
     var downloadWifiOnly: Boolean
         get() = p.getBoolean("dlwifi", true)
         set(v) = p.edit().putBoolean("dlwifi", v).apply()
+    /** counted in the anonymous number of users (Stats.kt): a random number, the version and the system, once a day */
+    var statsAnon: Boolean
+        get() = p.getBoolean("statsanon", true)
+        set(v) = p.edit().putBoolean("statsanon", v).apply()
+    var installId: String
+        get() = p.getString("installid", "") ?: ""
+        set(v) = p.edit().putString("installid", v).apply()
+    var statsDay: String
+        get() = p.getString("statsday", "") ?: ""
+        set(v) = p.edit().putString("statsday", v).apply()
     var downloadLimitGb: Int
         get() = p.getInt("dlimit", 5)
         set(v) = p.edit().putInt("dlimit", v).apply()

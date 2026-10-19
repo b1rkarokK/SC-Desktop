@@ -132,6 +132,16 @@ pub struct AppConfig {
     /// friends see what is playing here (a short line, readable only by them)
     #[serde(default = "yes")]
     pub share_listening: bool,
+    /// counted in the anonymous number of users (a random number of this installation, the version and the system,
+    /// once a day; nothing else, see stats.rs)
+    #[serde(default = "yes")]
+    pub stats_anon: bool,
+    /// the random number of this installation (made at the first need, tells nothing about who or where)
+    #[serde(default)]
+    pub install_id: String,
+    /// the day (UTC) the number was sent last
+    #[serde(default)]
+    pub stats_day: String,
     /// autostart was set up once (enabled by default on the first launch)
     pub autostart_initialized: bool,
     /// Frontend-owned preferences (theme, panels, fullscreen view…), stored verbatim.
@@ -160,6 +170,9 @@ impl Default for AppConfig {
             output_device: None,
             notify_rooms: true,
             share_listening: true,
+            stats_anon: true,
+            install_id: String::new(),
+            stats_day: String::new(),
             autostart_initialized: false,
             ui:serde_json::Value::Object(Default::default()),
         }

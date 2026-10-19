@@ -14,7 +14,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -29,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -44,7 +44,35 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 
 /** The palettes: «Тёплая» (the design of Penpot, page «андроид»), OLED (true black) and light. */
+/** The corners of the app: the sizes in the code are the usual ones, the chosen roundness scales them (Settings, Внешний вид). */
+fun RoundedCornerShape(size: androidx.compose.ui.unit.Dp) = androidx.compose.foundation.shape.RoundedCornerShape(size * C.radius)
+
+fun RoundedCornerShape(
+    topStart: androidx.compose.ui.unit.Dp = 0.dp,
+    topEnd: androidx.compose.ui.unit.Dp = 0.dp,
+    bottomEnd: androidx.compose.ui.unit.Dp = 0.dp,
+    bottomStart: androidx.compose.ui.unit.Dp = 0.dp,
+) = androidx.compose.foundation.shape.RoundedCornerShape(topStart * C.radius, topEnd * C.radius, bottomEnd * C.radius, bottomStart * C.radius)
+
 object C {
+    /** how round the corners are: 0 sharp, 1 usual, 2 round */
+    var corners by androidx.compose.runtime.mutableIntStateOf(1)
+    val radius: Float get() = when (corners) { 0 -> 0.2f; 2 -> 1.7f; else -> 1f }
+
+    /** the user's own colours instead of a theme: background, text and accent (null: off) */
+    var customBg by androidx.compose.runtime.mutableStateOf<Color?>(null)
+    var customText by androidx.compose.runtime.mutableStateOf<Color?>(null)
+    var customAccent by androidx.compose.runtime.mutableStateOf<Color?>(null)
+    val customOn: Boolean get() = customBg != null && customText != null
+
+    private fun mix(a: Color, b: Color, t: Float) = androidx.compose.ui.graphics.lerp(a, b, t)
+    private val custom: P? get() {
+        val bg = customBg ?: return null
+        val tx = customText ?: return null
+        val ac = customAccent ?: Color(0xFFFF7B3F)
+        return P(bg, mix(bg, tx, .07f), mix(bg, tx, .13f), mix(bg, tx, .17f), tx, mix(bg, tx, .62f), mix(bg, tx, .36f), ac, mix(bg, ac, .16f))
+    }
+
     private class P(val bg: Color, val panel: Color, val panel2: Color, val border: Color, val text: Color, val muted: Color, val faint: Color, val accent: Color, val warm: Color)
 
     private val sets = listOf(
@@ -69,8 +97,8 @@ object C {
     private val swatches = listOf(0xFFFF7B3F, 0xFFEC5B7A, 0xFFB77DEE, 0xFF5B9DF5, 0xFF3FBF9A, 0xFFF5C242, 0xFFE8E8E8)
 
     /** the theme that is drawn: the chosen one, or by the system when it is asked for (dark ones keep the chosen dark) */
-    val effective: Int get() = if (followSystem) (if (systemDark) (if (mode == 2) 0 else mode) else 2) else mode
-    private val p get() = sets[effective.coerceIn(0, 2)]
+    val effective: Int get() = if (customOn) (if (customBg!!.luminance() > .5f) 2 else 0) else if (followSystem) (if (systemDark) (if (mode == 2) 0 else mode) else 2) else mode
+    private val p get() = custom ?: sets[effective.coerceIn(0, 2)]
     val bg get() = p.bg
     val panel get() = p.panel
     val panel2 get() = p.panel2

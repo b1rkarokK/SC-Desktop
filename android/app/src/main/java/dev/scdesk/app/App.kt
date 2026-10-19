@@ -1,5 +1,6 @@
 package dev.scdesk.app
 
+import kotlinx.coroutines.launch
 import android.app.Application
 
 class App : Application() {
@@ -45,9 +46,17 @@ class App : Application() {
         C.accentIdx = store.accent
         C.useCover = store.accentFromCover
         C.density = store.density
+        C.corners = store.corners
+        if (store.customBg != 0 && store.customText != 0) {
+            C.customBg = androidx.compose.ui.graphics.Color(store.customBg)
+            C.customText = androidx.compose.ui.graphics.Color(store.customText)
+            C.customAccent = if (store.customAccent != 0) androidx.compose.ui.graphics.Color(store.customAccent) else null
+        }
         C.squareButton = store.squareButton
         C.anim = store.animations
         Downloads.load(this, store)
+        // a while after the start (it stays light): the anonymous count of users, once a day
+        appScope.launch { kotlinx.coroutines.delay(60_000); Stats.maybeSend(store) }
         CoverCache.dir = java.io.File(cacheDir, "covers")
         engine = Engine(this)
         link = Link(this)

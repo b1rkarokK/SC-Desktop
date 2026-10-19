@@ -10,7 +10,15 @@ class_name = "Hub"
 name = "DIR"
 class_name = "Directory"
 
+[[durable_objects.bindings]]
+name = "STATS"
+class_name = "Stats"
+
 # SQLite-backed Durable Objects are available on the free Workers plan
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Hub", "Directory"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Stats"]

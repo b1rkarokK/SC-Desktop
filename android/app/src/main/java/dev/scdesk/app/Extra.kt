@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +46,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.launch
 
 // ------------------------------------------------------------------ history
 
@@ -286,9 +286,10 @@ object LyricsApi {
     }
 
     /** The lyrics of the computer (it may have the words with their times); null when it is away or has nothing. */
-    suspend fun fromComputer(app: App, t: Track): Lyrics? {
+    suspend fun fromComputer(app: App, t: Track, force: Boolean = false): Lyrics? {
         if (!app.store.linked) return null
-        val d = runCatching { app.link.rpc("lyrics", JSONObject().put("track", t.id), waitMs = 1_500).getJSONObject("data") }.getOrNull() ?: return null
+        // a search again takes the computer longer: it asks every source once more
+        val d = runCatching { app.link.rpc("lyrics", JSONObject().put("track", t.id).put("force", force), waitMs = if (force) 30_000 else 1_500).getJSONObject("data") }.getOrNull() ?: return null
         if (!d.optBoolean("found")) return null
         val arr = d.optJSONArray("lines") ?: return null
         val lines = (0 until arr.length()).map { arr.getJSONObject(it) }.map { l ->
@@ -347,6 +348,10 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
             state = "Не удалось загрузить текст: ${e.message}"
         }
     }
+    // a translation of the lines under them (the computer does it, as on its own screen)
+    var translated by remember(t.id) { mutableStateOf<List<String>?>(null) }
+    var translating by remember(t.id) { mutableStateOf(false) }
+    val tscope = androidx.compose.runtime.rememberCoroutineScope()
     val remote = shown.remote
     val pos by produceState(0L, remote?.dev, shown.playing, t.id) {
         while (true) {
@@ -360,6 +365,25 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
             Text(state, color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
             return@Page
         }
+        if (app.store.linked) {
+            Text(
+                if (translating) "Переводим…" else if (translated != null) "Убрать перевод" else "Перевести на русский",
+                color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).pressable {
+                    if (translating) return@pressable
+                    if (translated != null) { translated = null; return@pressable }
+                    translating = true
+                    tscope.launch {
+                        runCatching {
+                            val lines = org.json.JSONArray().also { a -> ly.lines.forEach { a.put(it.text) } }
+                            val d = app.link.rpc("translate", JSONObject().put("track", t.id).put("lines", lines).put("to", "ru"), waitMs = 60_000).getJSONArray("data")
+                            translated = (0 until d.length()).map { d.optString(it) }
+                        }
+                        translating = false
+                    }
+                },
+            )
+        }
         val current = if (ly.synced) ly.lines.indexOfLast { it.atMs <= pos + 250 } else -1
         val list = rememberLazyListState()
         LaunchedEffect(current) { if (current >= 0) list.animateScrollToItem(maxOf(current - 2, 0)) }
@@ -370,6 +394,7 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
                     if (i == current && l.words.isNotEmpty()) LyricsApi.coloured(l, pos, C.text, C.accent, C.faint) else androidx.compose.ui.text.AnnotatedString(l.text.ifEmpty { " " }), color = if (on) C.text else C.faint, fontSize = if (i == current) 24.sp else 20.sp, fontWeight = if (i == current) FontWeight.Bold else FontWeight.Medium,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).let { m -> if (ly.synced && remote == null) m.pressable { app.engine.seek(l.atMs) } else m },
                 )
+                translated?.getOrNull(i)?.takeIf { it.isNotBlank() && it != l.text }?.let { Text(it, color = C.muted, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) }
             }
             item { Spacer(Modifier.height(96.dp)) }
         }

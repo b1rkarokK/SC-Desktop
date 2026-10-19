@@ -35,6 +35,7 @@ mod player;
 mod portable;
 mod secrets;
 mod state;
+mod stats;
 mod tray;
 mod updater;
 mod import;
@@ -110,6 +111,7 @@ fn main() {
             tauri::async_runtime::block_on(commands::clear_web_cache_if_asked(&handle));
             // old installers of updates and the browser cache kept to a size, a little after the start and then every few hours
             housekeeping::start(&handle);
+            stats::start(&handle);
             {
                 // the library cache without what older versions kept needlessly, once
                 let app = handle.clone();
@@ -419,6 +421,7 @@ fn main() {
             commands::friend_invite_dismiss,
             commands::friends_listening,
             commands::friends_share_set,
+            commands::stats_set,
             commands::autopause_get,
             commands::autopause_set,
             commands::backup_export,
