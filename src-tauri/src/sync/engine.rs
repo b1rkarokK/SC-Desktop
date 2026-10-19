@@ -154,6 +154,8 @@ pub struct Handle {
 const TICK: Duration = Duration::from_millis(500);
 const PLAY_EVERY: Duration = Duration::from_secs(5);
 const HELLO_EVERY: Duration = Duration::from_secs(2);
+/// A member says how it is (loading, ready, playing) again this often.
+const STATUS_EVERY: Duration = Duration::from_secs(8);
 #[cfg(not(test))]
 mod timing {
     use std::time::Duration;
@@ -226,6 +228,9 @@ struct Engine {
     welcomed: bool,
     /// the track the room is on is still being loaded here: the host's play state waits for it
     awaiting_load: bool,
+    /** what this member last said about itself (loading, ready, playing): said again now and then, since a single
+     * message can be lost and the host would show this member as «not in the room» for ever */
+    my_status: Status,
     ping_sent: u32,
     trim_until: Option<Instant>,
     seq_loading: Option<u64>,
@@ -358,6 +363,11 @@ impl Engine {
     }
 
     fn send(&mut self, m: &Msg, keep: bool) {
+        if let Msg::Status { id, status } = m {
+            if *id == self.p.me.id {
+                self.my_status = status.clone();
+            }
+        }
         self.msg_n += 1;
         let blob = crypto::seal(&self.key, &self.p.channel, &serde_json::to_vec(m).expect("messages serialise"));
         self.transport.send(blob, keep, Some(format!("{}-{}", self.p.me.id, self.msg_n)));
@@ -917,6 +927,13 @@ impl Engine {
 
     // ---------------------------------------------------------------- member
 
+    /** Says again how this member is (the host marks it «connecting» until it hears, and a lost message would keep it so). */
+    fn reannounce(&mut self) {
+        let status = self.my_status.clone();
+        let me = self.p.me.id.clone();
+        self.send(&Msg::Status { id: me, status }, false);
+    }
+
     fn say_hello(&mut self) {
         let mut me = self.p.me.clone();
         me.pubkey = Some(self.identity.public_b64());
@@ -1215,6 +1232,7 @@ pub fn start(
         clock: ClockSync::default(),
         welcomed: false,
         awaiting_load: false,
+        my_status: Status::Ready,
         ping_sent: 0,
         trim_until: None,
         seq_loading: None,
@@ -1240,6 +1258,7 @@ pub fn start(
         let mut tick = tokio::time::interval(TICK);
         let started = Instant::now();
         let mut last_hello = Instant::now() - HELLO_EVERY;
+        let mut last_status = Instant::now();
         let mut last_play = Instant::now();
         let mut last_ping = Instant::now() - PING_EVERY;
         let mut ping_burst = Instant::now();
@@ -1301,6 +1320,7 @@ pub fn start(
                         // a quick burst of pings to learn the clock, then now and then
                         let due = if eng.ping_sent < 6 { ping_burst.elapsed() >= Duration::from_millis(400) } else { last_ping.elapsed() >= PING_EVERY };
                         if eng.welcomed && due { eng.ping(); last_ping = Instant::now(); ping_burst = Instant::now(); }
+                        if eng.welcomed && last_status.elapsed() >= STATUS_EVERY { eng.reannounce(); last_status = Instant::now(); }
                     }
                 }
             }

@@ -3,6 +3,11 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.4] - 2026-10-19
+
+- Rooms: the "Online" counter no longer breaks. A member whose status message was lost used to stay "not online" for good although they were in the room and adding tracks. Now everyone repeats their status every few seconds.
+- Rooms: with the text panel open, the "Invite" and "Call a friend" buttons no longer sit on top of the title and the counter, they move below them.
+
 ## [1.4.3] - 2026-10-19
 
 - The volume by the mouse wheel changes 1 percent a notch, in full screen and on the bottom bar. It used to stick on one point.
