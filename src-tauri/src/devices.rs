@@ -383,6 +383,34 @@ impl Devices {
                 }
                 Value::Null
             }
+            // a list picked on the phone plays on this computer, from the song at `index`
+            "play_list" => {
+                let list: Vec<TrackDto> = args["tracks"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|t| {
+                                Some(TrackDto {
+                                    id: t["id"].as_u64()?,
+                                    title: t["title"].as_str().unwrap_or("").to_owned(),
+                                    artist: t["artist"].as_str().unwrap_or("").to_owned(),
+                                    user_id: 0,
+                                    duration_ms: t["dur"].as_u64().unwrap_or(0),
+                                    artwork_url: t["art"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
+                                    permalink_url: None,
+                                    genre: None,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !list.is_empty() {
+                    if let Some(p) = app.try_state::<Arc<Player>>() {
+                        p.play_queue(list, args["index"].as_u64().unwrap_or(0) as usize, crate::player::QueueSource::List);
+                    }
+                }
+                Value::Null
+            }
             // follow / unfollow an artist (the computer does it, as with a like)
             "follow" => {
                 let user = crate::models::UserDto {

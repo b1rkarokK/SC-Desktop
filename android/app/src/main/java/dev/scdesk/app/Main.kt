@@ -66,6 +66,10 @@ internal const val BETA_NOTE = true
 /** The update is looked for at the opening and the unfolding of the app, not more often than this. */
 internal const val UPDATE_EVERY_MS = 3 * 60 * 1000L
 
+/** When the last look for an update was tried (also when it failed), and which version the user put off with «Позже». */
+@Volatile internal var lastUpdateTry = 0L
+@Volatile internal var dismissedUpdate = 0
+
 private enum class Tab { Home, Search, Wave, Likes, More }
 
 /** The app: the lists of SoundCloud with the player over them; the account and the computer live in «Ещё». */
@@ -104,7 +108,7 @@ fun Root(app: App, pairLink: String? = null) {
         }
     }
     val remote = picked ?: lastRemote?.takeIf { control == null && !state.playing && now - lastRemoteAt < 15_000 && now - it.seenAt < 60_000 }
-    val shown = if (remote != null) Shown(remote.track, true, remote, false) else Shown(state.track, state.playing, null, state.loading)
+    val shown = if (remote != null) Shown(remote.track, remote.playing, remote, false) else Shown(state.track, state.playing, null, state.loading)
 
     var tab by remember { mutableStateOf(Tab.Home) }
     var opened by remember { mutableStateOf<Opened?>(null) }
@@ -124,18 +128,19 @@ fun Root(app: App, pairLink: String? = null) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     // a look at the feed of updates when the app opens or is unfolded (not more often than every few minutes), and by hand in «Ещё»
     val checkUpdate: (Boolean) -> Unit = { manual ->
+        lastUpdateTry = System.currentTimeMillis()
         scope.launch {
             try {
                 val found = withContext(Dispatchers.IO) { Updater.check(BuildConfig.VERSION_CODE) }
                 app.store.updateCheckedAt = System.currentTimeMillis()
-                update = found
+                update = found?.takeIf { manual || it.versionCode != dismissedUpdate }
                 if (manual) updateMsg = if (found == null) "У вас последняя версия" else null
             } catch (e: Exception) {
                 if (manual) updateMsg = "Не удалось проверить: ${e.message}"
             }
         }
     }
-    fun dueForUpdate() = app.store.autoUpdate && System.currentTimeMillis() - app.store.updateCheckedAt > UPDATE_EVERY_MS
+    fun dueForUpdate() = app.store.autoUpdate && System.currentTimeMillis() - maxOf(app.store.updateCheckedAt, lastUpdateTry) > UPDATE_EVERY_MS
     LaunchedEffect(Unit) { if (dueForUpdate()) checkUpdate(false) }
     // the app is unfolded again (it was only folded): look again, the check is one small request
     androidx.compose.runtime.DisposableEffect(ctx) {
@@ -165,9 +170,22 @@ fun Root(app: App, pairLink: String? = null) {
     LaunchedEffect(pairLink) { if (pairLink != null) scan = true }
 
     // a track picked here plays here: what plays on the computer is stopped
+    val playScope = rememberCoroutineScope()
     val play: (List<Track>, Int) -> Unit = { list, i ->
-        control = null
-        app.engine.playQueue(list.drop(i).take(100), 0)
+        val pc = remote
+        if (pc != null && app.store.linked) {
+            // the computer is the one that plays now (picked in «Играть на…»): the song plays there
+            playScope.launch {
+                val arr = org.json.JSONArray().also { a ->
+                    list.drop(i).take(100).forEach { t -> a.put(org.json.JSONObject().put("id", t.id).put("title", t.title).put("artist", t.artist).put("dur", t.durationMs).put("art", t.artwork ?: "")) }
+                }
+                runCatching { app.link.rpc("play_list", org.json.JSONObject().put("tracks", arr).put("index", 0)) }
+                    .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
+            }
+        } else {
+            control = null
+            app.engine.playQueue(list.drop(i).take(100), 0)
+        }
     }
 
     // starts or renews the wave: a batch from the likes and what SoundCloud finds related to them
@@ -318,7 +336,7 @@ fun Root(app: App, pairLink: String? = null) {
             app.engine.connect()
         }
         // over everything, also over the settings page where «Проверить обновления» was pressed
-        update?.let { u -> UpdateDialog(u, ctx, onLater = { update = null }) }
+        update?.let { u -> UpdateDialog(u, ctx, onLater = { dismissedUpdate = u.versionCode; update = null }) }
     }
 }
 

@@ -191,7 +191,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
     var artists by remember(account) { mutableStateOf<List<Artist>?>(null) }
     val signedIn = app.store.signedIn
     var actions by remember { mutableStateOf<Track?>(null) }
-    actions?.let { TrackActions(app, it, remote) { actions = null } }
+    actions?.let { tr -> TrackActions(app, tr, remote, onRemovedLike = { tracks = tracks.filter { x -> x.id != tr.id } }) { actions = null } }
 
     fun more(first: Boolean = false) {
         if (loading || (!first && next == null)) return

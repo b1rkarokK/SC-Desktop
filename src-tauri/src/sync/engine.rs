@@ -1590,7 +1590,7 @@ pub(crate) mod tests {
             assert!(wait(|| anna.view.lock().unwrap().host, 4000).await, "anna, first after the host, took over");
             assert!(!bob.view.lock().unwrap().host, "bob stays a member");
             assert!(wait(|| bob.view.lock().unwrap().host_id == "anna", 3000).await, "bob follows the new host");
-            assert!(*ap.playing.lock().unwrap(), "the music goes on for the new host");
+            assert!(wait(|| *ap.playing.lock().unwrap(), 3000).await, "the music goes on for the new host");
             assert_eq!(anna.view.lock().unwrap().current.as_ref().map(|c| c.title.clone()), Some("track1".into()));
         });
     }

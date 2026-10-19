@@ -155,7 +155,7 @@ internal fun DeletePlaylist(app: App, id: Long, title: String, onClose: () -> Un
  * When the music plays on the computer, the queue is the computer's.
  */
 @Composable
-internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist: Long? = null, onRemoved: () -> Unit = {}, onClose: () -> Unit) {
+internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist: Long? = null, onRemoved: () -> Unit = {}, onRemovedLike: () -> Unit = {}, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var picker by remember { mutableStateOf(0) } // 1 own playlists, 2 shared ones
@@ -212,7 +212,7 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
         },
         "Убрать из лайков" to {
             scope.launch { runCatching { Writes.call(app, "like", JSONObject().put("track", t.id).put("on", false)) } }
-            toast("Убрано из лайков"); onClose()
+            onRemovedLike(); toast("Убрано из лайков"); onClose()
         },
     )
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
