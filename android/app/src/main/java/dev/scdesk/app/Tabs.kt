@@ -479,10 +479,9 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
                 if (likingAll) "Лайкаем…" else "Лайкнуть всё", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).pressable {
                     if (likingAll) return@pressable
-                    if (!app.store.linked) { android.widget.Toast.makeText(ctxC, L.t("Нужен подключённый компьютер: лайки отправляет он."), android.widget.Toast.LENGTH_SHORT).show(); return@pressable }
                     likingAll = true
                     scopeC.launch {
-                        runCatching { app.link.rpc("likes_many", org.json.JSONObject().put("tracks", org.json.JSONArray().also { a -> list.forEach { a.put(it.id) } }), waitMs = 300_000) }
+                        runCatching { Writes.likeMany(app, list.map { it.id }) }
                             .onSuccess { android.widget.Toast.makeText(ctxC, L.t("Готово"), android.widget.Toast.LENGTH_SHORT).show() }
                             .onFailure { android.widget.Toast.makeText(ctxC, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
                         likingAll = false

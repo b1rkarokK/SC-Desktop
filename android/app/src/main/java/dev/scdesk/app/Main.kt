@@ -367,10 +367,16 @@ private fun SearchTab(app: App, shown: Shown, play: (List<Track>, Int) -> Unit, 
         try {
             val q = query.trim()
             if (byLyrics) {
-                val arr = app.link.rpc("lsearch", org.json.JSONObject().put("q", q)).getJSONArray("data")
-                val objs = (0 until arr.length()).map { arr.getJSONObject(it) }
-                tracks = objs.map { trackOf(it) }
-                lines = objs.filter { it.optString("line").isNotEmpty() }.associate { it.optLong("id") to it.optString("line") }
+                // the computer also looks in the likes and shows the line that matched; without it the phone searches itself
+                val viaPc = if (app.store.linked) runCatching { app.link.rpc("lsearch", org.json.JSONObject().put("q", q)).getJSONArray("data") }.getOrNull() else null
+                if (viaPc != null) {
+                    val objs = (0 until viaPc.length()).map { viaPc.getJSONObject(it) }
+                    tracks = objs.map { trackOf(it) }
+                    lines = objs.filter { it.optString("line").isNotEmpty() }.associate { it.optLong("id") to it.optString("line") }
+                } else {
+                    tracks = withContext(Dispatchers.IO) { Independent.songsByWords(app, q) }
+                    lines = emptyMap()
+                }
             } else withContext(Dispatchers.IO) {
                 if (kind == 0 || kind == 1) tracks = app.api.search(q)
                 if (kind == 0 || kind == 2) artists = runCatching { app.api.searchUsers(q) }.getOrDefault(emptyList())

@@ -375,7 +375,7 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
                 android.widget.Toast.makeText(lctx, L.t("Текст скопирован"), android.widget.Toast.LENGTH_SHORT).show()
             }.padding(6.dp))
         }
-        if (app.store.linked) {
+        run {
             Text(
                 if (translating) "Переводим…" else if (translated != null) "Убрать перевод" else "Перевести на русский",
                 color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
@@ -386,8 +386,13 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
                     tscope.launch {
                         runCatching {
                             val lines = org.json.JSONArray().also { a -> ly.lines.forEach { a.put(it.text) } }
-                            val d = app.link.rpc("translate", JSONObject().put("track", t.id).put("lines", lines).put("to", "ru"), waitMs = 60_000).getJSONArray("data")
-                            translated = (0 until d.length()).map { d.optString(it) }
+                            // the phone asks the translator itself; the computer when it does not answer
+                            val own = runCatching { withContext(Dispatchers.IO) { Independent.translate(ly.lines.map { it.text }, "ru") } }.getOrNull()
+                            if (own != null) translated = own
+                            else {
+                                val d = app.link.rpc("translate", JSONObject().put("track", t.id).put("lines", lines).put("to", "ru"), waitMs = 60_000).getJSONArray("data")
+                                translated = (0 until d.length()).map { d.optString(it) }
+                            }
                         }
                         translating = false
                     }

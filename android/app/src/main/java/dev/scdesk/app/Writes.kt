@@ -9,6 +9,22 @@ import org.json.JSONObject
  * computer, if it is connected, does the same through its own browser session. The call has the shape of `Link.rpc`.
  */
 object Writes {
+    /** «Лайкнуть всё»: from the last song to the first (the likes list shows the newest first). The phone itself; the computer for the rest when SoundCloud refuses. */
+    suspend fun likeMany(app: App, ids: List<Long>) {
+        val order = ids.reversed()
+        var done = 0
+        for (id in order) {
+            val ok = runCatching { withContext(Dispatchers.IO) { app.api.likeTrack(id, true) } }.isSuccess
+            if (!ok) break
+            done++
+            kotlinx.coroutines.delay(120)
+        }
+        if (done == order.size) return
+        if (!app.store.linked) throw java.io.IOException("SoundCloud отказал, нужен подключённый компьютер")
+        // the rest, in the same order, by the computer (it reverses a list itself: give it the first ones)
+        app.link.rpc("likes_many", JSONObject().put("tracks", org.json.JSONArray(order.drop(done).reversed())), waitMs = 300_000)
+    }
+
     suspend fun call(app: App, op: String, args: JSONObject): JSONObject {
         val direct = runCatching {
             withContext(Dispatchers.IO) {
