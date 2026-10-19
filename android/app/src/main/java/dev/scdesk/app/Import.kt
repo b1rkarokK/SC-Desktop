@@ -135,3 +135,33 @@ internal fun PendingLikes(app: App, account: Int) {
         note?.let { Text(it, color = C.faint, fontSize = 12.sp) }
     }
 }
+
+/** «Новый плейлист» of the likes list: a name, and the computer makes it (it holds the session that writes to SoundCloud). */
+@Composable
+internal fun NewPlaylist(app: App) {
+    val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Text(if (open) "Скрыть" else "＋ Новый плейлист", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable { open = !open }.padding(vertical = 6.dp))
+        if (!open) return@Column
+        if (!app.store.linked) { Text("Нужен подключённый компьютер: плейлисты меняет он.", color = C.muted, fontSize = 13.sp); return@Column }
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.panel2).padding(horizontal = 14.dp, vertical = 12.dp)) {
+            if (name.isEmpty()) Text("Название плейлиста", color = C.faint, fontSize = 14.sp)
+            BasicTextField(name, { name = it }, singleLine = true, textStyle = TextStyle(color = C.text, fontSize = 14.sp), cursorBrush = SolidColor(C.accent), modifier = Modifier.fillMaxWidth())
+        }
+        Spacer(Modifier.height(8.dp))
+        BigButton(if (busy) "Создаём…" else "Создать", false) {
+            if (busy || name.isBlank()) return@BigButton
+            busy = true
+            scope.launch {
+                runCatching { app.link.rpc("pl_create", JSONObject().put("title", name.trim())) }
+                    .onSuccess { android.widget.Toast.makeText(ctx, L.t("Плейлист «{0}» создан").replace("{0}", name.trim()), android.widget.Toast.LENGTH_SHORT).show(); name = ""; open = false }
+                    .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
+                busy = false
+            }
+        }
+    }
+}

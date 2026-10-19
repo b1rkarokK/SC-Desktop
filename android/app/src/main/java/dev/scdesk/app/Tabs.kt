@@ -51,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** A list of tracks opened over the tabs (a mix, a playlist, the uploads of an artist). */
-data class Opened(val title: String, val artist: Artist? = null, val load: () -> List<Track>)
+data class Opened(val title: String, val artist: Artist? = null, val playlistId: Long? = null, val load: () -> List<Track>)
 
 @Composable
 internal fun Chip(text: String, on: Boolean, onClick: () -> Unit) {
@@ -295,11 +295,11 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                         }) { play(visible, i) }
                     }
                 }
-                1 -> { item { ImportPlaylist(app) }; items(playlists ?: emptyList(), key = { it.id }) { c ->
+                1 -> { item { NewPlaylist(app) }; item { ImportPlaylist(app) }; items(playlists ?: emptyList(), key = { it.id }) { c ->
                     var askDelete by remember { mutableStateOf(false) }
                     val ctxP = androidx.compose.ui.platform.LocalContext.current
                     if (askDelete) DeletePlaylist(app, c.id, c.title, onClose = { askDelete = false }) { playlists = playlists?.filter { it.id != c.id } }
-                    Row(Modifier.fillMaxWidth().combinedClickable(onClick = { open(Opened(c.title) { app.api.playlistTracks(c.id) }) }, onLongClick = { if (app.store.linked) askDelete = true else android.widget.Toast.makeText(ctxP, L.t("Нужен подключённый компьютер: плейлисты меняет он."), android.widget.Toast.LENGTH_SHORT).show() }).padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().combinedClickable(onClick = { open(Opened(c.title, null, c.id) { app.api.playlistTracks(c.id) }) }, onLongClick = { if (app.store.linked) askDelete = true else android.widget.Toast.makeText(ctxP, L.t("Нужен подключённый компьютер: плейлисты меняет он."), android.widget.Toast.LENGTH_SHORT).show() }).padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(c.artwork, 56.dp, 10.dp)
                         Column(Modifier.padding(start = 14.dp).weight(1f)) {
                             Text(c.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -432,6 +432,8 @@ private fun WaveLabel(text: String) {
 internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (List<Track>, Int) -> Unit, onClose: () -> Unit) {
     var tracks by remember(opened) { mutableStateOf<List<Track>?>(null) }
     var failed by remember(opened) { mutableStateOf<String?>(null) }
+    var actionsFor by remember { mutableStateOf<Track?>(null) }
+    actionsFor?.let { tr -> TrackActions(app, tr, false, fromPlaylist = opened.playlistId, onRemoved = { tracks = tracks?.filter { it.id != tr.id } }) { actionsFor = null } }
     LaunchedEffect(opened) {
         try {
             tracks = withContext(Dispatchers.IO) { opened.load() }
@@ -489,7 +491,7 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
                 },
             )
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
-                itemsIndexed(list, key = { _, t -> t.id }) { i, t -> TrackRow(t, shown.track?.id == t.id) { play(list, i) } }
+                itemsIndexed(list, key = { _, t -> t.id }) { i, t -> TrackRow(t, shown.track?.id == t.id, onLong = { actionsFor = t }) { play(list, i) } }
             }
         }
     }

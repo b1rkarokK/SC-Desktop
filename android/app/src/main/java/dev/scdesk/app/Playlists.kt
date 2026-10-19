@@ -150,7 +150,7 @@ internal fun DeletePlaylist(app: App, id: Long, title: String, onClose: () -> Un
  * When the music plays on the computer, the queue is the computer's.
  */
 @Composable
-internal fun TrackActions(app: App, t: Track, onComputer: Boolean, onClose: () -> Unit) {
+internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist: Long? = null, onRemoved: () -> Unit = {}, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var picker by remember { mutableStateOf(0) } // 1 own playlists, 2 shared ones
@@ -197,6 +197,14 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, onClose: () -
             }
             onClose()
         },
+        "Убрать из этого плейлиста" to {
+            scope.launch {
+                runCatching { app.link.rpc("pl_remove", JSONObject().put("playlist", fromPlaylist ?: 0L).put("track", t.id)) }
+                    .onSuccess { onRemoved(); toast("Убрано из плейлиста") }
+                    .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
+            }
+            onClose()
+        },
         "Убрать из лайков" to {
             scope.launch { runCatching { app.link.rpc("like", JSONObject().put("track", t.id).put("on", false)) } }
             toast("Убрано из лайков"); onClose()
@@ -207,7 +215,7 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, onClose: () -
             Text(t.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(horizontal = 20.dp))
             Text(t.artist, color = C.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                items.forEach { (label, act) -> Text(label, color = C.text, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().pressable(act).padding(horizontal = 20.dp, vertical = 13.dp)) }
+                items.filter { it.first != "Убрать из этого плейлиста" || (fromPlaylist != null && app.store.linked) }.forEach { (label, act) -> Text(label, color = C.text, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().pressable(act).padding(horizontal = 20.dp, vertical = 13.dp)) }
             }
         }
     }

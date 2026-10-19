@@ -277,7 +277,7 @@ export class EqPopover {
   private drawCurve(): void {
     const pts = this.eq.gains.map((g, i) => {
       const db = Math.max(-12, Math.min(12, g + this.eq.preamp));
-      return [(i + 0.5) * 10, 20 - (db / 12) * 18] as const;
+      return [(i / 9) * 100, 20 - (db / 12) * 18] as const;
     });
     // Catmull-Rom through the points, as cubic pieces
     let d = `M ${pts[0]![0]} ${pts[0]![1].toFixed(2)}`;

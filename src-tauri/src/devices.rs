@@ -361,6 +361,10 @@ impl Devices {
                 c::playlist_add_track(app.clone(), app.state(), args["playlist"].as_u64().unwrap_or(0), args["track"].as_u64().unwrap_or(0)).await?;
                 Value::Null
             }
+            "pl_remove" => {
+                c::playlist_remove_track(app.clone(), app.state(), args["playlist"].as_u64().unwrap_or(0), args["track"].as_u64().unwrap_or(0)).await?;
+                Value::Null
+            }
             "pl_create" => {
                 c::playlist_create(app.clone(), app.state(), text("title"), args["track"].as_u64()).await?;
                 Value::Null

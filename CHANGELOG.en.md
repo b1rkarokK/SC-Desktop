@@ -3,6 +3,11 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.8] - 2026-10-20
+
+- Equalizer: the graph above the bands no longer breaks the layout (the bands are across the whole width again, the labels do not run together).
+- Phone, playlists: a long press on any song in any list and inside a playlist opens a menu (queue, playlist, link, download and more), your own playlist has "Remove from this playlist", and "Likes, Playlists" has "New playlist".
+
 ## [1.4.7] - 2026-10-20
 
 - Phone: screens (settings and others) no longer shrink when a spot that is not a button is pressed.

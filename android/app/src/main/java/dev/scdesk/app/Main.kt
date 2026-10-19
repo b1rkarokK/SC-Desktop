@@ -329,8 +329,12 @@ internal fun Head(title: String, trailing: @Composable () -> Unit = {}) {
 @Composable
 internal fun TrackRow(t: Track, current: Boolean, trailing: (@Composable () -> Unit)? = null, onLong: (() -> Unit)? = null, onClick: () -> Unit) {
     val pad = when (C.density) { 0 -> 3.dp; 2 -> 11.dp; else -> 7.dp }
+    // a long press anywhere opens the menu of the song, unless the screen has its own
+    var auto by remember { mutableStateOf(false) }
+    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext as? App
+    if (auto && appCtx != null) TrackActions(appCtx, t, false) { auto = false }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)).background(if (current) C.panel else androidx.compose.ui.graphics.Color.Transparent).pressableLong(onClick, onLong).padding(horizontal = 12.dp, vertical = pad),
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)).background(if (current) C.panel else androidx.compose.ui.graphics.Color.Transparent).pressableLong(onClick, onLong ?: { auto = true }).padding(horizontal = 12.dp, vertical = pad),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Cover(t.artwork, if (C.density == 0) 42.dp else 48.dp, 8.dp)
@@ -430,7 +434,7 @@ private fun SearchTab(app: App, shown: Shown, play: (List<Track>, Int) -> Unit, 
                 if (kind == 0) item { SectionHead("Плейлисты") }
                 items(pl.size, key = { "p" + pl[it].id }) { k ->
                     val c = pl[k]
-                    Row(Modifier.fillMaxWidth().pressable { open(Opened(c.title) { app.api.playlistTracks(c.id) }) }.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().pressable { open(Opened(c.title, null, c.id) { app.api.playlistTracks(c.id) }) }.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(c.artwork, 56.dp, 10.dp)
                         Column(Modifier.padding(start = 14.dp).weight(1f)) {
                             Text(c.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)

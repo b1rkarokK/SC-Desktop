@@ -4934,8 +4934,11 @@ body.is-reordering, body.is-reordering * { cursor: grabbing !important; user-sel
 
 /* equalizer: the line of the sound over the bands */
 .eq-curve {
+  grid-column: 2;
   height: 52px;
-  margin: 4px 22px 0 34px;
+  margin: 4px 0 0;
+  /* the first and the last band are 22 px from the edges: the line starts at their centres */
+  padding: 0 22px;
   border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
 }
 
