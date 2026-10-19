@@ -96,7 +96,7 @@ internal fun SettingsScreen(app: App, onEq: () -> Unit, onUnlinked: () -> Unit, 
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Item("SC Desk ${BuildConfig.VERSION_NAME}", updateMsg ?: "Проверить обновления сейчас", onCheckUpdate)
                 Item("Отчёт об ошибке", "Отправить сведения о приложении и последние строки журнала") { Report.send(ctx) }
-                Toggle("Проверять обновления", "При запуске, не чаще двух раз в день", auto) { auto = it; app.store.autoUpdate = it }
+                Toggle("Проверять обновления", "При каждом открытии приложения, не чаще раза в несколько минут", auto) { auto = it; app.store.autoUpdate = it }
                 Item("Очистить кэш", cleaned ?: "Обложки и сохранённые ответы SoundCloud") {
                     CoverCache.map.evictAll()
                     app.api.forget()

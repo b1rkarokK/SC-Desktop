@@ -60,6 +60,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** A line over the whole app: it is still being made. Set to false when everything is checked. */
+internal const val BETA_NOTE = true
+
+/** The update is looked for at the opening and the unfolding of the app, not more often than this. */
+internal const val UPDATE_EVERY_MS = 3 * 60 * 1000L
+
 private enum class Tab { Home, Search, Wave, Likes, More }
 
 /** The app: the lists of SoundCloud with the player over them; the account and the computer live in «Ещё». */
@@ -116,7 +122,7 @@ fun Root(app: App, pairLink: String? = null) {
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var updateMsg by remember { mutableStateOf<String?>(null) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    // a look at the feed of updates when the app opens (not more often than once an hour), and by hand in «Ещё»
+    // a look at the feed of updates when the app opens or is unfolded (not more often than every few minutes), and by hand in «Ещё»
     val checkUpdate: (Boolean) -> Unit = { manual ->
         scope.launch {
             try {
@@ -129,8 +135,14 @@ fun Root(app: App, pairLink: String? = null) {
             }
         }
     }
-    LaunchedEffect(Unit) {
-        if (app.store.autoUpdate && System.currentTimeMillis() - app.store.updateCheckedAt > 3600 * 1000L) checkUpdate(false)
+    fun dueForUpdate() = app.store.autoUpdate && System.currentTimeMillis() - app.store.updateCheckedAt > UPDATE_EVERY_MS
+    LaunchedEffect(Unit) { if (dueForUpdate()) checkUpdate(false) }
+    // the app is unfolded again (it was only folded): look again, the check is one small request
+    androidx.compose.runtime.DisposableEffect(ctx) {
+        val lifecycle = (ctx as? androidx.activity.ComponentActivity)?.lifecycle
+        val watcher = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && dueForUpdate()) checkUpdate(false) }
+        lifecycle?.addObserver(watcher)
+        onDispose { lifecycle?.removeObserver(watcher) }
     }
     var login by remember { mutableStateOf(false) }
     /** bumped when the account changes: the lists load again */
@@ -218,6 +230,11 @@ fun Root(app: App, pairLink: String? = null) {
 
     Box(Modifier.fillMaxSize().background(C.bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            if (BETA_NOTE) Text(
+                "Приложение ещё дорабатывается: функции переносятся с компьютера, что-то может не работать",
+                color = C.muted, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().background(C.panel).padding(horizontal = 12.dp, vertical = 4.dp),
+            )
             room?.let { r ->
                 Row(Modifier.fillMaxWidth().background(C.warm).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     SIcon("rooms", C.accent)
