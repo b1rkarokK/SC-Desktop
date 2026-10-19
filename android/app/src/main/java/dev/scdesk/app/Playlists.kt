@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** A playlist of the user: its number, name and how many tracks it holds. */
@@ -66,7 +67,7 @@ internal fun PlaylistPicker(app: App, track: Track, shared: Boolean = false, onC
     Box(Modifier.fillMaxSize().background(Color(0xAA000000)).pressable(onClose)) {
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel)
-                .pressable { }.navigationBarsPadding().padding(top = 16.dp, bottom = 12.dp),
+                .consumeTaps().navigationBarsPadding().padding(top = 16.dp, bottom = 12.dp),
         ) {
             Text(if (shared) "В общий плейлист" else "В плейлист", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp))
             Text(track.title, color = C.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
@@ -139,6 +140,74 @@ internal fun DeletePlaylist(app: App, id: Long, title: String, onClose: () -> Un
                             .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show(); busy = false }
                     }
                 }.padding(12.dp))
+            }
+        }
+    }
+}
+
+/**
+ * What can be done with a song of a list (a long press on it): the queue, a playlist, a link, the download, the likes.
+ * When the music plays on the computer, the queue is the computer's.
+ */
+@Composable
+internal fun TrackActions(app: App, t: Track, onComputer: Boolean, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var picker by remember { mutableStateOf(0) } // 1 own playlists, 2 shared ones
+    fun toast(s: String) = android.widget.Toast.makeText(ctx, L.t(s), android.widget.Toast.LENGTH_SHORT).show()
+    if (picker != 0) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            PlaylistPicker(app, t, shared = picker == 2) { onClose() }
+        }
+        return
+    }
+    val have = Downloads.localFile(t.id) != null
+    val items = listOf<Pair<String, () -> Unit>>(
+        "Играть следующим" to {
+            if (onComputer) scope.launch { runCatching { app.link.rpc("enqueue", JSONObject().put("track", t.id).put("next", true)) } } else app.engine.insertNext(t)
+            toast("Сыграет следующим"); onClose()
+        },
+        "В конец очереди" to {
+            if (onComputer) scope.launch { runCatching { app.link.rpc("enqueue", JSONObject().put("track", t.id).put("next", false)) } } else app.engine.append(listOf(t))
+            toast("Добавлено в конец очереди"); onClose()
+        },
+        "Добавить в плейлист…" to { picker = 1 },
+        "В общий плейлист…" to { picker = 2 },
+        "Поделиться ссылкой" to {
+            scope.launch {
+                val url = withContext(kotlinx.coroutines.Dispatchers.IO) { app.api.permalink(t.id) }
+                if (url == null) toast("Не получилось")
+                else ctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, url), null).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            onClose()
+        },
+        "Открыть на SoundCloud" to {
+            scope.launch {
+                val url = withContext(kotlinx.coroutines.Dispatchers.IO) { app.api.permalink(t.id) }
+                if (url == null) toast("Не получилось")
+                else ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            onClose()
+        },
+        (if (have) "Удалить из скачанного" else "Скачать для офлайна") to {
+            if (have) Downloads.remove(app, t.id)
+            else scope.launch {
+                val msg = withContext(kotlinx.coroutines.Dispatchers.IO) { try { Downloads.save(ctx, app, t); "Скачано: ${t.title}" } catch (e: Exception) { e.message ?: "Не вышло скачать" } }
+                android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
+            }
+            onClose()
+        },
+        "Убрать из лайков" to {
+            scope.launch { runCatching { app.link.rpc("like", JSONObject().put("track", t.id).put("on", false)) } }
+            toast("Убрано из лайков"); onClose()
+        },
+    )
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        Column(Modifier.clip(RoundedCornerShape(20.dp)).background(C.panel).padding(vertical = 14.dp)) {
+            Text(t.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(horizontal = 20.dp))
+            Text(t.artist, color = C.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                items.forEach { (label, act) -> Text(label, color = C.text, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().pressable(act).padding(horizontal = 20.dp, vertical = 13.dp)) }
             }
         }
     }

@@ -111,7 +111,7 @@ fun ScanScreen(app: App, initial: String?, onBack: (() -> Unit)? = null, onLogin
     }
     LaunchedEffect(initial) { initial?.let(::begin) }
 
-    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().padding(16.dp).pressable { }) {
+    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().padding(16.dp).consumeTaps()) {
         Row(Modifier.padding(top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) Box(Modifier.size(44.dp).pressable(onBack), contentAlignment = Alignment.CenterStart) { Icon(Ico.Back, 26.dp) }
             Text("Вход по QR-коду", color = C.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
@@ -457,7 +457,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
         if (pickShared) PlaylistPicker(app, t, shared = true) { pickShared = false }
         queue?.let { (list, current, ats) ->
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xAA000000)).pressable { queue = null }) {
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(480.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel).pressable { }.navigationBarsPadding().padding(top = 16.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(480.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel).consumeTaps().navigationBarsPadding().padding(top = 16.dp)) {
                     Text(if (ats != null) "Очередь на компьютере" else "Очередь", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
                     if (list.isEmpty()) Text("В очереди пусто", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(start = 20.dp))
                     val st = androidx.compose.foundation.lazy.rememberLazyListState(maxOf(current - 1, 0))
@@ -484,7 +484,7 @@ internal fun DevicesPanel(app: App, shown: Shown, onClose: () -> Unit, onLinkPc:
     Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xAA000000)).pressable(onClose)) {
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel)
-                .pressable { }.navigationBarsPadding().padding(20.dp),
+                .consumeTaps().navigationBarsPadding().padding(20.dp),
         ) {
             Text("Управлять", color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 14.dp))
             DeviceRow("Этот телефон", app.store.deviceName, Ico.Phone, remote == null, true) {

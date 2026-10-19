@@ -35,16 +35,30 @@ object L {
         }.sortedByDescending { it.first.pattern.length }
     }
 
+    private val seen = HashMap<String, String>()
+
     fun t(s: String): String {
         if (lang != "en" || s.isEmpty()) return s
         plain[s]?.let { return it }
-        for ((rx, v) in patterns) {
-            val m = rx.find(s) ?: continue
-            var out = v
-            m.groupValues.drop(1).forEachIndexed { i, g -> out = out.replace("{$i}", g) }
-            return out
+        // a long text (the notes of a version, a line of lyrics) is never one of the short texts with a hole in it
+        if (s.length > 160) return s
+        seen[s]?.let { return it }
+        val out = try {
+            var res = s
+            for ((rx, v) in patterns) {
+                val m = rx.find(s) ?: continue
+                var o = v
+                m.groupValues.drop(1).forEachIndexed { i, g -> o = o.replace("{$i}", g) }
+                res = o
+                break
+            }
+            res
+        } catch (e: Throwable) {
+            s
         }
-        return s
+        if (seen.size > 600) seen.clear()
+        seen[s] = out
+        return out
     }
 
     /** The language the phone is set to, as the first choice. */

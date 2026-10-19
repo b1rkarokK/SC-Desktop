@@ -173,7 +173,7 @@ internal fun RoomsScreen(app: App, onBack: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().pressable { }) {
+    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().consumeTaps()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).pressable(onBack), contentAlignment = Alignment.Center) { Icon(Ico.Back, 26.dp) }
             Text("Комнаты", color = C.text, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))

@@ -3,6 +3,12 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.7] - 2026-10-20
+
+- Phone: screens (settings and others) no longer shrink when a spot that is not a button is pressed.
+- Phone: the English language should no longer crash the app (the translation is protected from a failure on long texts).
+- Phone: a long press on a song in "Likes" opens a menu: play next, to the end of the queue, to a playlist, to a shared playlist, share a link, open on SoundCloud, download, remove from likes.
+
 ## [1.4.6] - 2026-10-19
 
 - Rooms: on entering, the program waits for the host for 7 seconds instead of 2.5. With a slow connection a newcomer used to miss the host, declare itself a second host of an "empty" room with the old saved queue, and the two stopped seeing each other. Cases with two hosts and unreadable messages are written to the log, to find the cause.

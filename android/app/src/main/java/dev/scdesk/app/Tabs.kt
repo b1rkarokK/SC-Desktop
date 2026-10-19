@@ -190,6 +190,8 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
     var playlists by remember(account) { mutableStateOf<List<Card>?>(null) }
     var artists by remember(account) { mutableStateOf<List<Artist>?>(null) }
     val signedIn = app.store.signedIn
+    var actions by remember { mutableStateOf<Track?>(null) }
+    actions?.let { TrackActions(app, it, remote) { actions = null } }
 
     fun more(first: Boolean = false) {
         if (loading || (!first && next == null)) return
@@ -280,7 +282,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                         }
                     }
                     itemsIndexed(visible, key = { _, t -> t.id }) { i, t ->
-                        TrackRow(t, shown.track?.id == t.id, trailing = {
+                        TrackRow(t, shown.track?.id == t.id, onLong = { actions = t }, trailing = {
                             if (app.rooms.state.value != null) Box(Modifier.size(40.dp).pressable {
                                 // in a room the plus puts the track into its queue
                                 scope.launch { runCatching { app.link.rpc("room_enqueue", org.json.JSONObject().put("track", t.id)) } }
@@ -437,7 +439,7 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
             failed = "Не получилось загрузить: ${e.message}"
         }
     }
-    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().pressable { }) {
+    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().consumeTaps()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).pressable(onClose), contentAlignment = Alignment.Center) { Icon(Ico.Back, 26.dp) }
             Text(opened.title, color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

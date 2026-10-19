@@ -327,10 +327,10 @@ internal fun Head(title: String, trailing: @Composable () -> Unit = {}) {
 }
 
 @Composable
-internal fun TrackRow(t: Track, current: Boolean, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
+internal fun TrackRow(t: Track, current: Boolean, trailing: (@Composable () -> Unit)? = null, onLong: (() -> Unit)? = null, onClick: () -> Unit) {
     val pad = when (C.density) { 0 -> 3.dp; 2 -> 11.dp; else -> 7.dp }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)).background(if (current) C.panel else androidx.compose.ui.graphics.Color.Transparent).pressable(onClick).padding(horizontal = 12.dp, vertical = pad),
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)).background(if (current) C.panel else androidx.compose.ui.graphics.Color.Transparent).pressableLong(onClick, onLong).padding(horizontal = 12.dp, vertical = pad),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Cover(t.artwork, if (C.density == 0) 42.dp else 48.dp, 8.dp)

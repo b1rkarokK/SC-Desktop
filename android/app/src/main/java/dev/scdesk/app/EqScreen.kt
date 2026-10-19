@@ -39,7 +39,7 @@ internal fun EqScreen(app: App, onClose: () -> Unit) {
         state = s
         app.eq.set(s)
     }
-    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().pressable { }) {
+    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().consumeTaps()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).pressable(onClose), contentAlignment = Alignment.Center) { Icon(Ico.Back, 26.dp) }
             Text("Эквалайзер", color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))

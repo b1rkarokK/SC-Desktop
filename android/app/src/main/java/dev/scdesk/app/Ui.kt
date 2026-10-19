@@ -28,6 +28,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -133,6 +136,18 @@ fun SCTheme(content: @Composable () -> Unit) {
  * A press makes the button a little smaller and darker and lets it go back at once, with a spring: the same on
  * every button of the player and of the lists.
  */
+/** Swallows the touches (a screen over another one), with no shrinking and no click. */
+fun Modifier.consumeTaps(): Modifier = this.pointerInput(Unit) { detectTapGestures { } }
+
+/** The same press as `pressable`, and a long press too. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun Modifier.pressableLong(onClick: () -> Unit, onLong: (() -> Unit)?): Modifier = if (onLong == null) pressable(onClick) else composed {
+    val src = remember { MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed && C.anim) 0.96f else 1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium), label = "pressLong")
+    this.graphicsLayer { scaleX = scale; scaleY = scale }.combinedClickable(interactionSource = src, indication = null, onClick = onClick, onLongClick = onLong)
+}
+
 fun Modifier.pressable(onClick: () -> Unit): Modifier = if (!C.anim) this.composed { clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick) } else composed {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()

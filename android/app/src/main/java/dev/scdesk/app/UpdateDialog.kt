@@ -60,7 +60,7 @@ internal fun UpdateDialog(u: UpdateInfo, ctx: Context, onLater: () -> Unit) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color(0xAA000000)).pressable { }, contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(Color(0xAA000000)).consumeTaps(), contentAlignment = Alignment.Center) {
         Column(Modifier.padding(24.dp).fillMaxWidth().clip(shape).background(C.panel).border(1.dp, C.border, shape).padding(22.dp)) {
             Text("Доступна версия ${u.versionName}", color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text("Что нового", color = C.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))

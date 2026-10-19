@@ -85,7 +85,7 @@ private fun PageHead(title: String, onBack: () -> Unit) {
 
 @Composable
 internal fun Page(onBack: () -> Unit, title: String, content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().pressable { }) {
+    Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().consumeTaps()) {
         PageHead(title, onBack)
         content()
     }
