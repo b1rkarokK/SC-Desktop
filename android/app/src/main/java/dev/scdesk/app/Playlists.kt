@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,14 +34,14 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /** A playlist of the user: its number, name and how many tracks it holds. */
-private data class MyList(val id: Long, val title: String, val n: Int)
+private data class MyList(val id: Long, val title: String, val n: Int, val channel: String = "")
 
 /**
  * «Добавить в плейлист»: the user's own playlists (the computer lists them and does the writing, it holds the session
  * that writes to SoundCloud), a new playlist with this track in it, or a click on a playlist to put the track into it.
  */
 @Composable
-internal fun PlaylistPicker(app: App, track: Track, onClose: () -> Unit) {
+internal fun PlaylistPicker(app: App, track: Track, shared: Boolean = false, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var lists by remember { mutableStateOf<List<MyList>?>(null) }
@@ -54,8 +53,13 @@ internal fun PlaylistPicker(app: App, track: Track, onClose: () -> Unit) {
 
     LaunchedEffect(Unit) {
         if (!app.store.linked) { note = "Нужен подключённый компьютер: плейлисты меняет он."; lists = emptyList(); return@LaunchedEffect }
-        runCatching { app.link.rpc("my_playlists").getJSONArray("data") }
-            .onSuccess { a -> lists = (0 until a.length()).map { a.getJSONObject(it) }.map { MyList(it.getLong("id"), it.optString("title"), it.optInt("n")) } }
+        runCatching { app.link.rpc(if (shared) "sp_list" else "my_playlists").getJSONArray("data") }
+            .onSuccess { a ->
+                val objs = (0 until a.length()).map { a.getJSONObject(it) }
+                // shared playlists: only those the user may add to
+                lists = if (shared) objs.filter { it.optBoolean("can_edit") }.map { MyList(0, it.optString("title"), it.optInt("count"), it.optString("channel")) }
+                else objs.map { MyList(it.getLong("id"), it.optString("title"), it.optInt("n")) }
+            }
             .onFailure { lists = emptyList(); note = "Не получилось: ${it.message}" }
     }
 
@@ -64,7 +68,7 @@ internal fun PlaylistPicker(app: App, track: Track, onClose: () -> Unit) {
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel)
                 .pressable { }.navigationBarsPadding().padding(top = 16.dp, bottom = 12.dp),
         ) {
-            Text("В плейлист", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp))
+            Text(if (shared) "В общий плейлист" else "В плейлист", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp))
             Text(track.title, color = C.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
             note?.let { Text(it, color = C.accent, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
@@ -84,7 +88,7 @@ internal fun PlaylistPicker(app: App, track: Track, onClose: () -> Unit) {
                             }
                         }.padding(vertical = 10.dp))
                     }
-                } else if (app.store.linked) {
+                } else if (app.store.linked && !shared) {
                     Text("＋ Новый плейлист", color = C.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().pressable { creating = true }.padding(horizontal = 20.dp, vertical = 12.dp))
                 }
                 when (val l = lists) {
@@ -94,7 +98,7 @@ internal fun PlaylistPicker(app: App, track: Track, onClose: () -> Unit) {
                             if (busy) return@pressable
                             busy = true
                             scope.launch {
-                                runCatching { app.link.rpc("pl_add", JSONObject().put("playlist", p.id).put("track", track.id)) }
+                                runCatching { if (shared) app.link.rpc("sp_add", JSONObject().put("channel", p.channel).put("track", track.id)) else app.link.rpc("pl_add", JSONObject().put("playlist", p.id).put("track", track.id)) }
                                     .onSuccess { toast("Добавлено в «${p.title}»"); onClose() }
                                     .onFailure { note = it.message ?: "Не вышло"; busy = false }
                             }
@@ -106,6 +110,36 @@ internal fun PlaylistPicker(app: App, track: Track, onClose: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(4.dp))
+        }
+    }
+}
+
+/**
+ * «Удалить плейлист»: asked first (a long press on the playlist). The computer deletes it; a playlist that is not the
+ * user's own (a liked one) cannot be deleted, the computer says so.
+ */
+@Composable
+internal fun DeletePlaylist(app: App, id: Long, title: String, onClose: () -> Unit, onDeleted: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var busy by remember { mutableStateOf(false) }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        Column(Modifier.clip(RoundedCornerShape(20.dp)).background(C.panel).padding(20.dp)) {
+            Text("Удалить плейлист?", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text("«$title» будет удалён из вашего аккаунта SoundCloud.", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp, bottom = 14.dp))
+            Row {
+                Text("Отмена", color = C.muted, fontSize = 15.sp, modifier = Modifier.pressable(onClose).padding(12.dp))
+                Spacer(Modifier.weight(1f))
+                Text(if (busy) "Удаляем…" else "Удалить", color = C.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
+                    if (busy) return@pressable
+                    busy = true
+                    scope.launch {
+                        runCatching { app.link.rpc("pl_delete", JSONObject().put("playlist", id)) }
+                            .onSuccess { onDeleted(); onClose() }
+                            .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show(); busy = false }
+                    }
+                }.padding(12.dp))
+            }
         }
     }
 }

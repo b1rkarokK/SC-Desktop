@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -85,8 +84,6 @@ internal fun SettingsScreen(app: App, onEq: () -> Unit, onUnlinked: () -> Unit, 
                 Segments(listOf("1 ГБ", "2 ГБ", "5 ГБ", "10 ГБ"), listOf(1, 2, 5, 10).indexOf(gb).coerceAtLeast(0)) { gb = listOf(1, 2, 5, 10)[it]; app.store.downloadLimitGb = gb }
                 var wifi by remember { mutableStateOf(app.store.downloadWifiOnly) }
                 Toggle("Только по Wi-Fi", "«Скачать все» не тратит мобильный интернет", wifi) { wifi = it; app.store.downloadWifiOnly = it }
-                var counted by remember { mutableStateOf(app.store.statsAnon) }
-                Toggle("Считать меня в общей статистике", "Раз в сутки приложение отправляет разработчику случайный номер установки, версию и систему. Без имени, аккаунта и того, что вы слушаете.", counted) { counted = it; app.store.statsAnon = it }
                 Text("Качество: как у потока SoundCloud (AAC, если он есть, иначе MP3). Занято: ${fmtSize(Downloads.usedBytes())}.", color = C.faint, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
                 Spacer(Modifier.height(16.dp))
                 BigButton("Открыть скачанное", false) { onPage("downloads") }
@@ -98,6 +95,7 @@ internal fun SettingsScreen(app: App, onEq: () -> Unit, onUnlinked: () -> Unit, 
             var cleaned by remember { mutableStateOf<String?>(null) }
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Item("SC Desk ${BuildConfig.VERSION_NAME}", updateMsg ?: "Проверить обновления сейчас", onCheckUpdate)
+                Item("Отчёт об ошибке", "Отправить сведения о приложении и последние строки журнала") { Report.send(ctx) }
                 Toggle("Проверять обновления", "При запуске, не чаще двух раз в день", auto) { auto = it; app.store.autoUpdate = it }
                 Item("Очистить кэш", cleaned ?: "Обложки и сохранённые ответы SoundCloud") {
                     CoverCache.map.evictAll()
@@ -111,6 +109,9 @@ internal fun SettingsScreen(app: App, onEq: () -> Unit, onUnlinked: () -> Unit, 
                     app.store.linkChan = ""; app.store.linkKey = ""; app.store.pcDev = ""; app.store.pcName = ""
                     onUnlinked()
                 }
+                // the anonymous count of users: a quiet line at the very bottom
+                var counted by remember { mutableStateOf(app.store.statsAnon) }
+                Toggle("Анонимная статистика", "случайный номер, версия, система; раз в сутки", counted) { counted = it; app.store.statsAnon = it }
             }
         }
     }
@@ -273,6 +274,8 @@ private fun Appearance(app: App, onBack: () -> Unit) {
     var anim by remember { mutableStateOf(app.store.animations) }
     Page(onBack, "Внешний вид") {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding()) {
+            Label("ЯЗЫК / LANGUAGE")
+            Segments(listOf("Русский", "English"), if (L.lang == "en") 1 else 0) { val v = if (it == 1) "en" else "ru"; L.lang = v; app.store.lang = v }
             Label("ТЕМА")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf("Тёплая", "OLED", "Светлая").forEachIndexed { i, name ->

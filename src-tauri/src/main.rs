@@ -422,6 +422,7 @@ fn main() {
             commands::friends_listening,
             commands::friends_share_set,
             commands::stats_set,
+            commands::window_corners,
             commands::autopause_get,
             commands::autopause_set,
             commands::backup_export,

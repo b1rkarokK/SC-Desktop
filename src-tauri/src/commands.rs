@@ -2187,6 +2187,26 @@ pub struct SystemPrefs {
     stats_anon: bool,
 }
 
+/// The corners of the program's window itself (the rest of the roundness is drawn by the style sheet): Windows 11 rounds
+/// a window by its own rule and lets only three choices through. "sharp" takes the rounding away, anything else keeps
+/// the usual one of the system.
+#[tauri::command]
+pub fn window_corners(app: AppHandle, sharp: bool) {
+    #[cfg(windows)]
+    if let Some(w) = app.get_webview_window("main") {
+        if let Ok(hwnd) = w.hwnd() {
+            // DWMWA_WINDOW_CORNER_PREFERENCE = 33; 1 = do not round, 2 = round
+            let pref: i32 = if sharp { 1 } else { 2 };
+            // SAFETY: a valid window of this process and a four-byte value of the size the call is told
+            unsafe {
+                windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(hwnd.0 as _, 33, &pref as *const i32 as *const _, 4);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (app, sharp);
+}
+
 /// «Уведомлять о новых треках подписок».
 #[tauri::command]
 pub fn news_set(state: State<'_, AppState>, enabled: bool) -> Cmd<()> {

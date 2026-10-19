@@ -1,6 +1,9 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package dev.scdesk.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +27,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** A list of tracks opened over the tabs (a mix, a playlist, the uploads of an artist). */
-data class Opened(val title: String, val load: () -> List<Track>)
+data class Opened(val title: String, val artist: Artist? = null, val load: () -> List<Track>)
 
 @Composable
 internal fun Chip(text: String, on: Boolean, onClick: () -> Unit) {
@@ -292,7 +294,10 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                     }
                 }
                 1 -> { item { ImportPlaylist(app) }; items(playlists ?: emptyList(), key = { it.id }) { c ->
-                    Row(Modifier.fillMaxWidth().pressable { open(Opened(c.title) { app.api.playlistTracks(c.id) }) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    var askDelete by remember { mutableStateOf(false) }
+                    val ctxP = androidx.compose.ui.platform.LocalContext.current
+                    if (askDelete) DeletePlaylist(app, c.id, c.title, onClose = { askDelete = false }) { playlists = playlists?.filter { it.id != c.id } }
+                    Row(Modifier.fillMaxWidth().combinedClickable(onClick = { open(Opened(c.title) { app.api.playlistTracks(c.id) }) }, onLongClick = { if (app.store.linked) askDelete = true else android.widget.Toast.makeText(ctxP, L.t("Нужен подключённый компьютер: плейлисты меняет он."), android.widget.Toast.LENGTH_SHORT).show() }).padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(c.artwork, 56.dp, 10.dp)
                         Column(Modifier.padding(start = 14.dp).weight(1f)) {
                             Text(c.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -301,7 +306,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                     }
                 } }
                 else -> items(artists ?: emptyList(), key = { it.id }) { a ->
-                    Row(Modifier.fillMaxWidth().pressable { open(Opened(a.name) { app.api.artistTracks(a.id) }) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().pressable { open(Opened(a.name, a) { app.api.artistTracks(a.id) }) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(a.avatar, 48.dp, 24.dp)
                         Text(a.name, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 14.dp))
                     }
@@ -435,13 +440,52 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
     Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().navigationBarsPadding().pressable { }) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).pressable(onClose), contentAlignment = Alignment.Center) { Icon(Ico.Back, 26.dp) }
-            Text(opened.title, color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(opened.title, color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            // an artist's page: follow, through the computer (it holds the session that writes to SoundCloud)
+            opened.artist?.let { a ->
+                var following by remember(a.id) { mutableStateOf(false) }
+                val scopeF = rememberCoroutineScope()
+                val ctxF = androidx.compose.ui.platform.LocalContext.current
+                Text(
+                    if (following) "Вы подписаны" else "Подписаться", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.pressable {
+                        if (!app.store.linked) { android.widget.Toast.makeText(ctxF, L.t("Нужен подключённый компьютер: подписки отправляет он."), android.widget.Toast.LENGTH_SHORT).show(); return@pressable }
+                        val on = !following
+                        following = on
+                        scopeF.launch {
+                            runCatching { app.link.rpc("follow", org.json.JSONObject().put("id", a.id).put("name", a.name).put("avatar", a.avatar ?: "").put("on", on)) }
+                                .onFailure { following = !on; android.widget.Toast.makeText(ctxF, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
+                        }
+                    }.padding(12.dp),
+                )
+            }
         }
         failed?.let { Text(it, color = C.accent, fontSize = 14.sp, modifier = Modifier.padding(20.dp)) }
         val list = tracks
         if (list == null && failed == null) Text("Загружаем…", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
         if (list != null) {
-            Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { BigButton("Слушать", true) { play(list, 0) } }
+            val scopeC = rememberCoroutineScope()
+            val ctxC = androidx.compose.ui.platform.LocalContext.current
+            var likingAll by remember { mutableStateOf(false) }
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) { BigButton("Слушать", true) { play(list, 0) } }
+                Box(Modifier.weight(1f)) { BigButton("Перемешать", false) { play(list.shuffled(), 0) } }
+            }
+            // every track of the list into the likes (the computer does it, in the order that keeps the list's order)
+            Text(
+                if (likingAll) "Лайкаем…" else "Лайкнуть всё", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).pressable {
+                    if (likingAll) return@pressable
+                    if (!app.store.linked) { android.widget.Toast.makeText(ctxC, L.t("Нужен подключённый компьютер: лайки отправляет он."), android.widget.Toast.LENGTH_SHORT).show(); return@pressable }
+                    likingAll = true
+                    scopeC.launch {
+                        runCatching { app.link.rpc("likes_many", org.json.JSONObject().put("tracks", org.json.JSONArray().also { a -> list.forEach { a.put(it.id) } }), waitMs = 300_000) }
+                            .onSuccess { android.widget.Toast.makeText(ctxC, L.t("Готово"), android.widget.Toast.LENGTH_SHORT).show() }
+                            .onFailure { android.widget.Toast.makeText(ctxC, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
+                        likingAll = false
+                    }
+                },
+            )
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 itemsIndexed(list, key = { _, t -> t.id }) { i, t -> TrackRow(t, shown.track?.id == t.id) { play(list, i) } }
             }

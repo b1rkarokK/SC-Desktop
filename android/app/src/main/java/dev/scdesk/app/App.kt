@@ -47,6 +47,7 @@ class App : Application() {
         C.useCover = store.accentFromCover
         C.density = store.density
         C.corners = store.corners
+        L.lang = store.lang.ifEmpty { L.systemDefault() }
         if (store.customBg != 0 && store.customText != 0) {
             C.customBg = androidx.compose.ui.graphics.Color(store.customBg)
             C.customText = androidx.compose.ui.graphics.Color(store.customText)

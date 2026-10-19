@@ -883,11 +883,6 @@ export class SettingsView implements View {
           toggle(shareListening, (v) => void api.friendsShareSet(v).catch((e) => toast(errorMessage(e), 'error'))),
           T('Видят только ваши друзья, больше никто. Выключено: друзья не увидят, что у вас играет.'),
         ),
-        row(
-          T('Считать меня в общей статистике'),
-          toggle(statsAnon, (v) => void api.statsSet(v).catch((e) => toast(errorMessage(e), 'error'))),
-          T('Раз в сутки программа отправляет разработчику случайный номер установки, версию и систему, чтобы знать, сколько людей ею пользуется. Без имени, аккаунта и того, что вы слушаете.'),
-        ),
         row(T('Пауза во время звонка'), toggle(this.autoPause.call, (v) => this.saveAutoPause({ call: v })), T('Музыка встаёт на паузу, когда другая программа включила микрофон (Discord, Zoom), и продолжается после звонка.')),
         row(T('Пауза в полноэкранной игре'), toggle(this.autoPause.game, (v) => this.saveAutoPause({ game: v })), T('Музыка встаёт на паузу, когда игра открылась на весь экран, и продолжается, когда вы вышли из неё. Выключено: музыка играет и в игре.')),
         row(T('Резервная копия'), h('div', { class: 'row-actions' }, backupBtn, restoreBtn), T('Лайки, история, дизлайки, настройки одним файлом. Вход в SoundCloud не входит в файл.')),
@@ -920,6 +915,14 @@ export class SettingsView implements View {
         row(T('Адрес страницы'), h('div', { class: 'row-actions' }, ovUrl, ovCopy), T('Вид задаётся в адресе: ?size=40 (размер) &color=ffffff (цвет) &cover=0 (без обложки) &next=0 (без следующей строки) &lyrics=0 (без текста) &hide=pause (прятать на паузе).')),
         row(T('Порт страницы'), ovPort),
         row(T('Отчёт об ошибке'), report, T('Файл на рабочем столе: версия, система, настройки сети и конец журнала. Токены, ключи, ссылки подписок и имя пользователя Windows из него вырезаются, его можно отправлять.')),
+        // the anonymous count of users: a quiet line at the bottom (what it sends is told in the README and the notes of the version)
+        h(
+          'div',
+          { class: 'row-actions' },
+          h('span', { class: 'muted small', text: T('Анонимная статистика (случайный номер, версия, система; раз в сутки)') }),
+          h('div', { class: 'spacer' }),
+          toggle(statsAnon, (v) => void api.statsSet(v).catch((e) => toast(errorMessage(e), 'error'))),
+        ),
         h('div', { class: 'row-actions' }, version, h('div', { class: 'spacer' }), check),
       ),
     );

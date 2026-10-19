@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +76,9 @@ internal fun ImportPlaylist(app: App) {
                 scope.launch {
                     runCatching { app.link.rpc("import_run", JSONObject().put("input", input.trim()).put("title", f.first).put("private", false), waitMs = 300_000).getJSONObject("data") }
                         .onSuccess {
-                            note = "Готово: найдено ${it.optInt("found")} из ${it.optInt("total")}" + (if (it.optInt("playlists") > 1) ", плейлистов: ${it.optInt("playlists")}" else "")
+                            val gotN = it.optInt("found")
+                            val allN = it.optInt("total")
+                            note = "Готово: найдено $gotN из $allN"
                             input = ""; found = null
                         }
                         .onFailure { note = "Не вышло: ${it.message}" }

@@ -33,7 +33,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import org.json.JSONArray
 import org.json.JSONObject
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -419,7 +418,7 @@ private fun SearchTab(app: App, shown: Shown, play: (List<Track>, Int) -> Unit, 
                 if (kind == 0) item { SectionHead("Артисты") }
                 items(ar.size, key = { "a" + ar[it].id }) { k ->
                     val a = ar[k]
-                    Row(Modifier.fillMaxWidth().pressable { open(Opened(a.name) { app.api.artistTracks(a.id) }) }.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().pressable { open(Opened(a.name, a) { app.api.artistTracks(a.id) }) }.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(a.avatar, 48.dp, 24.dp)
                         Text(a.name, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 14.dp))
                     }

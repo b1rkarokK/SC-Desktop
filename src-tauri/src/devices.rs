@@ -379,6 +379,30 @@ impl Devices {
                 }
                 Value::Null
             }
+            // follow / unfollow an artist (the computer does it, as with a like)
+            "follow" => {
+                let user = crate::models::UserDto {
+                    id: args["id"].as_u64().unwrap_or(0),
+                    username: text("name"),
+                    avatar_url: args["avatar"].as_str().map(str::to_owned),
+                    followers_count: None,
+                    track_count: None,
+                    city: None,
+                    permalink_url: None,
+                };
+                c::follow_set(app.clone(), app.state(), user, args["on"].as_bool().unwrap_or(true)).await?;
+                Value::Null
+            }
+            // «Лайкнуть всё» on a list shown on the phone: from the last song to the first, as the computer does it
+            "likes_many" => {
+                let ids: Vec<u64> = args["tracks"].as_array().map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+                // only the number of a track matters for a like: the card is fetched when the computer has none
+                let tracks: Vec<TrackDto> = ids
+                    .iter()
+                    .map(|&id| TrackDto { id, title: String::new(), artist: String::new(), user_id: 0, duration_ms: 0, artwork_url: None, permalink_url: None, genre: None })
+                    .collect();
+                json!(c::likes_many(app.clone(), app.state(), tracks).await?)
+            }
             // the likes that SoundCloud has not taken yet, and sending them again
             "likes_pending" => {
                 let list = c::likes_pending(app.state()).await?;

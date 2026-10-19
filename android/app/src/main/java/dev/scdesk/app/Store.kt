@@ -100,6 +100,10 @@ class Store(ctx: Context) {
     var customAccent: Int
         get() = p.getInt("cac", 0)
         set(v) = p.edit().putInt("cac", v).apply()
+    /** the language of the app: "ru" or "en" (empty: not chosen yet, the phone's language decides) */
+    var lang: String
+        get() = p.getString("lang", "") ?: ""
+        set(v) = p.edit().putString("lang", v).apply()
     var density: Int
         get() = p.getInt("dens", 1)
         set(v) = p.edit().putInt("dens", v).apply()

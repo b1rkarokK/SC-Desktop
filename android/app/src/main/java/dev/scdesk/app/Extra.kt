@@ -38,7 +38,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -348,6 +347,8 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
             state = "Не удалось загрузить текст: ${e.message}"
         }
     }
+    var sizeStep by remember { mutableIntStateOf(0) }
+    val lctx = androidx.compose.ui.platform.LocalContext.current
     // a translation of the lines under them (the computer does it, as on its own screen)
     var translated by remember(t.id) { mutableStateOf<List<String>?>(null) }
     var translating by remember(t.id) { mutableStateOf(false) }
@@ -364,6 +365,15 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
         if (ly == null) {
             Text(state, color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
             return@Page
+        }
+        Row(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("A−", color = C.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable { sizeStep = (sizeStep - 1).coerceAtLeast(-2) }.padding(6.dp))
+            Text("A+", color = C.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable { sizeStep = (sizeStep + 1).coerceAtMost(3) }.padding(6.dp))
+            Text("Скопировать текст", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
+                (lctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("lyrics", ly.lines.joinToString("\n") { it.text }))
+                android.widget.Toast.makeText(lctx, L.t("Текст скопирован"), android.widget.Toast.LENGTH_SHORT).show()
+            }.padding(6.dp))
         }
         if (app.store.linked) {
             Text(
@@ -391,7 +401,7 @@ internal fun LyricsScreen(app: App, shown: Shown, t: Track, onBack: () -> Unit) 
             itemsIndexed(ly.lines) { i, l ->
                 val on = !ly.synced || i == current
                 Text(
-                    if (i == current && l.words.isNotEmpty()) LyricsApi.coloured(l, pos, C.text, C.accent, C.faint) else androidx.compose.ui.text.AnnotatedString(l.text.ifEmpty { " " }), color = if (on) C.text else C.faint, fontSize = if (i == current) 24.sp else 20.sp, fontWeight = if (i == current) FontWeight.Bold else FontWeight.Medium,
+                    if (i == current && l.words.isNotEmpty()) LyricsApi.coloured(l, pos, C.text, C.accent, C.faint) else androidx.compose.ui.text.AnnotatedString(l.text.ifEmpty { " " }), color = if (on) C.text else C.faint, fontSize = (if (i == current) 24 else 20).plus(sizeStep * 2).sp, fontWeight = if (i == current) FontWeight.Bold else FontWeight.Medium,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).let { m -> if (ly.synced && remote == null) m.pressable { app.engine.seek(l.atMs) } else m },
                 )
                 translated?.getOrNull(i)?.takeIf { it.isNotBlank() && it != l.text }?.let { Text(it, color = C.muted, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) }

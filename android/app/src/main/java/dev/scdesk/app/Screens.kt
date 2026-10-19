@@ -40,7 +40,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -223,7 +222,7 @@ internal fun MiniPlayer(t: Track, shown: Shown, modifier: Modifier, progress: ()
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(t.title, color = C.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    roomLine ?: if (shown.remote != null) "Играет на ${shown.remote.name.ifEmpty { "компьютере" }}" else t.artist,
+                    roomLine ?: if (shown.remote != null) L.t("Играет на {0}").replace("{0}", L.t(shown.remote.name.ifEmpty { "компьютере" })) else t.artist,
                     color = if (shown.remote != null || roomLine != null) C.accent else C.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -261,6 +260,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
     var queue by remember { mutableStateOf<Triple<List<Track>, Int, List<Int>?>?>(null) }
     var menu by remember { mutableStateOf(false) }
     var pickList by remember { mutableStateOf(false) }
+    var pickShared by remember { mutableStateOf(false) }
     var saveTick by remember { mutableIntStateOf(0) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) { if (app.liked.value.isEmpty() && app.store.linked) runCatching { val a = app.link.rpc("liked").getJSONArray("data"); app.liked.value = (0 until a.length()).map { a.getLong(it) }.toSet() } }
@@ -278,7 +278,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                         Text("${room!!.name} · ${room!!.members.size}", color = C.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 } else Text(
-                    if (remote != null) "Играет на ${remote.name.ifEmpty { "компьютере" }}" else "Играет на этом телефоне",
+                    if (remote != null) L.t("Играет на {0}").replace("{0}", L.t(remote.name.ifEmpty { "компьютере" })) else "Играет на этом телефоне",
                     color = C.muted, fontSize = 13.sp, modifier = Modifier.weight(1f).pressable(onDevices), maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 Box(Modifier.size(44.dp), contentAlignment = Alignment.CenterEnd) {
@@ -308,6 +308,15 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Играть следующим", color = C.text) }, onClick = { toQueue(true) })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("В конец очереди", color = C.text) }, onClick = { toQueue(false) })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Добавить в плейлист…", color = C.text) }, onClick = { menu = false; pickList = true })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("В общий плейлист…", color = C.text) }, onClick = { menu = false; pickShared = true })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Открыть на SoundCloud", color = C.text) }, onClick = {
+                            menu = false
+                            scope.launch {
+                                val url = withContext(Dispatchers.IO) { app.api.permalink(t.id) }
+                                if (url == null) android.widget.Toast.makeText(ctx, L.t("Не получилось"), android.widget.Toast.LENGTH_SHORT).show()
+                                else ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }
+                        })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Искать текст заново", color = C.text) }, onClick = {
                             menu = false
                             scope.launch {
@@ -323,6 +332,21 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                             app.engine.applySpeed(next)
                             menu = false
                         })
+                        // a link to the track, or to the second that plays now, to send to somebody
+                        val share = { withTime: Boolean ->
+                            menu = false
+                            scope.launch {
+                                val url = withContext(Dispatchers.IO) { app.api.permalink(t.id) }
+                                if (url == null) android.widget.Toast.makeText(ctx, L.t("Не получилось"), android.widget.Toast.LENGTH_SHORT).show()
+                                else {
+                                    val link = if (withTime) url + "#t=" + (if (remote != null) remote.posMs else app.engine.position()).div(1000) else url
+                                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, link)
+                                    ctx.startActivity(android.content.Intent.createChooser(send, null).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                }
+                            }
+                        }
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Поделиться ссылкой", color = C.text) }, onClick = { share(false) })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Ссылка с текущей секундой", color = C.text) }, onClick = { share(true) })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Играть на…", color = C.text) }, onClick = { menu = false; onDevices() })
                     }
                 }
@@ -430,6 +454,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
             }
         }
         if (pickList) PlaylistPicker(app, t) { pickList = false }
+        if (pickShared) PlaylistPicker(app, t, shared = true) { pickShared = false }
         queue?.let { (list, current, ats) ->
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xAA000000)).pressable { queue = null }) {
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(480.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel).pressable { }.navigationBarsPadding().padding(top = 16.dp)) {
@@ -498,7 +523,7 @@ internal fun DevicesPanel(app: App, shown: Shown, onClose: () -> Unit, onLinkPc:
             }
             Spacer(Modifier.height(10.dp))
             var vol by remember(remote?.dev) { mutableStateOf(remote?.volume ?: state.volume) }
-            Text("ГРОМКОСТЬ · ${if (remote != null) remote.name.uppercase().ifEmpty { "КОМПЬЮТЕР" } else "ЭТОТ ТЕЛЕФОН"}", color = C.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(L.t("ГРОМКОСТЬ · {0}").replace("{0}", if (remote != null) remote.name.uppercase().ifEmpty { L.t("КОМПЬЮТЕР") } else L.t("ЭТОТ ТЕЛЕФОН")), color = C.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Slider(
                 value = vol, onValueChange = { vol = it; if (remote != null) app.link.command(remote.dev, "vol", it.toDouble()) else app.engine.volume(it) },
                 colors = SliderDefaults.colors(thumbColor = C.text, activeTrackColor = C.accent, inactiveTrackColor = C.panel2),

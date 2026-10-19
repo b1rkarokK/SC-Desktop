@@ -128,6 +128,9 @@ class ScApi(private val store: Store) {
     }
 
     /** The account of a login token: its id and name (the sign-in here has only the token). */
+    /** The address of the track's page on SoundCloud (blocking: the network); null when it has none. */
+    fun permalink(id: Long): String? = runCatching { JSONObject(getText(url("/tracks/$id"))).optString("permalink_url").takeIf { it.startsWith("https://") } }.getOrNull()
+
     fun me(): Pair<Long, String> {
         val j = JSONObject(getText(url("/me")))
         return j.getLong("id") to j.optString("username")

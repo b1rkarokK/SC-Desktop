@@ -1275,4 +1275,5 @@ export const EN: Record<string, string> = {
   'Если Android пишет, что Play Защита заблокировала установку: нажмите «Подробнее», потом «Всё равно установить». Приложение не из магазина, поэтому Google просит подтверждения.': 'If Android says Play Protect blocked the install: tap "More details", then "Install anyway". The app is not from the store, so Google asks for a confirmation.',
   'Считать меня в общей статистике': 'Count me in the general statistics',
   'Раз в сутки программа отправляет разработчику случайный номер установки, версию и систему, чтобы знать, сколько людей ею пользуются. Без имени, аккаунта и того, что вы слушаете.': 'Once a day the program sends the developer a random installation number, the version and the system, to know how many people use it. No name, no account, nothing about what you listen to.',
+  'Анонимная статистика (случайный номер, версия, система; раз в сутки)': 'Anonymous statistics (a random number, version, system; once a day)',
 };

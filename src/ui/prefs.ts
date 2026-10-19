@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 // Frontend-owned preferences, persisted in config.json → `ui` (debounced).
 import { api } from './api';
 import type { Lang } from './i18n';
@@ -248,4 +249,6 @@ export function previewTheme(t: CustomTheme | null, image?: string | null): void
 export function applyRadius(r: UiPrefs['radius']): void {
   const scale = r === 'sharp' ? 0 : r === 'soft' ? 1.8 : r === 'round' ? 2.8 : 1;
   document.documentElement.style.setProperty('--rs', String(scale));
+  // the window itself: Windows rounds it by its own rule, sharp takes the rounding away
+  void invoke('window_corners', { sharp: r === 'sharp' }).catch(() => undefined);
 }
