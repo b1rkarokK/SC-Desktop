@@ -139,6 +139,10 @@ class ScApi(private val store: Store) {
 
     fun removeFromPlaylist(playlist: Long, track: Long) = write("PUT", "/playlists/$playlist", tracksBody(playlistTrackIds(playlist).filter { it != track }))
 
+    /** A new private playlist with these tracks (up to 500 go into one). */
+    fun createPlaylistWith(title: String, ids: List<Long>) =
+        write("POST", "/playlists", JSONObject().put("playlist", JSONObject().put("title", title).put("sharing", "private").put("tracks", JSONArray(ids))).toString())
+
     fun createPlaylist(title: String, firstTrack: Long?) =
         write("POST", "/playlists", JSONObject().put("playlist", JSONObject().put("title", title).put("sharing", "private").put("tracks", JSONArray(listOfNotNull(firstTrack)))).toString())
 

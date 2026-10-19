@@ -5,7 +5,7 @@ The release notes carry both; the "Update available" window shows the app's lang
 
 ## [1.4.9] - 2026-10-20
 
-- Phone without the computer: the translation of a song's lyrics, the search for a song by words from its text and "Like all" are now done by the phone itself. The connected computer is only a fallback if SoundCloud refuses the phone.
+- Phone without the computer: the translation of a song's lyrics, the search for a song by words from its text, "Like all" and the import of a playlist (Yandex Music, Spotify, a list of lines) are now done by the phone itself. The connected computer is only a fallback if SoundCloud refuses the phone.
 
 ## [1.4.8] - 2026-10-20
 

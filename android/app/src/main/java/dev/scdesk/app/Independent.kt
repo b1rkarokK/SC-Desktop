@@ -45,6 +45,103 @@ object Independent {
         return out
     }
 
+    data class Song(val artist: String, val title: String)
+
+    private fun norm(s: String) = s.lowercase().map { if (it.isLetterOrDigit()) it else ' ' }.joinToString("").trim()
+
+    /** The name of the list and its songs behind a link of Yandex Music or Spotify, or a pasted list «Артист - Трек» per line (blocking). */
+    fun readSource(input: String): Pair<String, List<Song>> {
+        val text = input.trim()
+        if (text.startsWith("http")) {
+            val u = java.net.URI(text)
+            val host = (u.host ?: "").lowercase()
+            val parts = (u.path ?: "").split('/').filter { it.isNotEmpty() && !it.startsWith("intl-") }
+            if (host.contains("yandex.") || host.contains("music.ya")) return yandex(parts)
+            if (host.contains("spotify.com")) return spotify(parts)
+            throw java.io.IOException("Нужна ссылка на плейлист или альбом Яндекс Музыки или Spotify")
+        }
+        val songs = text.lines().mapNotNull { raw ->
+            val l = raw.trim().trimStart { it.isDigit() || it == '.' || it == ')' }.trim()
+            val cut = listOf(" - ", " — ", " – ").firstOrNull { l.contains(it) } ?: return@mapNotNull null
+            val a = l.substringBefore(cut).trim()
+            val t = l.substringAfter(cut).trim()
+            if (a.isEmpty() || t.isEmpty()) null else Song(a, t)
+        }
+        if (songs.isEmpty()) throw java.io.IOException("Вставьте ссылку на плейлист или список строк «Артист - Трек»")
+        return "Импорт" to songs
+    }
+
+    private fun yandex(parts: List<String>): Pair<String, List<Song>> {
+        val api = "https://api.music.yandex.net"
+        val notOpen = java.io.IOException("Яндекс Музыка не отдала плейлист: он закрытый или ссылка неверная")
+        val (title, tracks) = try {
+            when {
+                parts.size >= 4 && parts[0] == "users" && parts[2] == "playlists" -> {
+                    val r = JSONObject(get("$api/users/${parts[1]}/playlists/${parts[3]}")).getJSONObject("result")
+                    r.optString("title") to (0 until r.getJSONArray("tracks").length()).mapNotNull { r.getJSONArray("tracks").getJSONObject(it).optJSONObject("track") }
+                }
+                parts.size >= 2 && parts[0] == "playlists" -> {
+                    val r = JSONObject(get("$api/playlist/${parts[1]}?rich-tracks=true")).getJSONObject("result")
+                    r.optString("title") to (0 until r.getJSONArray("tracks").length()).mapNotNull { r.getJSONArray("tracks").getJSONObject(it).optJSONObject("track") }
+                }
+                parts.size >= 2 && parts[0] == "album" -> {
+                    val r = JSONObject(get("$api/albums/${parts[1]}/with-tracks")).getJSONObject("result")
+                    val vols = r.getJSONArray("volumes")
+                    r.optString("title") to (0 until vols.length()).flatMap { v -> val a = vols.getJSONArray(v); (0 until a.length()).map { a.getJSONObject(it) } }
+                }
+                else -> throw java.io.IOException("Нужна ссылка на плейлист или альбом Яндекс Музыки")
+            }
+        } catch (e: java.io.IOException) {
+            if (e.message?.startsWith("Нужна") == true) throw e else throw notOpen
+        }
+        val songs = tracks.mapNotNull { t ->
+            val artist = t.optJSONArray("artists")?.optJSONObject(0)?.optString("name").orEmpty()
+            val name = t.optString("title")
+            if (artist.isEmpty() || name.isEmpty()) null else Song(artist, name)
+        }
+        if (songs.isEmpty()) throw notOpen
+        return title to songs
+    }
+
+    private fun spotify(parts: List<String>): Pair<String, List<Song>> {
+        val kind = parts.getOrNull(0)?.takeIf { it == "playlist" || it == "album" } ?: throw java.io.IOException("Нужна ссылка на плейлист или альбом Spotify")
+        val id = parts.getOrNull(1) ?: throw java.io.IOException("Нужна ссылка на плейлист или альбом Spotify")
+        val notOpen = java.io.IOException("Spotify не отдал плейлист: он закрытый или ссылка неверная")
+        val html = get("https://open.spotify.com/embed/$kind/$id")
+        val json = html.substringAfter("<script id=\"__NEXT_DATA__\" type=\"application/json\">", "").substringBefore("</script>")
+        if (json.isEmpty()) throw notOpen
+        val e = JSONObject(json).optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("state")?.optJSONObject("data")?.optJSONObject("entity") ?: throw notOpen
+        val list = e.optJSONArray("trackList") ?: throw notOpen
+        val songs = (0 until list.length()).mapNotNull { i ->
+            val t = list.getJSONObject(i)
+            val artist = t.optString("subtitle").replace('\u00a0', ' ')
+            val name = t.optString("title")
+            if (artist.isEmpty() || name.isEmpty()) null else Song(artist, name)
+        }
+        if (songs.isEmpty()) throw notOpen
+        return e.optString("name").ifEmpty { e.optString("title").ifEmpty { "Spotify" } } to songs
+    }
+
+    /** Finds each song on SoundCloud (the first result that holds the words of the title) and makes the playlist. Gives how many were found. Blocking. */
+    fun importPlaylist(app: App, input: String, title: String, progress: (Int, Int) -> Unit): Triple<String, Int, Int> {
+        val (name, songs) = readSource(input)
+        val ids = ArrayList<Long>()
+        songs.forEachIndexed { i, s ->
+            progress(i, songs.size)
+            val words = norm(s.title).split(' ').filter { it.length >= 3 }
+            val hit = runCatching { app.api.search("${s.artist} ${s.title}") }.getOrNull()?.firstOrNull { c ->
+                val hay = norm(c.title + " " + c.artist)
+                words.isEmpty() || words.all { hay.contains(it) }
+            }
+            if (hit != null && !ids.contains(hit.id)) ids.add(hit.id)
+        }
+        if (ids.isEmpty()) throw java.io.IOException("Ни одной песни не нашлось на SoundCloud")
+        val finalTitle = title.ifBlank { name }
+        val chunks = ids.chunked(500)
+        chunks.forEachIndexed { i, chunk -> app.api.createPlaylistWith(if (chunks.size > 1) "$finalTitle (${i + 1}/${chunks.size})" else finalTitle, chunk) }
+        return Triple(finalTitle, ids.size, songs.size)
+    }
+
     /** Songs by the words in their texts: NetEase searches inside the lyrics, then each song is looked for on SoundCloud (blocking). */
     fun songsByWords(app: App, words: String): List<Track> {
         val u = "https://music.163.com/api/search/get".toHttpUrl().newBuilder().addQueryParameter("s", words).addQueryParameter("type", "1006").addQueryParameter("limit", "8").build()

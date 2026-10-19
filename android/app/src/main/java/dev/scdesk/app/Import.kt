@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
@@ -45,10 +46,6 @@ internal fun ImportPlaylist(app: App) {
             modifier = Modifier.pressable { open = !open }.padding(vertical = 6.dp),
         )
         if (!open) return@Column
-        if (!app.store.linked) {
-            Text("Нужен подключённый компьютер: импорт делает он. Подключите его в «Ещё».", color = C.muted, fontSize = 13.sp)
-            return@Column
-        }
         Text("Вставьте ссылку на плейлист (Яндекс Музыка, Spotify и другие).", color = C.muted, fontSize = 13.sp)
         Box(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.panel2).padding(horizontal = 14.dp, vertical = 12.dp)) {
             if (input.isEmpty()) Text("https://…", color = C.faint, fontSize = 14.sp)
@@ -61,7 +58,9 @@ internal fun ImportPlaylist(app: App) {
                 if (busy || input.isBlank()) return@BigButton
                 busy = true
                 scope.launch {
-                    runCatching { app.link.rpc("import_preview", JSONObject().put("input", input.trim())).getJSONObject("data") }
+                    val own = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { Independent.readSource(input) } }
+                    val pc = if (own.isSuccess || !app.store.linked) null else runCatching { app.link.rpc("import_preview", JSONObject().put("input", input.trim())).getJSONObject("data") }
+                    (if (own.isSuccess) Result.success(JSONObject().put("name", own.getOrThrow().first).put("n", own.getOrThrow().second.size)) else pc ?: Result.failure(own.exceptionOrNull() ?: java.io.IOException("Не вышло")))
                         .onSuccess { found = it.optString("name") to it.optInt("n"); note = null }
                         .onFailure { note = "Не вышло: ${it.message}" }
                     busy = false
@@ -74,10 +73,12 @@ internal fun ImportPlaylist(app: App) {
                 busy = true
                 note = "Ищем песни на SoundCloud, не закрывайте приложение"
                 scope.launch {
-                    runCatching { app.link.rpc("import_run", JSONObject().put("input", input.trim()).put("title", f.first).put("private", false), waitMs = 300_000).getJSONObject("data") }
-                        .onSuccess {
-                            val gotN = it.optInt("found")
-                            val allN = it.optInt("total")
+                    val own = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { Independent.importPlaylist(app, input, f.first) { d, n -> note = "Ищем песни на SoundCloud: $d из $n" } } }
+                    val res = if (own.isSuccess) Result.success(own.getOrThrow().second to own.getOrThrow().third)
+                    else if (app.store.linked) runCatching { app.link.rpc("import_run", JSONObject().put("input", input.trim()).put("title", f.first).put("private", false), waitMs = 300_000).getJSONObject("data").let { it.optInt("found") to it.optInt("total") } }
+                    else Result.failure(own.exceptionOrNull() ?: java.io.IOException("Не вышло"))
+                    res
+                        .onSuccess { (gotN, allN) ->
                             note = "Готово: найдено $gotN из $allN"
                             input = ""; found = null
                         }
