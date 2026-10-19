@@ -252,14 +252,20 @@ async fn by_words(http: &HttpClient, state: &LyricsState, heard: &str, duration_
     for phrase in phrases(heard) {
         // Musixmatch searches inside the texts; while it gives no token, Genius does the same
         // Musixmatch searches inside the texts; when it fails or finds nothing, Genius does the same
-        let songs = match lyrics::search_by_lyrics(http, state, &phrase).await {
-            Ok(s) if !s.is_empty() => s,
-            Ok(_) => genius_by_lyrics(http, &phrase).await.unwrap_or_default(),
+        let mut songs = match lyrics::search_by_lyrics(http, state, &phrase).await {
+            Ok(s) => s,
             Err(e) => {
-                tracing::info!(error = %e, "hear: Musixmatch search failed, asking Genius");
-                genius_by_lyrics(http, &phrase).await?
+                tracing::info!(error = %e, "hear: Musixmatch search failed");
+                Vec::new()
             }
         };
+        // NetEase searches inside the texts too and does not stop giving answers
+        if songs.is_empty() {
+            songs = lyrics::netease_by_lyrics(http, &phrase).await.unwrap_or_default();
+        }
+        if songs.is_empty() {
+            songs = genius_by_lyrics(http, &phrase).await.unwrap_or_default();
+        }
         tracing::debug!(%phrase, found = songs.len(), "hear: searched");
         // a known length that is far off is another song (or another version: those are found by name already)
         let fits = songs.into_iter().filter(|(_, _, len)| *len == 0 || len.abs_diff(duration_ms) <= 5_000).take(3);

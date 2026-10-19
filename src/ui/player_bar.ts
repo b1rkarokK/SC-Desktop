@@ -1,5 +1,6 @@
 // Bottom player bar. Position is polled at 4 Hz only while playing AND the
 // window is visible; in the tray there are zero timers on the JS side.
+import { wheelVolume } from './wheel_volume';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, coverUrl, errorMessage, fmtTime, type RepeatMode, type SleepState } from './api';
@@ -152,13 +153,11 @@ export class PlayerBar {
     );
 
     // the wheel over the volume (the slider or the speaker) changes it
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const now = store.snapshot?.volume ?? 0;
-      const v = Math.min(1, Math.max(0, Math.round((now + (e.deltaY < 0 ? 0.05 : -0.05)) * 100) / 100));
-      this.volume.set(v);
-      this.applyVolume(v, true);
-    };
+    const wheel = (e: WheelEvent) =>
+      wheelVolume(e, (v, persist) => {
+        this.volume.set(v);
+        this.applyVolume(v, persist);
+      });
     this.volume.el.addEventListener('wheel', wheel, { passive: false });
     this.muteBtn.addEventListener('wheel', wheel, { passive: false });
 

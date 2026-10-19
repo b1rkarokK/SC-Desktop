@@ -1269,4 +1269,8 @@ export const EN: Record<string, string> = {
   'Мои комнаты': 'My rooms',
   'Пока ничего не играет. Добавьте трек: кнопка рядом с треком или «В конец очереди» в меню трека.': 'Nothing is playing yet. Add a track: the button next to a track or "Add to queue" in the track menu.',
   'Треки ({0})': 'Tracks ({0})',
+  'Скачать для телефона': 'Get the phone app',
+  'Открыть в браузере': 'Open in the browser',
+  'Наведите камеру телефона на код или отправьте себе ссылку. На странице скачайте файл с названием SC-Desk-…-android.apk.': 'Point the phone camera at the code or send the link to yourself. On the page, download the file named SC-Desk-…-android.apk.',
+  'Если Android пишет, что Play Защита заблокировала установку: нажмите «Подробнее», потом «Всё равно установить». Приложение не из магазина, поэтому Google просит подтверждения.': 'If Android says Play Protect blocked the install: tap "More details", then "Install anyway". The app is not from the store, so Google asks for a confirmation.',
 };

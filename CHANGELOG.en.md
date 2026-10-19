@@ -3,6 +3,17 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.4.3] - 2026-10-19
+
+- The volume by the mouse wheel changes 1 percent a notch, in full screen and on the bottom bar. It used to stick on one point.
+- The search for a song's text by the words heard has a second source (NetEase): when Musixmatch refuses, the text is still found.
+- Settings, "Phone": a "Get the phone app" button with a link and a QR code to download it with the phone's camera.
+- Phone: the computer's queue is shown when the music plays on the computer, and tracks can be switched in it.
+- Phone: importing a playlist by a link from another service (the connected computer does it).
+- Phone: VPN servers can be added without a computer by pasting a subscription link or one server link.
+- Phone: the SoundCloud sign-in window goes through the bypass of the blocking, not directly, so it no longer hangs where the site is closed.
+- Phone: updates are checked every hour instead of every 12 hours and are taken from GitHub's release list without the cache delay.
+
 ## [1.4.2] - 2026-10-19
 
 - A memory leak of the Windows audio service (audiodg): with an output device picked in Settings, the program listed all the sound devices twice a second, and the service grew by gigabytes in a day. The list is now read rarely.

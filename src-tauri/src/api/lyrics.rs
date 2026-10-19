@@ -672,6 +672,25 @@ async fn deezer(http: &HttpClient, state: &LyricsState, q: &Query) -> AppResult<
 
 const NETEASE_REFERER: &str = "https://music.163.com/";
 
+/// Songs whose lyrics hold these words, by NetEase's search inside the texts (type 1006): (artist, title, length in ms).
+/// It does not limit tokens the way Musixmatch does, so it answers when that one has stopped.
+pub async fn netease_by_lyrics(http: &HttpClient, words: &str) -> AppResult<Vec<(String, String, u64)>> {
+    let mut url = Url::parse("https://music.163.com/api/search/get")?;
+    url.query_pairs_mut().append_pair("s", words).append_pair("type", "1006").append_pair("offset", "0").append_pair("limit", "10");
+    let res: Value = http.get_json_with(url.as_str(), &[("referer", NETEASE_REFERER)]).await?;
+    Ok(res["result"]["songs"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|s| {
+                    let artist = s["artists"].as_array()?.first()?["name"].as_str()?;
+                    Some((artist.to_owned(), s["name"].as_str()?.to_owned(), s["duration"].as_u64().unwrap_or(0)))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 async fn netease(http: &HttpClient, q: &Query) -> AppResult<Option<Lyrics>> {
     let mut url = Url::parse("https://music.163.com/api/search/get/web")?;
     url.query_pairs_mut()

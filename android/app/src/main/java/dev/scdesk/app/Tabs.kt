@@ -291,7 +291,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                         }) { play(visible, i) }
                     }
                 }
-                1 -> items(playlists ?: emptyList(), key = { it.id }) { c ->
+                1 -> { item { ImportPlaylist(app) }; items(playlists ?: emptyList(), key = { it.id }) { c ->
                     Row(Modifier.fillMaxWidth().pressable { open(Opened(c.title) { app.api.playlistTracks(c.id) }) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(c.artwork, 56.dp, 10.dp)
                         Column(Modifier.padding(start = 14.dp).weight(1f)) {
@@ -299,7 +299,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                             Text(c.subtitle, color = C.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                }
+                } }
                 else -> items(artists ?: emptyList(), key = { it.id }) { a ->
                     Row(Modifier.fillMaxWidth().pressable { open(Opened(a.name) { app.api.artistTracks(a.id) }) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(a.avatar, 48.dp, 24.dp)

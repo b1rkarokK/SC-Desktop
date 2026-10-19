@@ -343,6 +343,26 @@ impl Devices {
         let friends = || app.state::<crate::sync::friends::Friends>();
         let rooms = || app.state::<crate::sync::service::Rooms>();
         Ok(match op {
+            // «Импорт» of a playlist (Yandex Music, Spotify …) started on the phone: the computer does it into the account
+            "import_preview" => {
+                let (name, n) = c::import_preview(app.state(), text("input")).await?;
+                json!({ "name": name, "n": n })
+            }
+            "import_run" => {
+                let r = c::import_run(app.clone(), app.state(), text("input"), text("title"), args["private"].as_bool().unwrap_or(false)).await?;
+                json!({ "title": r.title, "found": r.found, "total": r.total, "playlists": r.playlists, "missing": r.missing })
+            }
+            // the queue of this computer (what plays and what follows) for a phone that controls it
+            "queue" => {
+                let view = app.try_state::<Arc<Player>>().map(|p| p.queue_view(100));
+                match view {
+                    Some(v) => json!({
+                        "current": v.current,
+                        "items": v.items.iter().map(|i| json!({ "at": i.at, "t": track_json(&i.track) })).collect::<Vec<_>>(),
+                    }),
+                    None => json!({ "current": null, "items": [] }),
+                }
+            }
             // words from a song: the liked tracks that have them, then SoundCloud's tracks found by the lyrics base
             "lsearch" => {
                 let q = text("q");
@@ -577,6 +597,9 @@ impl Devices {
             "prev" => p.prev(),
             "seek" => p.seek(v["v"].as_u64().unwrap_or(0)),
             "vol" => p.set_volume(v["v"].as_f64().unwrap_or(1.0).clamp(0.0, 1.0) as f32),
+            // a track of the queue picked on the phone: play it now / take it out
+            "qplay" => p.queue_play(v["v"].as_u64().unwrap_or(0) as usize),
+            "qremove" => p.queue_remove(v["v"].as_u64().unwrap_or(0) as usize),
             _ => {}
         }
     }

@@ -258,7 +258,8 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
     val liked by app.liked.collectAsState()
     val sleep by app.sleepMin.collectAsState()
     val scope = rememberCoroutineScope()
-    var queue by remember { mutableStateOf<Pair<List<Track>, Int>?>(null) }
+    /** the queue shown: its tracks, the one that plays, and (of the computer's queue) the place of each in its order */
+    var queue by remember { mutableStateOf<Triple<List<Track>, Int, List<Int>?>?>(null) }
     var menu by remember { mutableStateOf(false) }
     var saveTick by remember { mutableIntStateOf(0) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -383,17 +384,38 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                     SIcon("moon", if (sleep > 0) C.accent else C.text)
                     if (sleep > 0) Text("$sleep", color = C.accent, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp))
                 }
-                Box(Modifier.size(46.dp).pressable { app.engine.queue { l, i -> queue = l to i } }, contentAlignment = Alignment.Center) { SIcon("queue", C.text) }
+                Box(Modifier.size(46.dp).pressable {
+                    if (remote == null) app.engine.queue { l, i -> queue = Triple(l, i, null) }
+                    // the music plays on the computer: its queue is what the computer has
+                    else scope.launch {
+                        runCatching {
+                            val d = app.link.rpc("queue").getJSONObject("data")
+                            val a = d.getJSONArray("items")
+                            val tracks = ArrayList<Track>(); val ats = ArrayList<Int>()
+                            for (k in 0 until a.length()) {
+                                val o = a.getJSONObject(k); val j = o.getJSONObject("t")
+                                tracks.add(Track(j.getLong("id"), j.optString("title"), j.optString("artist"), j.optLong("dur"), j.optString("art").ifEmpty { null }))
+                                ats.add(o.getInt("at"))
+                            }
+                            val cur = if (d.isNull("current")) -1 else ats.indexOf(d.getInt("current"))
+                            queue = Triple(tracks, cur, ats)
+                        }.onFailure { android.widget.Toast.makeText(ctx, "Очередь компьютера не пришла: ${it.message}", android.widget.Toast.LENGTH_SHORT).show() }
+                    }
+                }, contentAlignment = Alignment.Center) { SIcon("queue", C.text) }
             }
         }
-        queue?.let { (list, current) ->
+        queue?.let { (list, current, ats) ->
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xAA000000)).pressable { queue = null }) {
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(480.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel).pressable { }.navigationBarsPadding().padding(top = 16.dp)) {
-                    Text("Очередь", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
+                    Text(if (ats != null) "Очередь на компьютере" else "Очередь", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
+                    if (list.isEmpty()) Text("В очереди пусто", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(start = 20.dp))
                     val st = androidx.compose.foundation.lazy.rememberLazyListState(maxOf(current - 1, 0))
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize(), state = st) {
                         itemsIndexed(list, key = { i, tr -> "$i-${tr.id}" }) { i, tr ->
-                            TrackRow(tr, i == current) { app.engine.jump(i); queue = null }
+                            TrackRow(tr, i == current) {
+                                if (ats != null && remote != null) send("qplay", ats[i]) else app.engine.jump(i)
+                                queue = null
+                            }
                         }
                     }
                 }

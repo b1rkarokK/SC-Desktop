@@ -60,6 +60,8 @@ export class SettingsView implements View {
   private phoneBox = h('div');
   /** the QR code is on screen (the computer waits for a phone) */
   private pairing: string | null = null;
+  /** the «Скачать для телефона» block is open */
+  private showApk = false;
   private lyricsBox = h('div');
   private netBox = h('div');
   private vpnBox = h('div');
@@ -413,7 +415,34 @@ export class SettingsView implements View {
           toast(errorMessage(e), 'error');
         }
       });
-      rows.push(h('div', { class: 'row-actions' }, add));
+      const get = btn(T('Скачать для телефона'), I.download ?? null);
+      get.addEventListener('click', () => {
+        this.showApk = !this.showApk;
+        void this.renderPhone();
+      });
+      rows.push(h('div', { class: 'row-actions' }, add, get));
+      if (this.showApk) {
+        // the page of the newest release with the file of the Android app: by a link, or by the camera of the phone
+        const link = 'https://github.com/b1rkarokK/SC-Desktop/releases/latest';
+        const qr = qrcode(0, 'M');
+        qr.addData(link);
+        qr.make();
+        const code = h('div', { class: 'phone-qr' });
+        code.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 3, scalable: true });
+        const copy = btn(T('Скопировать ссылку'), null);
+        copy.addEventListener('click', async () => {
+          await navigator.clipboard.writeText(link).catch(() => undefined);
+          toast(T('Ссылка скопирована'));
+        });
+        const open = btn(T('Открыть в браузере'), null);
+        open.addEventListener('click', () => void api.openExternal(link).catch((e) => toast(errorMessage(e), 'error')));
+        rows.push(
+          code,
+          h('p', { class: 'muted small', text: T('Наведите камеру телефона на код или отправьте себе ссылку. На странице скачайте файл с названием SC-Desk-…-android.apk.') }),
+          h('p', { class: 'muted small', text: T('Если Android пишет, что Play Защита заблокировала установку: нажмите «Подробнее», потом «Всё равно установить». Приложение не из магазина, поэтому Google просит подтверждения.') }),
+          h('div', { class: 'row-actions' }, copy, open),
+        );
+      }
     }
     for (const d of view.peers) {
       const playing = d.remote?.track ? `${d.remote.playing ? '▶ ' : ''}${d.remote.track.artist} · ${d.remote.track.title}` : d.online ? T('в сети') : T('не в сети');

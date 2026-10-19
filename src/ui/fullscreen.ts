@@ -1,4 +1,5 @@
 // «Сейчас играет» fullscreen (mockups 2 and 3) with the «Вид» settings drawer.
+import { wheelVolume } from './wheel_volume';
 import { api, coverUrl, errorMessage, fmtTime } from './api';
 import { clock } from './clock';
 import { h, isVisible, onVisibilityChange, toast } from './dom';
@@ -129,11 +130,11 @@ export class Fullscreen {
       (e) => {
         const over = e.target as HTMLElement | null;
         if (over?.closest('.lyrics-view, .fs-drawer, input, textarea')) return;
-        e.preventDefault();
-        const now = store.snapshot?.volume ?? 0;
-        const v = Math.min(1, Math.max(0, Math.round((now + (e.deltaY < 0 ? 0.05 : -0.05)) * 100) / 100));
-        this.volume.set(v);
-        void api.setVolume(v, true);
+        wheelVolume(e, (v, persist) => {
+          this.volume.set(v);
+          setIcon(this.muteBtn, v < 0.02 ? I.mute : v < 0.5 ? I.volLow : I.vol);
+          void api.setVolume(v, persist);
+        });
       },
       { passive: false },
     );

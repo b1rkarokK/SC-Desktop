@@ -37,11 +37,28 @@ object Updater {
 
     /** A newer build than [currentCode], or null (blocking: the network). */
     fun check(currentCode: Int, feed: String = FEED): UpdateInfo? {
-        val text = http.newCall(Request.Builder().url(feed).header("User-Agent", USER_AGENT).build()).execute().use { r ->
-            if (!r.isSuccessful) throw IOException("update feed ${r.code}")
-            r.body?.string() ?: return null
-        }
+        // «releases/latest/download/…» is kept by GitHub's cache for minutes after a release comes out: a new release is
+        // looked up in the release list first (not cached), and its own file of the feed is read; the usual address is the fallback
+        val direct = if (feed == FEED) runCatching { latestFeedUrl() }.getOrNull() else null
+        val text = fetch(direct ?: feed) ?: (if (direct != null) fetch(feed) else null) ?: return null
         return parse(text)?.takeIf { it.versionCode > currentCode && it.url.startsWith("https://") }
+    }
+
+    private fun fetch(url: String): String? =
+        http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).header("Cache-Control", "no-cache").build()).execute().use { r ->
+            if (!r.isSuccessful) throw IOException("update feed ${r.code}")
+            r.body?.string()
+        }
+
+    /** The address of latest-android.json in the newest release (null when it has none). */
+    private fun latestFeedUrl(): String? {
+        val text = fetch("https://api.github.com/repos/b1rkarokK/SC-Desktop/releases/latest") ?: return null
+        val assets = JSONObject(text).getJSONArray("assets")
+        for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            if (a.optString("name") == "latest-android.json") return a.optString("browser_download_url").takeIf { it.startsWith("https://") }
+        }
+        return null
     }
 
     private fun dir(ctx: Context) = File(ctx.cacheDir, "update")

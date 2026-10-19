@@ -32,6 +32,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import org.json.JSONArray
+import org.json.JSONObject
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -116,7 +118,7 @@ fun Root(app: App, pairLink: String? = null) {
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var updateMsg by remember { mutableStateOf<String?>(null) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    // a look at the feed of updates when the app opens (not more often than twice a day), and by hand in «Ещё»
+    // a look at the feed of updates when the app opens (not more often than once an hour), and by hand in «Ещё»
     val checkUpdate: (Boolean) -> Unit = { manual ->
         scope.launch {
             try {
@@ -130,7 +132,7 @@ fun Root(app: App, pairLink: String? = null) {
         }
     }
     LaunchedEffect(Unit) {
-        if (app.store.autoUpdate && System.currentTimeMillis() - app.store.updateCheckedAt > 12 * 3600 * 1000L) checkUpdate(false)
+        if (app.store.autoUpdate && System.currentTimeMillis() - app.store.updateCheckedAt > 3600 * 1000L) checkUpdate(false)
     }
     var login by remember { mutableStateOf(false) }
     /** bumped when the account changes: the lists load again */
@@ -567,5 +569,32 @@ internal fun NetworkCard(app: App) {
         (status ?: note)?.let { Text(it, color = C.faint, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)) }
         BigButton(if (waiting) "Ждём компьютер…" else "Получить серверы с компьютера", false) { if (!waiting && app.store.linked) app.link.requestVpn() else if (!app.store.linked) app.vpnNote.value = "Сначала подключите компьютер." }
         Text("Компьютер спросит разрешение. Подписка не считает телефон ещё одним устройством: серверы берутся с компьютера.", color = C.faint, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+        // without a computer: a subscription address or one server link, pasted here
+        var added by remember { mutableStateOf("") }
+        var adding by remember { mutableStateOf(false) }
+        Spacer(Modifier.height(14.dp))
+        Text("Добавить без компьютера", color = C.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Box(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.panel2).padding(horizontal = 14.dp, vertical = 12.dp)) {
+            if (added.isEmpty()) Text("Ссылка на подписку или vless://…", color = C.faint, fontSize = 14.sp)
+            BasicTextField(added, { added = it }, singleLine = true, textStyle = TextStyle(color = C.text, fontSize = 14.sp), cursorBrush = SolidColor(C.accent), modifier = Modifier.fillMaxWidth())
+        }
+        Spacer(Modifier.height(8.dp))
+        BigButton(if (adding) "Читаем…" else "Добавить серверы", false) {
+            if (adding || added.isBlank()) return@BigButton
+            adding = true
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { runCatching { VpnLinks.fetch(added) } }
+                r.onSuccess { list ->
+                    // what was here stays; a server with the same name is replaced
+                    val old = app.vpnServers.value.filter { o -> list.none { it.name == o.name } }
+                    val all = old + list
+                    app.store.vpnServers = JSONArray().also { a -> all.forEach { sv -> a.put(JSONObject().put("n", sv.name).put("o", sv.outbound)) } }.toString()
+                    app.vpnServers.value = all
+                    app.vpnNote.value = "Добавлено серверов: ${list.size}"
+                    added = ""
+                }.onFailure { app.vpnNote.value = "Не вышло: ${it.message}" }
+                adding = false
+            }
+        }
     }
 }

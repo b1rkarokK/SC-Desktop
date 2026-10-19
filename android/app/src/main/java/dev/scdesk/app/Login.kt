@@ -79,7 +79,12 @@ fun LoginScreen(app: App, onBack: () -> Unit, onDone: () -> Unit) {
         }
         Text(status, color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
         var web by remember { mutableStateOf<WebView?>(null) }
-        DisposableEffect(Unit) { onDispose { web?.destroy() } }
+        DisposableEffect(Unit) {
+            onDispose {
+                web?.destroy()
+                runCatching { if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.PROXY_OVERRIDE)) androidx.webkit.ProxyController.getInstance().clearProxyOverride({ it.run() }, {}) }
+            }
+        }
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { c ->
@@ -91,8 +96,20 @@ fun LoginScreen(app: App, onBack: () -> Unit, onDone: () -> Unit) {
                     CookieManager.getInstance().setAcceptThirdPartyCookies(w, true)
                     w.webViewClient = WebViewClient()
                     w.setBackgroundColor(0xFF161414.toInt())
-                    w.loadUrl("https://soundcloud.com/signin")
                     web = w
+                    // the page goes the way the rest of the app goes (the bypass of the blocking, or the picked server):
+                    // without it soundcloud.com does not open where it is cut off
+                    val viaProxy = runCatching {
+                        if (!androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.PROXY_OVERRIDE)) false
+                        else {
+                            val rule = if (Tunnel.port != 0) "socks5://127.0.0.1:${Tunnel.port}" else "127.0.0.1:${Bypass.port()}"
+                            androidx.webkit.ProxyController.getInstance().setProxyOverride(
+                                androidx.webkit.ProxyConfig.Builder().addProxyRule(rule).build(), { it.run() }, { w.loadUrl("https://soundcloud.com/signin") },
+                            )
+                            true
+                        }
+                    }.getOrDefault(false)
+                    if (!viaProxy) w.loadUrl("https://soundcloud.com/signin")
                 }
             },
         )
