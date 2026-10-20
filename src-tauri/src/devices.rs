@@ -597,7 +597,7 @@ impl Devices {
             }
             "sp_list" => {
                 let list = c::sp_list(app.clone(), sp()).await?;
-                Value::Array(list.iter().map(|i| json!({ "channel": i.channel, "title": i.title, "count": i.count, "can_edit": i.can_edit, "mine": i.mine, "art": i.artworks.first() })).collect())
+                Value::Array(list.iter().map(|i| json!({ "channel": i.channel, "title": i.title, "count": i.count, "can_edit": i.can_edit, "mine": i.mine, "art": i.artworks.first(), "access": format!("{:?}", i.access).to_lowercase(), "color": i.cover.color })).collect())
             }
             "sp_get" => {
                 let d = c::sp_get(app.clone(), sp(), text("channel")).await?;
@@ -610,6 +610,18 @@ impl Devices {
             "sp_create" => {
                 let r = c::sp_create(app.clone(), sp(), text("title"), { let a = text("access"); if a.is_empty() { "link".to_owned() } else { a } }).await?;
                 serde_json::to_value(&r).unwrap_or(Value::Null)
+            }
+            "sp_access" => {
+                c::sp_access(sp(), text("channel"), text("access"))?;
+                Value::Null
+            }
+            "sp_cover" => {
+                c::sp_cover(sp(), text("channel"), args["color"].as_str().filter(|s| !s.is_empty()).map(str::to_owned), None, None)?;
+                Value::Null
+            }
+            "sp_invite" => {
+                c::sp_invite(sp(), text("channel"), args["user_id"].as_u64().unwrap_or(0), text("name"), text("role"))?;
+                Value::Null
             }
             "sp_title" => {
                 c::sp_title(sp(), text("channel"), text("title"))?;

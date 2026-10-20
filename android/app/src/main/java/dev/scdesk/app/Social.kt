@@ -1,6 +1,12 @@
 package dev.scdesk.app
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -188,7 +194,7 @@ internal fun SharedScreen(app: App, shown: Shown, play: (List<Track>, Int) -> Un
             actions?.let { p ->
                 var title by remember(p) { mutableStateOf(p.optString("title")) }
                 androidx.compose.ui.window.Dialog(onDismissRequest = { actions = null }) {
-                    Column(Modifier.clip(RoundedCornerShape(20.dp)).background(C.panel).padding(20.dp)) {
+                    Column(Modifier.clip(RoundedCornerShape(20.dp)).background(C.panel).padding(20.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
                         Text("Общий плейлист", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                         Box(Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.panel2).padding(horizontal = 14.dp, vertical = 12.dp)) {
                             androidx.compose.foundation.text.BasicTextField(title, { title = it }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(color = C.text, fontSize = 15.sp), cursorBrush = androidx.compose.ui.graphics.SolidColor(C.accent), modifier = Modifier.fillMaxWidth())
@@ -197,6 +203,42 @@ internal fun SharedScreen(app: App, shown: Shown, play: (List<Track>, Int) -> Un
                             val ch = p.optString("channel")
                             scope.launch { note = try { app.link.rpc("sp_title", JSONObject().put("channel", ch).put("title", title.trim())); actions = null; reload(); "Переименован" } catch (e: Exception) { e.message } }
                         }.padding(vertical = 12.dp))
+                        if (p.optBoolean("mine")) {
+                            val ch = p.optString("channel")
+                            val modes = listOf("closed" to "Закрыт", "invite" to "По приглашению", "link" to "По ссылке", "open" to "Открыт")
+                            var access by remember(p) { mutableStateOf(p.optString("access").ifEmpty { "link" }) }
+                            Text("ДОСТУП", color = C.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+                            Segments(modes.map { it.second }, modes.indexOfFirst { it.first == access }.coerceAtLeast(0)) { i ->
+                                access = modes[i].first
+                                scope.launch { runCatching { app.link.rpc("sp_access", JSONObject().put("channel", ch).put("access", access)) }.onFailure { note = it.message } }
+                            }
+                            Text("ОФОРМЛЕНИЕ", color = C.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                            var color by remember(p) { mutableStateOf(p.optString("color").takeIf { it != "null" && it.isNotEmpty() }) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                listOf("#ff7b3f", "#ec5b7a", "#b77dee", "#5b9df5", "#3fbf9a", "#f5c242", "#2c2828").forEach { hex ->
+                                    Box(Modifier.size(30.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(android.graphics.Color.parseColor(hex))).border(if (color == hex) 3.dp else 0.dp, C.text, androidx.compose.foundation.shape.CircleShape).pressable {
+                                        color = hex
+                                        scope.launch { runCatching { app.link.rpc("sp_cover", JSONObject().put("channel", ch).put("color", hex)) }.onFailure { note = it.message } }
+                                    })
+                                }
+                            }
+                            Text("ПРИГЛАСИТЬ", color = C.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                            val friends by produceState(emptyList<JSONObject>()) { value = runCatching { app.link.rpc("friends").getJSONObject("data").optJSONArray("friends").objects() }.getOrDefault(emptyList()) }
+                            var viewerOnly by remember(p) { mutableStateOf(false) }
+                            Text(if (viewerOnly) "Только слушать" else "Может добавлять песни", color = C.accent, fontSize = 13.sp, modifier = Modifier.pressable { viewerOnly = !viewerOnly }.padding(vertical = 6.dp))
+                            if (friends.isEmpty()) Text("Друзей пока нет.", color = C.faint, fontSize = 13.sp)
+                            friends.take(20).forEach { f ->
+                                var sent by remember(f.optLong("id")) { mutableStateOf(false) }
+                                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(f.optString("name"), color = C.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    Text(if (sent) "Отправлено" else "Пригласить", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
+                                        if (sent) return@pressable
+                                        sent = true
+                                        scope.launch { runCatching { app.link.rpc("sp_invite", JSONObject().put("channel", ch).put("user_id", f.optLong("id")).put("name", f.optString("name")).put("role", if (viewerOnly) "viewer" else "editor")) }.onFailure { sent = false; note = it.message } }
+                                    }.padding(8.dp))
+                                }
+                            }
+                        }
                         Text("Покинуть плейлист", color = C.muted, fontSize = 15.sp, modifier = Modifier.pressable {
                             val ch = p.optString("channel")
                             scope.launch { note = try { app.link.rpc("sp_leave", JSONObject().put("channel", ch)); actions = null; reload(); "Вы вышли" } catch (e: Exception) { e.message } }
