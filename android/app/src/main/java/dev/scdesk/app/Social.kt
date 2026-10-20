@@ -16,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -86,6 +87,32 @@ internal fun FriendsScreen(app: App, shown: Shown, play: (List<Track>, Int) -> U
                         }
                     }
                 }
+                // people of SoundCloud who are not friends yet: a request goes to them (the computer sends it)
+                item {
+                    val found by produceState(emptyList<Artist>(), find) {
+                        value = emptyList()
+                        if (find.trim().length >= 2) {
+                            kotlinx.coroutines.delay(500)
+                            value = runCatching { withContext(Dispatchers.IO) { app.api.searchUsers(find.trim()) } }.getOrDefault(emptyList())
+                        }
+                    }
+                    Column {
+                        val fresh = found.filter { u -> friends.none { it.optLong("id") == u.id } }.take(5)
+                        if (fresh.isNotEmpty()) Text("НАЙТИ ЛЮДЕЙ", color = C.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 2.dp))
+                        fresh.forEach { u ->
+                            var sent by remember(u.id) { mutableStateOf(false) }
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Cover(u.avatar, 44.dp, 22.dp)
+                                Text(u.name, color = C.text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp).weight(1f))
+                                Text(if (sent) "Отправлено" else "Добавить", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
+                                    if (sent) return@pressable
+                                    sent = true
+                                    scope.launch { runCatching { app.link.rpc("friend_request", JSONObject().put("id", u.id).put("name", u.name).put("avatar", u.avatar ?: "")) }.onFailure { sent = false } }
+                                }.padding(8.dp))
+                            }
+                        }
+                    }
+                }
                 val hits = if (find.isBlank()) friends else friends.filter { it.optString("name").contains(find, true) }
                 val now = hits.filter { listening.containsKey(it.optLong("id")) }
                 val rest = hits.filter { !listening.containsKey(it.optLong("id")) }
@@ -113,6 +140,7 @@ internal fun FriendsScreen(app: App, shown: Shown, play: (List<Track>, Int) -> U
                             Text(f.optString("name"), color = C.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text("не слушает сейчас", color = C.faint, fontSize = 12.sp)
                         }
+                        Text("Удалить", color = C.muted, fontSize = 13.sp, modifier = Modifier.pressable { scope.launch { runCatching { app.link.rpc("friend_remove", JSONObject().put("id", f.optLong("id"))) }; reload() } }.padding(8.dp))
                     }
                 }
             }

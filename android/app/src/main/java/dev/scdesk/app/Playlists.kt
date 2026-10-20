@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -155,11 +156,15 @@ internal fun DeletePlaylist(app: App, id: Long, title: String, onClose: () -> Un
  * When the music plays on the computer, the queue is the computer's.
  */
 @Composable
-internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist: Long? = null, onRemoved: () -> Unit = {}, onRemovedLike: () -> Unit = {}, onClose: () -> Unit) {
+internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist: Long? = null, onRemoved: () -> Unit = {}, onRemovedLike: () -> Unit = {}, onMove: ((Int) -> Unit)? = null, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var picker by remember { mutableStateOf(0) } // 1 own playlists, 2 shared ones
+    var picker by remember { mutableStateOf(0) } // 1 own playlists, 2 shared ones, 3 similar songs
     fun toast(s: String) = android.widget.Toast.makeText(ctx, L.t(s), android.widget.Toast.LENGTH_SHORT).show()
+    if (picker == 3) {
+        SimilarDialog(app, t, onClose)
+        return
+    }
     if (picker != 0) {
         androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             PlaylistPicker(app, t, shared = picker == 2) { onClose() }
@@ -176,7 +181,10 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
             if (onComputer) scope.launch { runCatching { app.link.rpc("enqueue", JSONObject().put("track", t.id).put("next", false)) } } else app.engine.append(listOf(t))
             toast("Добавлено в конец очереди"); onClose()
         },
+        "Похожие треки" to { picker = 3 },
         "Добавить в плейлист…" to { picker = 1 },
+        "Выше в плейлисте" to { onMove?.invoke(-1); onClose() },
+        "Ниже в плейлисте" to { onMove?.invoke(1); onClose() },
         "В общий плейлист…" to { picker = 2 },
         "Поделиться ссылкой" to {
             scope.launch {
@@ -220,7 +228,7 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
             Text(t.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(horizontal = 20.dp))
             Text(t.artist, color = C.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                items.filter { it.first != "Убрать из этого плейлиста" || fromPlaylist != null }.forEach { (label, act) -> Text(label, color = C.text, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().pressable(act).padding(horizontal = 20.dp, vertical = 13.dp)) }
+                items.filter { (it.first != "Убрать из этого плейлиста" || fromPlaylist != null) && (it.first !in listOf("Выше в плейлисте", "Ниже в плейлисте") || onMove != null) }.forEach { (label, act) -> Text(label, color = C.text, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().pressable(act).padding(horizontal = 20.dp, vertical = 13.dp)) }
             }
         }
     }
@@ -270,6 +278,30 @@ internal fun DuplicatesDialog(app: App, onClose: () -> Unit, onRemoved: (Set<Lon
                         }
                     }.padding(horizontal = 20.dp, vertical = 12.dp),
                 )
+            }
+        }
+    }
+}
+
+/** «Похожие треки»: what SoundCloud puts next to this song; a tap plays the list from that song. */
+@Composable
+internal fun SimilarDialog(app: App, t: Track, onClose: () -> Unit) {
+    var list by remember { mutableStateOf<List<Track>?>(null) }
+    var failed by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(t.id) {
+        list = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { app.api.related(t.id) } }.onFailure { failed = "Не получилось: ${it.message}" }.getOrDefault(emptyList())
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.padding(16.dp).clip(RoundedCornerShape(20.dp)).background(C.panel).padding(top = 16.dp)) {
+            Text("Похожие треки", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 20.dp))
+            Text(t.title, color = C.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
+            val l = list
+            if (l == null) Text("Загружаем…", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+            else if (l.isEmpty()) Text(failed ?: "Ничего не нашлось.", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+            else androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                itemsIndexed(l, key = { _, x -> x.id }) { i, x ->
+                    TrackRow(x, false) { app.engine.playQueue(l.drop(i), 0); onClose() }
+                }
             }
         }
     }

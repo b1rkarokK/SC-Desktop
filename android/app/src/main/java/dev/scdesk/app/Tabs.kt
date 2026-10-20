@@ -437,7 +437,24 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
     var tracks by remember(opened) { mutableStateOf<List<Track>?>(null) }
     var failed by remember(opened) { mutableStateOf<String?>(null) }
     var actionsFor by remember { mutableStateOf<Track?>(null) }
-    actionsFor?.let { tr -> TrackActions(app, tr, false, fromPlaylist = opened.playlistId, onRemoved = { tracks = tracks?.filter { it.id != tr.id } }) { actionsFor = null } }
+    val moveScope = rememberCoroutineScope()
+    actionsFor?.let { tr ->
+        TrackActions(
+            app, tr, false, fromPlaylist = opened.playlistId, onRemoved = { tracks = tracks?.filter { it.id != tr.id } },
+            // a place up or down in an own playlist: shown at once, written by the phone (the computer when SoundCloud refuses)
+            onMove = opened.playlistId?.let { pid ->
+                { d: Int ->
+                    val l = tracks?.toMutableList()
+                    val i = l?.indexOfFirst { it.id == tr.id } ?: -1
+                    if (l != null && i >= 0 && i + d in l.indices) {
+                        l.add(i + d, l.removeAt(i))
+                        tracks = l
+                        moveScope.launch { runCatching { Writes.call(app, "pl_order", org.json.JSONObject().put("playlist", pid).put("tracks", org.json.JSONArray(l.map { it.id }))) } }
+                    }
+                }
+            },
+        ) { actionsFor = null }
+    }
     LaunchedEffect(opened) {
         try {
             tracks = withContext(Dispatchers.IO) { opened.load() }

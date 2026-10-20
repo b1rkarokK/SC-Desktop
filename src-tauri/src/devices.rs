@@ -574,6 +574,19 @@ impl Devices {
                 let p = c::chart_page(app.state(), text("kind")).await?;
                 tracks(p.tracks)
             }
+            "friend_request" => {
+                friends().request(app, args["id"].as_u64().unwrap_or(0), text("name"), args["avatar"].as_str().filter(|s| !s.is_empty()).map(str::to_owned)).await?;
+                Value::Null
+            }
+            "friend_remove" => {
+                friends().remove(app, args["id"].as_u64().unwrap_or(0)).await?;
+                Value::Null
+            }
+            "pl_order" => {
+                let ids: Vec<u64> = args["tracks"].as_array().map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+                c::playlist_set_tracks(app.clone(), app.state(), args["playlist"].as_u64().unwrap_or(0), ids).await?;
+                Value::Null
+            }
             "friend_accept" => {
                 friends().accept(app, args["id"].as_u64().unwrap_or(0)).await?;
                 Value::Null

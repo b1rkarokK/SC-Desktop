@@ -137,6 +137,8 @@ class ScApi(private val store: Store) {
         write("PUT", "/playlists/$playlist", tracksBody(ids + track))
     }
 
+    fun setPlaylistOrder(playlist: Long, ids: List<Long>) = write("PUT", "/playlists/$playlist", tracksBody(ids))
+
     fun removeFromPlaylist(playlist: Long, track: Long) = write("PUT", "/playlists/$playlist", tracksBody(playlistTrackIds(playlist).filter { it != track }))
 
     /** A new private playlist with these tracks (up to 500 go into one). */

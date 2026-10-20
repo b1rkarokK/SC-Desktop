@@ -35,6 +35,7 @@ object Writes {
                     "pl_remove" -> app.api.removeFromPlaylist(args.getLong("playlist"), args.getLong("track"))
                     "pl_create" -> app.api.createPlaylist(args.getString("title"), if (args.has("track")) args.getLong("track") else null)
                     "pl_delete" -> app.api.deletePlaylist(args.getLong("playlist"))
+                    "pl_order" -> app.api.setPlaylistOrder(args.getLong("playlist"), args.getJSONArray("tracks").let { a -> (0 until a.length()).map { a.getLong(it) } })
                     else -> throw IllegalArgumentException(op)
                 }
             }

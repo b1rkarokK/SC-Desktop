@@ -104,6 +104,10 @@ class Store(ctx: Context) {
     var lang: String
         get() = p.getString("lang", "") ?: ""
         set(v) = p.edit().putString("lang", v).apply()
+    /** the lyrics: the word that is sung is lit (when the song has the words with their times) */
+    var lyricsWords: Boolean
+        get() = p.getBoolean("lywords", true)
+        set(v) = p.edit().putBoolean("lywords", v).apply()
     var density: Int
         get() = p.getInt("dens", 1)
         set(v) = p.edit().putInt("dens", v).apply()
