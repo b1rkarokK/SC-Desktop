@@ -225,3 +225,52 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
         }
     }
 }
+
+/**
+ * «Дубли» in the likes: the same song liked more than once (another upload of it, or the same one twice). The groups are
+ * shown, «Убрать лишние» takes the likes back from all but the earliest of each. Done by the phone itself.
+ */
+@Composable
+internal fun DuplicatesDialog(app: App, onClose: () -> Unit, onRemoved: (Set<Long>) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var groups by remember { mutableStateOf<List<List<Track>>?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        groups = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { Independent.duplicates(app.api.likesDated(5000)) } }
+            .onFailure { note = "Не получилось: ${it.message}" }.getOrDefault(emptyList())
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        Column(Modifier.clip(RoundedCornerShape(20.dp)).background(C.panel).padding(vertical = 16.dp)) {
+            Text("Дубли в лайках", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 20.dp))
+            val g = groups
+            if (g == null) Text("Ищем…", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+            else if (g.isEmpty()) Text(note ?: "Дублей нет", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+            else {
+                Text("Найдено песен, лайкнутых больше раза: ${g.size}. Останется самый ранний лайк.", color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+                Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                    g.forEach { grp -> Text("${grp.first().artist} - ${grp.first().title} (${grp.size})", color = C.text, fontSize = 14.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp)) }
+                }
+                Text(
+                    if (busy) "Убираем…" else "Убрать лишние", color = C.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.pressable {
+                        if (busy) return@pressable
+                        busy = true
+                        scope.launch {
+                            val extra = g.flatMap { it.drop(1) }
+                            val gone = HashSet<Long>()
+                            for (t in extra) {
+                                if (runCatching { Writes.call(app, "like", JSONObject().put("track", t.id).put("on", false)) }.isSuccess) gone.add(t.id)
+                                kotlinx.coroutines.delay(120)
+                            }
+                            onRemoved(gone)
+                            android.widget.Toast.makeText(ctx, L.t("Готово"), android.widget.Toast.LENGTH_SHORT).show()
+                            onClose()
+                        }
+                    }.padding(horizontal = 20.dp, vertical = 12.dp),
+                )
+            }
+        }
+    }
+}

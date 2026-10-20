@@ -191,6 +191,8 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
     var artists by remember(account) { mutableStateOf<List<Artist>?>(null) }
     val signedIn = app.store.signedIn
     var plTick by remember { mutableIntStateOf(0) }
+    var dupsOpen by remember { mutableStateOf(false) }
+    if (dupsOpen) DuplicatesDialog(app, onClose = { dupsOpen = false }) { removed -> tracks = tracks.filter { x -> x.id !in removed } }
     var actions by remember { mutableStateOf<Track?>(null) }
     actions?.let { tr -> TrackActions(app, tr, remote, onRemovedLike = { tracks = tracks.filter { x -> x.id != tr.id } }) { actions = null } }
 
@@ -259,6 +261,7 @@ internal fun LikesTab(app: App, shown: Shown, account: Int, play: (List<Track>, 
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("${tracks.size}${if (next != null) "+" else ""} треков", color = C.muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                                 val b = batch
+                                Text("Дубли", color = C.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable { dupsOpen = true }.padding(6.dp))
                                 if (b?.running == true) Text("Остановить", color = C.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable { Downloads.stopAll() }.padding(6.dp))
                                 else Text("Скачать все", color = C.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
                                     // all the likes (not only the pages shown), saved one after another off the screen
@@ -474,7 +477,7 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
             var likingAll by remember { mutableStateOf(false) }
             Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { BigButton("Слушать", true) { play(list, 0) } }
-                Box(Modifier.weight(1f)) { BigButton("Перемешать", false) { play(list.shuffled(), 0) } }
+                Box(Modifier.weight(1f)) { BigButton("Перемешать", false) { play(Independent.smartShuffle(list), 0) } }
             }
             // every track of the list into the likes (the computer does it, in the order that keeps the list's order)
             Text(

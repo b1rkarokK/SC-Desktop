@@ -45,6 +45,33 @@ object Independent {
         return out
     }
 
+    /** A shuffled list without one artist twice in a row where it can be helped (the first song stays where the shuffle put it). */
+    fun smartShuffle(list: List<Track>): List<Track> {
+        val out = list.shuffled().toMutableList()
+        for (i in 1 until out.size) {
+            if (out[i].artist.lowercase() != out[i - 1].artist.lowercase()) continue
+            // the nearest later song by somebody else (and not by the artist that follows the place)
+            val next = out.getOrNull(i + 1)?.artist?.lowercase()
+            val j = (i + 1 until out.size).firstOrNull { out[it].artist.lowercase() != out[i - 1].artist.lowercase() && out[it].artist.lowercase() != next }
+                ?: (i + 1 until out.size).firstOrNull { out[it].artist.lowercase() != out[i - 1].artist.lowercase() }
+                ?: continue
+            val t = out[i]; out[i] = out[j]; out[j] = t
+        }
+        return out
+    }
+
+    private fun songKey(t: Track): String =
+        norm(t.title.replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ").replace(Regex("(?i)\\b(feat|ft)\\.?\\b.*"), "")).replace(Regex("\\s+"), " ").trim() + "|" + norm(t.artist)
+
+    /** The same song liked more than once (the same name and artist, the length within 4 seconds): groups of two or more, the earliest like first. */
+    fun duplicates(liked: List<Pair<Track, Long>>): List<List<Track>> =
+        liked.sortedBy { it.second }.map { it.first }.groupBy { songKey(it) }.values.flatMap { g ->
+            // within a name the lengths must agree: split into runs that are 4 s apart at most
+            val runs = ArrayList<MutableList<Track>>()
+            g.forEach { t -> runs.firstOrNull { r -> Math.abs(r.first().durationMs - t.durationMs) <= 4_000 }?.add(t) ?: runs.add(mutableListOf(t)) }
+            runs.filter { it.size > 1 }
+        }
+
     data class Song(val artist: String, val title: String)
 
     private fun norm(s: String) = s.lowercase().map { if (it.isLetterOrDigit()) it else ' ' }.joinToString("").trim()
