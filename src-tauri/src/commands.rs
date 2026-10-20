@@ -2371,7 +2371,7 @@ pub async fn sp_play(app: AppHandle, sp: State<'_, crate::sync::shared::SharedPl
         return Err(AppError::Other(crate::lang::pick("В плейлисте нет треков, которые можно включить", "There are no playable tracks in the playlist").into()));
     }
     player.set_shuffle(shuffle);
-    let at = if shuffle { index.min(tracks.len() - 1) } else { index.min(tracks.len() - 1) };
+    let at = index.min(tracks.len() - 1);
     player.play_queue(tracks, at, QueueSource::List);
     Ok(())
 }
