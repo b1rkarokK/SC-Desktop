@@ -7,6 +7,12 @@ src-tauri/gen/
 .mcp.json
 # private working notes
 HANDOFF.md
+# scratch files of the work sessions
+cargo-test*.out
+ph.png
+shot.png
+rel-build.err
+gradle-build*.log
 # signing keys must never be committed
 *.key
 переписка.txt

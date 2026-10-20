@@ -323,7 +323,6 @@ private fun count(n: Long): String = when {
 @Composable
 internal fun TrackPageDialog(app: App, t: Track, onClose: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<JSONObject?>(null) }
     var similar by remember { mutableStateOf<List<Track>?>(null) }
     LaunchedEffect(t.id) {

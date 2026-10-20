@@ -9,7 +9,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// The browser cache is trimmed when it is over `HIGH`, down to `LOW`.
 const HIGH: u64 = 24 * 1024 * 1024;

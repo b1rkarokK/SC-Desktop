@@ -1,6 +1,6 @@
 use std::sync::{atomic::AtomicBool, Arc, RwLock};
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::{
     api::{
@@ -39,7 +39,6 @@ fn write<T>(lock: &RwLock<T>, value: T) {
 
 impl AppState {
     pub fn init(app: &AppHandle) -> AppResult<Self> {
-        let paths = app.path();
         let mut data_dir = crate::portable::data(app)?;
         let mut cache_dir = crate::portable::local(app)?;
         let mut config_dir = crate::portable::data(app)?;
