@@ -638,4 +638,6 @@ val STRINGS_EN: Map<String, String> = mapOf(
     "Только слушать" to "Listen only",
     "Может добавлять песни" to "Can add songs",
     "Друзей пока нет." to "No friends yet.",
+    "Страница трека" to "Track page",
+    "ПОХОЖИЕ ТРЕКИ" to "SIMILAR TRACKS",
 )

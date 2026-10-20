@@ -181,6 +181,9 @@ class ScApi(private val store: Store) {
     /** The address of the track's page on SoundCloud (blocking: the network); null when it has none. */
     fun permalink(id: Long): String? = runCatching { JSONObject(getText(url("/tracks/$id"))).optString("permalink_url").takeIf { it.startsWith("https://") } }.getOrNull()
 
+    /** What SoundCloud tells about the track: plays, likes, genre, date, text (blocking); null when it does not answer. */
+    fun trackInfo(id: Long): JSONObject? = runCatching { JSONObject(getText(url("/tracks/$id"))) }.getOrNull()
+
     fun me(): Pair<Long, String> {
         val j = JSONObject(getText(url("/me")))
         return j.getLong("id") to j.optString("username")

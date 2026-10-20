@@ -1,6 +1,7 @@
 package dev.scdesk.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -165,6 +166,10 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
         SimilarDialog(app, t, onClose)
         return
     }
+    if (picker == 4) {
+        TrackPageDialog(app, t, onClose)
+        return
+    }
     if (picker != 0) {
         androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             PlaylistPicker(app, t, shared = picker == 2) { onClose() }
@@ -181,6 +186,7 @@ internal fun TrackActions(app: App, t: Track, onComputer: Boolean, fromPlaylist:
             if (onComputer) scope.launch { runCatching { app.link.rpc("enqueue", JSONObject().put("track", t.id).put("next", false)) } } else app.engine.append(listOf(t))
             toast("Добавлено в конец очереди"); onClose()
         },
+        "Страница трека" to { picker = 4 },
         "Похожие треки" to { picker = 3 },
         "Добавить в плейлист…" to { picker = 1 },
         "Выше в плейлисте" to { onMove?.invoke(-1); onClose() },
@@ -303,6 +309,57 @@ internal fun SimilarDialog(app: App, t: Track, onClose: () -> Unit) {
                     TrackRow(x, false) { app.engine.playQueue(l.drop(i), 0); onClose() }
                 }
             }
+        }
+    }
+}
+
+private fun count(n: Long): String = when {
+    n >= 1_000_000 -> "%.1f млн".format(n / 1e6)
+    n >= 10_000 -> "${n / 1000} тыс."
+    else -> n.toString()
+}
+
+/** «Страница трека»: the cover, the plays and likes, the genre and the date, the text of the author, and what is similar. */
+@Composable
+internal fun TrackPageDialog(app: App, t: Track, onClose: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var info by remember { mutableStateOf<JSONObject?>(null) }
+    var similar by remember { mutableStateOf<List<Track>?>(null) }
+    LaunchedEffect(t.id) {
+        info = withContext(kotlinx.coroutines.Dispatchers.IO) { app.api.trackInfo(t.id) }
+        similar = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { app.api.related(t.id) } }.getOrDefault(emptyList())
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.padding(12.dp).clip(RoundedCornerShape(22.dp)).background(C.panel).verticalScroll(rememberScrollState()).padding(18.dp)) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Cover(t.artwork?.replace("-t300x300", "-t500x500"), 220.dp, 18.dp) }
+            Text(t.title, color = C.text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 14.dp))
+            Text(t.artist, color = C.muted, fontSize = 15.sp)
+            val i = info
+            if (i != null) {
+                val bits = listOfNotNull(
+                    i.optString("genre").takeIf { it.isNotEmpty() && it != "null" },
+                    i.optString("created_at").take(4).takeIf { it.length == 4 && it.all { c -> c.isDigit() } },
+                    t.durationMs.takeIf { it > 0 }?.let { "%d:%02d".format(it / 60000, it / 1000 % 60) },
+                )
+                if (bits.isNotEmpty()) Text(bits.joinToString(" · "), color = C.faint, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                Text("▶ ${count(i.optLong("playback_count"))}   ♥ ${count(i.optLong("likes_count"))}   ↻ ${count(i.optLong("reposts_count"))}", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
+                i.optString("description").takeIf { it.isNotBlank() && it != "null" }?.let { Text(it.take(500), color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp)) }
+            } else Text("Загружаем…", color = C.faint, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+            Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) { BigButton("Слушать", true) { app.engine.playQueue(listOf(t), 0); onClose() } }
+                Box(Modifier.weight(1f)) {
+                    BigButton("Открыть на SoundCloud", false) {
+                        val url = info?.optString("permalink_url")?.takeIf { it.startsWith("https://") }
+                        if (url != null) ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                }
+            }
+            Text("ПОХОЖИЕ ТРЕКИ", color = C.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 4.dp))
+            val l = similar
+            if (l == null) Text("Загружаем…", color = C.faint, fontSize = 13.sp)
+            else if (l.isEmpty()) Text("Ничего не нашлось.", color = C.faint, fontSize = 13.sp)
+            else l.take(15).forEachIndexed { k, x -> TrackRow(x, false) { app.engine.playQueue(l.drop(k), 0); onClose() } }
         }
     }
 }

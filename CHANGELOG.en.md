@@ -3,6 +3,19 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.5.0] - 2026-10-20
+
+- Phone, controlling the computer: the pause button now sends what is needed (it used to always send "pause" while controlling the computer), and a song picked in a list plays on the computer if it is chosen in "Play on…".
+- Phone: a track page (details, similar), "Similar tracks", the tabs "Tracks, Albums, Playlists" for an artist, "Follow" (aware of whether you already follow).
+- Phone: smart shuffle (no artist twice in a row) in "Shuffle" and at the shuffle switch in the player; a cross to take a song out of the queue; a "≡" handle and "Up/Down" buttons for the order in your own playlist.
+- Phone: "Duplicates" in likes; "Like all" and the import of a playlist (Yandex Music, Spotify, a list of lines) are done by the phone itself.
+- Phone: friends: find people of SoundCloud, "Add", "Remove". Shared playlists: create, rename, leave, access, colour, invite a friend (a long press on a playlist).
+- Phone: a "Words: on/off" setting on the lyrics screen.
+- Computer: equalizer: the graph above the bands does not break the layout; "Sharp" takes the rounding away from the program's window.
+- Rooms: on entering we wait for the host for 7 seconds instead of 2.5 (that is why two hosts appeared), a member repeats its status, the header of a room does not run over its buttons.
+- Anonymous count of people: a "What is sent" section in the README, a switch at the bottom of the settings (computer: "System and memory", phone: "About").
+- Fixes: the update window on the phone scrolls and is shown over the settings; screens do not shrink when a spot that is not a button is touched; the English language is protected from a crash; update checks repeat not more often than every three minutes.
+
 ## [1.4.9] - 2026-10-20
 
 - Phone without the computer: the translation of a song's lyrics, the search for a song by words from its text, "Like all" and the import of a playlist (Yandex Music, Spotify, a list of lines) are now done by the phone itself. The connected computer is only a fallback if SoundCloud refuses the phone.

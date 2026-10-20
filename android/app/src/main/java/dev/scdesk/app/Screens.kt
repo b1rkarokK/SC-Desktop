@@ -261,6 +261,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
     var menu by remember { mutableStateOf(false) }
     var pickList by remember { mutableStateOf(false) }
     var pickShared by remember { mutableStateOf(false) }
+    var trackPage by remember { mutableStateOf(false) }
     var saveTick by remember { mutableIntStateOf(0) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) { if (app.liked.value.isEmpty() && app.store.linked) runCatching { val a = app.link.rpc("liked").getJSONArray("data"); app.liked.value = (0 until a.length()).map { a.getLong(it) }.toSet() } }
@@ -305,6 +306,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                             else if (next) app.engine.insertNext(t) else app.engine.append(listOf(t))
                             android.widget.Toast.makeText(ctx, if (next) "Сыграет следующим" else "Добавлено в конец очереди", android.widget.Toast.LENGTH_SHORT).show()
                         }
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Страница трека", color = C.text) }, onClick = { menu = false; trackPage = true })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Играть следующим", color = C.text) }, onClick = { toQueue(true) })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("В конец очереди", color = C.text) }, onClick = { toQueue(false) })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Добавить в плейлист…", color = C.text) }, onClick = { menu = false; pickList = true })
@@ -455,6 +457,7 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
         }
         if (pickList) PlaylistPicker(app, t) { pickList = false }
         if (pickShared) PlaylistPicker(app, t, shared = true) { pickShared = false }
+        if (trackPage) TrackPageDialog(app, t) { trackPage = false }
         queue?.let { (list, current, ats) ->
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xAA000000)).pressable { queue = null }) {
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(480.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(C.panel).consumeTaps().navigationBarsPadding().padding(top = 16.dp)) {

@@ -1,6 +1,6 @@
 [package]
 name = "sc-desk"
-version = "1.4.9"
+version = "1.5.0"
 description = "Lightweight native SoundCloud desktop client"
 edition = "2021"
 rust-version = "1.80"
