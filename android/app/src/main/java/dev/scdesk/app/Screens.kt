@@ -463,7 +463,13 @@ internal fun PlayerScreen(app: App, shown: Shown, t: Track, onClose: () -> Unit,
                     val st = androidx.compose.foundation.lazy.rememberLazyListState(maxOf(current - 1, 0))
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize(), state = st) {
                         itemsIndexed(list, key = { i, tr -> "$i-${tr.id}" }) { i, tr ->
-                            TrackRow(tr, i == current) {
+                            TrackRow(tr, i == current, trailing = if (i == current) null else ({
+                                // a song taken out of the queue (of the computer, when it plays there)
+                                Text("✕", color = C.muted, fontSize = 18.sp, modifier = Modifier.pressable {
+                                    if (ats != null && remote != null) send("qremove", ats[i]) else app.engine.removeAt(i)
+                                    queue = Triple(list.filterIndexed { k, _ -> k != i }, if (i < current) current - 1 else current, ats?.filterIndexed { k, _ -> k != i })
+                                }.padding(10.dp))
+                            })) {
                                 if (ats != null && remote != null) send("qplay", ats[i]) else app.engine.jump(i)
                                 queue = null
                             }

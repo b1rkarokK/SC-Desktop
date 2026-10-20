@@ -2,6 +2,13 @@
 
 package dev.scdesk.app
 
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.foundation.gestures.detectDragGestures
+import kotlin.math.roundToInt
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
@@ -447,6 +454,21 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
     sub?.let { s -> androidx.compose.ui.window.Dialog(onDismissRequest = { sub = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) { CollectionScreen(app, s, shown, play) { sub = null } } }
     var actionsFor by remember { mutableStateOf<Track?>(null) }
     val moveScope = rememberCoroutineScope()
+    // the playlists of the user (their order may be changed by a finger)
+    var ownIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    LaunchedEffect(opened) {
+        if (opened.playlistId != null) ownIds = runCatching { withContext(Dispatchers.IO) { app.api.ownPlaylists().map { it.first }.toSet() } }.getOrDefault(emptySet())
+    }
+    val reorder: (Int, Int) -> Unit = { from, steps ->
+        val pid = opened.playlistId
+        val l = tracks?.toMutableList()
+        if (pid != null && l != null && from in l.indices && steps != 0) {
+            val to = (from + steps).coerceIn(0, l.size - 1)
+            l.add(to, l.removeAt(from))
+            tracks = l
+            moveScope.launch { runCatching { Writes.call(app, "pl_order", org.json.JSONObject().put("playlist", pid).put("tracks", org.json.JSONArray(l.map { it.id }))) } }
+        }
+    }
     actionsFor?.let { tr ->
         TrackActions(
             app, tr, false, fromPlaylist = opened.playlistId, onRemoved = { tracks = tracks?.filter { it.id != tr.id } },
@@ -536,7 +558,23 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
                 },
             )
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
-                itemsIndexed(list, key = { _, t -> t.id }) { i, t -> TrackRow(t, shown.track?.id == t.id, onLong = { actionsFor = t }) { play(list, i) } }
+                itemsIndexed(list, key = { _, t -> t.id }) { i, t ->
+                    var dy by remember(t.id) { mutableFloatStateOf(0f) }
+                    var rowH by remember(t.id) { mutableIntStateOf(1) }
+                    val canDrag = opened.playlistId != null && opened.playlistId in ownIds
+                    Box(Modifier.androidx_onSize { rowH = it }.graphicsLayer { translationY = dy }) {
+                        TrackRow(t, shown.track?.id == t.id, onLong = { actionsFor = t }, trailing = if (!canDrag) null else ({
+                            // the handle: a drag of the finger moves the song, the place is taken where it is let go
+                            Text("≡", color = C.muted, fontSize = 22.sp, modifier = Modifier.padding(start = 6.dp).pointerInput(t.id) {
+                                detectDragGestures(
+                                    onDrag = { change, amount -> change.consume(); dy += amount.y },
+                                    onDragEnd = { val steps = (dy / rowH).roundToInt(); dy = 0f; reorder(i, steps) },
+                                    onDragCancel = { dy = 0f },
+                                )
+                            }.padding(horizontal = 10.dp, vertical = 6.dp))
+                        })) { play(list, i) }
+                    }
+                }
             }
         }
     }
@@ -651,3 +689,6 @@ internal fun tileCovers(app: App, c: Category): List<String?> = app.fans.getOrPu
         else -> if (app.store.signedIn) runCatching { app.api.likes(null, 3).first.map { it.artwork } }.getOrDefault(emptyList()) else emptyList()
     }
 }
+
+/** Tells the height of the element when it is measured. */
+internal fun Modifier.androidx_onSize(onHeight: (Int) -> Unit): Modifier = this.onSizeChanged { onHeight(it.height.coerceAtLeast(1)) }

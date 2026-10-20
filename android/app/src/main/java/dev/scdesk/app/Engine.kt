@@ -121,7 +121,7 @@ class Engine(private val ctx: Context) {
             durationMs = if (c.duration > 0) c.duration else t?.durationMs ?: 0,
             volume = c.volume,
             hasNext = c.hasNextMediaItem(),
-            shuffle = c.shuffleModeEnabled,
+            shuffle = smart,
             repeat = when (c.repeatMode) { Player.REPEAT_MODE_ALL -> 1; Player.REPEAT_MODE_ONE -> 2; else -> 0 },
         )
         onChanged?.invoke()
@@ -169,12 +169,37 @@ class Engine(private val ctx: Context) {
     /** How many tracks follow the playing one. */
     fun remaining(cb: (Int) -> Unit) = run { c -> cb(c.mediaItemCount - c.currentMediaItemIndex - 1) }
 
-    fun toggleShuffle() = run { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+    /** the smart shuffle is on, and the ids of the songs after the playing one as they stood before it */
+    @Volatile private var smart = false
+    private var beforeShuffle: List<String> = emptyList()
+
+    fun toggleShuffle() = run { c ->
+        c.shuffleModeEnabled = false
+        smart = !smart
+        val from = c.currentMediaItemIndex + 1
+        if (from in 1 until c.mediaItemCount) {
+            val after = (from until c.mediaItemCount).map { c.getMediaItemAt(it) }
+            val ordered = if (smart) {
+                beforeShuffle = after.map { it.mediaId }
+                val byId = after.associateBy { it.mediaId }
+                Independent.smartShuffle(after.mapNotNull { trackOf(it) }).mapNotNull { byId[it.id.toString()] }
+            } else {
+                // back to the order the queue had: the songs added meanwhile stay at the end
+                val rank = beforeShuffle.withIndex().associate { it.value to it.index }
+                after.sortedBy { rank[it.mediaId] ?: Int.MAX_VALUE }
+            }
+            if (ordered.size == after.size) c.replaceMediaItems(from, c.mediaItemCount, ordered)
+        }
+        refresh()
+    }
     fun cycleRepeat() = run { it.repeatMode = when (it.repeatMode) { Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL; Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF } }
 
     /** The queue (what is played, and from where), given on the main thread. */
     fun queue(cb: (List<Track>, Int) -> Unit) = run { c -> cb((0 until c.mediaItemCount).mapNotNull { trackOf(c.getMediaItemAt(it)) }, c.currentMediaItemIndex) }
     fun jump(index: Int) = run { it.seekToDefaultPosition(index); it.play() }
+
+    /** Takes the track at this place out of the queue (not the one that plays). */
+    fun removeAt(index: Int) = run { c -> if (index in 0 until c.mediaItemCount && index != c.currentMediaItemIndex) c.removeMediaItem(index) }
 
     /** Takes a track out of the queue (not the one that plays). */
     fun removeId(id: Long) = run { c -> for (i in c.mediaItemCount - 1 downTo 0) if (c.getMediaItemAt(i).mediaId == id.toString() && i != c.currentMediaItemIndex) c.removeMediaItem(i) }
