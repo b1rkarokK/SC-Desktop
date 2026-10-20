@@ -154,6 +154,8 @@ internal fun SharedScreen(app: App, shown: Shown, play: (List<Track>, Int) -> Un
     var open by remember { mutableStateOf<JSONObject?>(null) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var note by remember { mutableStateOf<String?>(null) }
+    var actions by remember { mutableStateOf<JSONObject?>(null) }
+    var newName by remember { mutableStateOf("") }
     val o = open
     if (o != null) {
         SharedList(app, shown, play, o) { open = null }
@@ -171,11 +173,42 @@ internal fun SharedScreen(app: App, shown: Shown, play: (List<Track>, Int) -> Un
                     }
                 }
             }
+            // a new shared playlist: a name, and the computer makes it (the others join by the link)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(C.panel).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    if (newName.isEmpty()) Text("Новый общий плейлист", color = C.faint, fontSize = 15.sp)
+                    androidx.compose.foundation.text.BasicTextField(newName, { newName = it }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(color = C.text, fontSize = 15.sp), cursorBrush = androidx.compose.ui.graphics.SolidColor(C.accent), modifier = Modifier.fillMaxWidth())
+                }
+                Text("Создать", color = C.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
+                    if (newName.isBlank()) return@pressable
+                    val name = newName.trim()
+                    scope.launch { note = try { app.link.rpc("sp_create", JSONObject().put("title", name)); newName = ""; reload(); "Создан: " + name } catch (e: Exception) { e.message } }
+                }.padding(8.dp))
+            }
+            actions?.let { p ->
+                var title by remember(p) { mutableStateOf(p.optString("title")) }
+                androidx.compose.ui.window.Dialog(onDismissRequest = { actions = null }) {
+                    Column(Modifier.clip(RoundedCornerShape(20.dp)).background(C.panel).padding(20.dp)) {
+                        Text("Общий плейлист", color = C.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                        Box(Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.panel2).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            androidx.compose.foundation.text.BasicTextField(title, { title = it }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(color = C.text, fontSize = 15.sp), cursorBrush = androidx.compose.ui.graphics.SolidColor(C.accent), modifier = Modifier.fillMaxWidth())
+                        }
+                        Text("Переименовать", color = C.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.pressable {
+                            val ch = p.optString("channel")
+                            scope.launch { note = try { app.link.rpc("sp_title", JSONObject().put("channel", ch).put("title", title.trim())); actions = null; reload(); "Переименован" } catch (e: Exception) { e.message } }
+                        }.padding(vertical = 12.dp))
+                        Text("Покинуть плейлист", color = C.muted, fontSize = 15.sp, modifier = Modifier.pressable {
+                            val ch = p.optString("channel")
+                            scope.launch { note = try { app.link.rpc("sp_leave", JSONObject().put("channel", ch)); actions = null; reload(); "Вы вышли" } catch (e: Exception) { e.message } }
+                        }.padding(vertical = 8.dp))
+                    }
+                }
+            }
             note?.let { Text(it, color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
             if (list.isEmpty()) Text("Общих плейлистов пока нет. Создать или принять приглашение можно на компьютере, здесь они появятся.", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 itemsIndexed(list, key = { _, p -> p.optString("channel") }) { _, p ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clip(RoundedCornerShape(16.dp)).background(C.panel).pressable { open = p }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clip(RoundedCornerShape(16.dp)).background(C.panel).pressableLong({ open = p }, { actions = p }).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Cover(p.optString("art").takeIf { it.isNotEmpty() && it != "null" }, 64.dp, 12.dp)
                         Column(Modifier.padding(start = 14.dp).weight(1f)) {
                             Text(p.optString("title"), color = C.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)

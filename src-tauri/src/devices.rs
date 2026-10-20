@@ -607,6 +607,18 @@ impl Devices {
                 c::sp_add(sp(), text("channel"), args["track"].as_u64().unwrap_or(0))?;
                 Value::Null
             }
+            "sp_create" => {
+                let r = c::sp_create(app.clone(), sp(), text("title"), { let a = text("access"); if a.is_empty() { "link".to_owned() } else { a } }).await?;
+                serde_json::to_value(&r).unwrap_or(Value::Null)
+            }
+            "sp_title" => {
+                c::sp_title(sp(), text("channel"), text("title"))?;
+                Value::Null
+            }
+            "sp_leave" => {
+                c::sp_leave(app.clone(), sp(), text("channel")).await?;
+                Value::Null
+            }
             "sp_join" => json!(c::sp_join(app.clone(), sp(), text("link")).await?),
             "rooms" => {
                 let state = app.state::<AppState>();

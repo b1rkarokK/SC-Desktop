@@ -371,6 +371,15 @@ class ScApi(private val store: Store) {
     }
 
     /** The playlists the account liked (and made). */
+    /** The albums or the playlists of an artist (blocking). */
+    fun userCards(userId: Long, albums: Boolean): List<Card> {
+        val kind = if (albums) "albums" else "playlists_without_albums"
+        val items = JSONObject(getText(url("/users/$userId/$kind", "limit" to "40"))).optJSONArray("collection") ?: return emptyList()
+        return (0 until items.length()).map { items.getJSONObject(it) }.map {
+            Card("playlist", it.optLong("id"), null, it.optString("title"), (it.optInt("track_count")).toString() + " треков", art(it))
+        }
+    }
+
     fun likedPlaylists(): List<Card> {
         val items = JSONObject(getText(url("/users/${store.userId}/playlist_likes", "limit" to "50"))).optJSONArray("collection") ?: return emptyList()
         return (0 until items.length()).mapNotNull { items.getJSONObject(it).optJSONObject("playlist") }.map {

@@ -436,6 +436,15 @@ private fun WaveLabel(text: String) {
 internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (List<Track>, Int) -> Unit, onClose: () -> Unit) {
     var tracks by remember(opened) { mutableStateOf<List<Track>?>(null) }
     var failed by remember(opened) { mutableStateOf<String?>(null) }
+    // an artist's page: tracks, albums, playlists
+    var artistTab by remember(opened) { mutableIntStateOf(0) }
+    var cards by remember(opened, artistTab) { mutableStateOf<List<Card>?>(null) }
+    var sub by remember { mutableStateOf<Opened?>(null) }
+    LaunchedEffect(opened, artistTab) {
+        val a = opened.artist
+        if (a != null && artistTab != 0) cards = runCatching { withContext(Dispatchers.IO) { app.api.userCards(a.id, artistTab == 1) } }.getOrDefault(emptyList())
+    }
+    sub?.let { s -> androidx.compose.ui.window.Dialog(onDismissRequest = { sub = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) { CollectionScreen(app, s, shown, play) { sub = null } } }
     var actionsFor by remember { mutableStateOf<Track?>(null) }
     val moveScope = rememberCoroutineScope()
     actionsFor?.let { tr ->
@@ -488,7 +497,23 @@ internal fun CollectionScreen(app: App, opened: Opened, shown: Shown, play: (Lis
         failed?.let { Text(it, color = C.accent, fontSize = 14.sp, modifier = Modifier.padding(20.dp)) }
         val list = tracks
         if (list == null && failed == null) Text("Загружаем…", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
-        if (list != null) {
+        if (opened.artist != null) Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { Segments(listOf("Треки", "Альбомы", "Плейлисты"), artistTab) { artistTab = it } }
+        if (artistTab != 0) {
+            val cs = cards
+            if (cs == null) Text("Загружаем…", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+            else if (cs.isEmpty()) Text("Здесь пока ничего нет.", color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+            else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                items(cs, key = { it.id }) { c ->
+                    Row(Modifier.fillMaxWidth().pressable { sub = Opened(c.title, null, c.id) { app.api.playlistTracks(c.id) } }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Cover(c.artwork, 56.dp, 10.dp)
+                        Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                            Text(c.title, color = C.text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(c.subtitle, color = C.muted, fontSize = 13.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        } else if (list != null) {
             val scopeC = rememberCoroutineScope()
             val ctxC = androidx.compose.ui.platform.LocalContext.current
             var likingAll by remember { mutableStateOf(false) }
