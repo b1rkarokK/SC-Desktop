@@ -52,20 +52,17 @@ object Bypass {
             val host = target.substringBeforeLast(':')
             android.util.Log.i("SCDesk", "bypass: CONNECT $target")
             val port = target.substringAfterLast(':', "443").toIntOrNull() ?: 443
-            val server = connectTo(host, port)
             out.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
             out.flush()
             // the greeting, cut inside the name of the site
             val buf = ByteArray(16 * 1024)
             val n = input.read(buf)
             if (n <= 0) return
-            val so = server.getOutputStream()
             android.util.Log.i("SCDesk", "bypass: greeting $n bytes, first byte ${buf[0].toInt() and 0xff}")
-            for ((part, wait) in plan(buf.copyOf(n), host.toByteArray(), strategy)) {
-                so.write(part)
-                so.flush()
-                Thread.sleep(wait)
-            }
+            val (server, firstReply) = openWithAnswer(host, port, buf.copyOf(n)) ?: return
+            out.write(firstReply)
+            out.flush()
+            val so = server.getOutputStream()
             val back = thread(isDaemon = true) { pump(server.getInputStream(), out, client, server) }
             pump(input, so, client, server)
             back.join(1000)
@@ -79,7 +76,54 @@ object Bypass {
     /** The host by the addresses DoH gave (the system DNS may point a blocked site to a stub), else as the system knows it. */
     private val lastGood = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    private fun connectTo(host: String, port: Int): Socket {
+    /** the way of cutting the greeting that got an answer last time, by host */
+    private val goodStrategy = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * The connection to [host] with the greeting sent and the server's first answer read. A block that eats the
+     * greeting shows as silence: then the next way of cutting it is tried (and, after two failures on an address,
+     * the next address of the host). What worked is remembered for the host. Null when nothing got an answer.
+     */
+    private fun openWithAnswer(host: String, port: Int, hello: ByteArray): Pair<Socket, ByteArray>? {
+        val h = host.lowercase()
+        val order = (listOfNotNull(goodStrategy[h]) + listOf(strategy, 3, 4, 5, 7, 2, 6, 0)).distinct()
+        val failed = HashMap<String, Int>()
+        val skip = HashSet<String>()
+        val started = System.currentTimeMillis()
+        for ((i, s) in order.withIndex()) {
+            if (System.currentTimeMillis() - started > 30_000) break
+            val server = try { connectTo(host, port, skip) } catch (e: Exception) { if (i == 0) throw e else continue }
+            val ip = server.inetAddress?.hostAddress ?: ""
+            try {
+                val so = server.getOutputStream()
+                for ((part, wait) in plan(hello, host.toByteArray(), s)) {
+                    so.write(part)
+                    so.flush()
+                    if (wait > 0) Thread.sleep(wait)
+                }
+                server.soTimeout = if (i == 0) 6_000 else 4_000
+                val reply = ByteArray(16 * 1024)
+                val got = server.getInputStream().read(reply)
+                if (got > 0) {
+                    server.soTimeout = 0
+                    goodStrategy[h] = s
+                    if (ip.isNotEmpty()) lastGood[h] = ip
+                    android.util.Log.i("SCDesk", "bypass: $host answered with way $s via $ip")
+                    return server to reply.copyOf(got)
+                }
+            } catch (e: Exception) {
+                // silence or a reset: the next way
+            }
+            try { server.close() } catch (e: Exception) { /* closed */ }
+            android.util.Log.i("SCDesk", "bypass: $host no answer with way $s via $ip")
+            val c = (failed[ip] ?: 0) + 1
+            failed[ip] = c
+            if (c >= 2) skip.add(ip)
+        }
+        return null
+    }
+
+    private fun connectTo(host: String, port: Int, skip: Set<String> = emptySet()): Socket {
         // a block of the provider often covers only some addresses of the CDN: the audio ones open, the pictures and the site do not.
         // The CDN serves any of its sites from any of its addresses (the name is in the TLS greeting), so these go first
         val own = if (Doh.wanted(host)) Doh.lookup(host) else emptyList()
@@ -90,12 +134,12 @@ object Bypass {
         var last: Exception? = null
         // the address that opened last time for this site goes first
         val good = lastGood[h]
-        for (ip in if (good != null) ips.sortedByDescending { it.hostAddress == good } else ips) {
+        val usable = ips.filter { it.hostAddress !in skip }.ifEmpty { ips }
+        for (ip in if (good != null) usable.sortedByDescending { it.hostAddress == good } else usable) {
             val s = Socket()
             s.tcpNoDelay = true
             try {
                 s.connect(InetSocketAddress(ip, port), 3_000)
-                ip.hostAddress?.let { lastGood[h] = it }
                 return s
             } catch (e: Exception) {
                 last = e

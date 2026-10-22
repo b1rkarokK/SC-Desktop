@@ -640,4 +640,7 @@ val STRINGS_EN: Map<String, String> = mapOf(
     "Друзей пока нет." to "No friends yet.",
     "Страница трека" to "Track page",
     "ПОХОЖИЕ ТРЕКИ" to "SIMILAR TRACKS",
+    "Сайт SoundCloud не открывается с этого телефона (провайдер его закрывает)." to "The SoundCloud site does not open from this phone (the provider blocks it).",
+    "Войти по QR с компьютера" to "Sign in with a QR code from the computer",
+    "Повторить" to "Retry",
 )

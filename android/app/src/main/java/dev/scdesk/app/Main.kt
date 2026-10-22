@@ -116,6 +116,8 @@ fun Root(app: App, pairLink: String? = null) {
     val waveList = remember { mutableStateListOf<Track>() }
     var vibe by remember { mutableStateOf("any") }
     var waveBusy by remember { mutableStateOf(false) }
+    /** the wave plays on the computer: more songs are sent to its queue as it runs low */
+    var waveOnPc by remember { mutableStateOf(false) }
     var big by remember { mutableStateOf(false) }
     var devices by remember { mutableStateOf(false) }
     var scan by remember { mutableStateOf(pairLink != null) }
@@ -172,6 +174,7 @@ fun Root(app: App, pairLink: String? = null) {
     // a track picked here plays here: what plays on the computer is stopped
     val playScope = rememberCoroutineScope()
     val play: (List<Track>, Int) -> Unit = { list, i ->
+        waveOnPc = false
         // the computer plays the song when it was picked, or when it is playing now (not when it only was a moment ago)
         val pc = remote?.takeIf { control != null || it.playing }
         if (pc != null && app.store.linked) {
@@ -198,10 +201,22 @@ fun Root(app: App, pairLink: String? = null) {
                 try {
                     val batch = withContext(Dispatchers.IO) { app.wave.batch() }
                     if (batch.isNotEmpty()) {
-                        control = null
                         waveList.clear()
                         waveList.addAll(batch)
-                        app.engine.playQueue(batch, 0, wave = true)
+                        // the computer is the one picked in «Играть на…» (or plays now): the wave plays there, like any song
+                        val pc = remote?.takeIf { control != null || it.playing }
+                        if (pc != null && app.store.linked) {
+                            val arr = org.json.JSONArray().also { a ->
+                                batch.take(100).forEach { t -> a.put(org.json.JSONObject().put("id", t.id).put("title", t.title).put("artist", t.artist).put("dur", t.durationMs).put("art", t.artwork ?: "")) }
+                            }
+                            runCatching { app.link.rpc("play_list", org.json.JSONObject().put("tracks", arr).put("index", 0)) }
+                                .onSuccess { waveOnPc = true }
+                                .onFailure { android.widget.Toast.makeText(ctx, L.t("Не получилось: {0}").replace("{0}", it.message ?: ""), android.widget.Toast.LENGTH_LONG).show() }
+                        } else {
+                            control = null
+                            waveOnPc = false
+                            app.engine.playQueue(batch, 0, wave = true)
+                        }
                     }
                 } catch (e: Exception) {
                     android.util.Log.w("SCDesk", "wave: ${e.message}")
@@ -209,6 +224,28 @@ fun Root(app: App, pairLink: String? = null) {
                 waveBusy = false
             }
         }
+    }
+    // the wave on the computer goes on: when its queue runs low, the next batch is added to it
+    LaunchedEffect(remote?.track?.id, waveOnPc) {
+        if (!waveOnPc || waveBusy || remote == null) return@LaunchedEffect
+        val d = runCatching { app.link.rpc("queue").getJSONObject("data") }.getOrNull() ?: return@LaunchedEffect
+        val items = d.getJSONArray("items")
+        val cur = if (d.isNull("current")) -1 else d.getInt("current")
+        var left = 0
+        for (k in 0 until items.length()) if (items.getJSONObject(k).getInt("at") > cur) left++
+        if (left > 5) return@LaunchedEffect
+        waveBusy = true
+        try {
+            val more = withContext(Dispatchers.IO) { app.wave.batch() }
+            if (waveOnPc && more.isNotEmpty()) {
+                val arr = org.json.JSONArray().also { a -> more.take(100).forEach { t -> a.put(org.json.JSONObject().put("id", t.id).put("title", t.title).put("artist", t.artist).put("dur", t.durationMs).put("art", t.artwork ?: "")) } }
+                app.link.rpc("enqueue_list", org.json.JSONObject().put("tracks", arr))
+                waveList.addAll(more)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SCDesk", "wave on pc: ${e.message}")
+        }
+        waveBusy = false
     }
     // the wave goes on: when few tracks are left, the next batch is added
     LaunchedEffect(state.track?.id, app.wave.active) {
@@ -331,7 +368,7 @@ fun Root(app: App, pairLink: String? = null) {
             app.engine.connect()
             app.link.refreshConnection()
         }
-        if (login) LoginScreen(app, onBack = { login = false }) {
+        if (login) LoginScreen(app, onBack = { login = false }, onQr = { login = false; scan = true }) {
             login = false
             account++
             app.engine.connect()

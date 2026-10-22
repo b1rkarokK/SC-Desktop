@@ -385,28 +385,19 @@ impl Devices {
             }
             // a list picked on the phone plays on this computer, from the song at `index`
             "play_list" => {
-                let list: Vec<TrackDto> = args["tracks"]
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|t| {
-                                Some(TrackDto {
-                                    id: t["id"].as_u64()?,
-                                    title: t["title"].as_str().unwrap_or("").to_owned(),
-                                    artist: t["artist"].as_str().unwrap_or("").to_owned(),
-                                    user_id: 0,
-                                    duration_ms: t["dur"].as_u64().unwrap_or(0),
-                                    artwork_url: t["art"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
-                                    permalink_url: None,
-                                    genre: None,
-                                })
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let list = tracks_from(&args);
                 if !list.is_empty() {
                     if let Some(p) = app.try_state::<Arc<Player>>() {
                         p.play_queue(list, args["index"].as_u64().unwrap_or(0) as usize, crate::player::QueueSource::List);
+                    }
+                }
+                Value::Null
+            }
+            // more songs for the end of the queue (the wave of the phone goes on while the computer plays it)
+            "enqueue_list" => {
+                if let Some(p) = app.try_state::<Arc<Player>>() {
+                    for t in tracks_from(&args) {
+                        p.enqueue(t, false);
                     }
                 }
                 Value::Null
@@ -1075,4 +1066,27 @@ mod tests {
         let c = format!("dl-{}", crypto::new_channel_id());
         assert!(c.len() >= 16 && c.len() <= 64);
     }
+}
+
+/// The songs a phone sends whole (`tracks`: id, title, artist, dur, art): the computer may not know them yet.
+fn tracks_from(args: &Value) -> Vec<TrackDto> {
+    args["tracks"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| {
+                    Some(TrackDto {
+                        id: t["id"].as_u64()?,
+                        title: t["title"].as_str().unwrap_or("").to_owned(),
+                        artist: t["artist"].as_str().unwrap_or("").to_owned(),
+                        user_id: 0,
+                        duration_ms: t["dur"].as_u64().unwrap_or(0),
+                        artwork_url: t["art"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
+                        permalink_url: None,
+                        genre: None,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }

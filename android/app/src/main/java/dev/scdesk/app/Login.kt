@@ -38,10 +38,12 @@ import kotlinx.coroutines.withContext
  * in an embedded window (they forbid it): for those the QR code from the computer is the way.
  */
 @Composable
-fun LoginScreen(app: App, onBack: () -> Unit, onDone: () -> Unit) {
+fun LoginScreen(app: App, onBack: () -> Unit, onQr: () -> Unit, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf("Войдите в SoundCloud как обычно") }
     var finishing by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    var web by remember { mutableStateOf<WebView?>(null) }
 
     // the token appears in the cookie when the sign-in is over (the page is a one-page app: look about once a second)
     LaunchedEffect(Unit) {
@@ -77,7 +79,10 @@ fun LoginScreen(app: App, onBack: () -> Unit, onDone: () -> Unit) {
             Text("Вход в SoundCloud", color = C.text, fontSize = 20.sp)
         }
         Text(status, color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
-        var web by remember { mutableStateOf<WebView?>(null) }
+        if (failed) Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Войти по QR с компьютера", color = C.accent, fontSize = 14.sp, modifier = Modifier.pressable(onQr).padding(8.dp))
+            Text("Повторить", color = C.accent, fontSize = 14.sp, modifier = Modifier.pressable { failed = false; status = "Войдите в SoundCloud как обычно"; web?.reload() }.padding(8.dp))
+        }
         DisposableEffect(Unit) {
             onDispose {
                 web?.destroy()
@@ -93,7 +98,13 @@ fun LoginScreen(app: App, onBack: () -> Unit, onDone: () -> Unit) {
                     w.settings.userAgentString = USER_AGENT
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(w, true)
-                    w.webViewClient = WebViewClient()
+                    w.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(v: WebView?, url: String?) { if (!failed) status = "Войдите в SoundCloud как обычно" }
+                        override fun onReceivedError(v: WebView, r: android.webkit.WebResourceRequest, e: android.webkit.WebResourceError) {
+                            // only the page itself (not a picture or a script): the site is cut off here, the QR code from the computer still works
+                            if (r.isForMainFrame) { failed = true; status = "Сайт SoundCloud не открывается с этого телефона (провайдер его закрывает)." }
+                        }
+                    }
                     w.setBackgroundColor(0xFF161414.toInt())
                     web = w
                     // the page goes the way the rest of the app goes (the bypass of the blocking, or the picked server):

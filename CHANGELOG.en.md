@@ -3,6 +3,12 @@
 English twin of `CHANGELOG.md`: same versions, same headings `## [x.y.z] - date`.
 The release notes carry both; the "Update available" window shows the app's language.
 
+## [1.5.1] - 2026-10-22
+
+- Phone: "My wave" now plays on the device chosen in "Play on…" (it always played on the phone before) and keeps adding new songs while it plays on the computer.
+- Phone: if the SoundCloud site does not open in the sign-in window, a clear message is shown with the buttons "Sign in with a QR code from the computer" and "Retry". The block bypass tries other ways and addresses when the first gets no answer.
+- Computer: the cross "take out of the playlist" is no longer drawn under the track, it stands at the end of the row.
+
 ## [1.5.0] - 2026-10-20
 
 - Phone, controlling the computer: the pause button now sends what is needed (it used to always send "pause" while controlling the computer), and a song picked in a list plays on the computer if it is chosen in "Play on…".

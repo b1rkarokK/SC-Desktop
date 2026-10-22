@@ -4929,7 +4929,9 @@ body.is-reordering, body.is-reordering * { cursor: grabbing !important; user-sel
 .pal-grip:active { cursor: grabbing; }
 
 /* the ✕ that takes a track out of an own playlist: seen when the row is hovered */
-.track-list .row-remove { opacity: 0; margin-left: 4px; flex: none; }
+/* the row is a grid of six columns: the ✕ needs its own, or it falls to a new line under the track */
+.track-list .row:has(.row-remove) { grid-template-columns: 48px var(--row-cover, 32px) minmax(0, 1fr) 28px 28px 56px 28px; }
+.track-list .row-remove { opacity: 0; margin-left: 0; flex: none; }
 .track-list .row:hover .row-remove, .track-list .row-remove:focus-visible { opacity: 1; }
 
 /* equalizer: the line of the sound over the bands */
